@@ -1,3 +1,20 @@
+"""
+MAVERIC GSS — Ground Station Software
+
+Packet monitor for the MAVERIC CubeSat mission. Subscribes to decoded PDUs
+from a GNU Radio / gr-satellites flowgraph over ZMQ PUB/SUB and displays
+packet contents for live debugging.
+
+Designed to run continuously. The flowgraph can be started and stopped
+independently — the monitor will idle and resume when packets arrive.
+
+Raw hex is ground truth. All parsed fields (CSP, timestamps, scanner)
+are diagnostic heuristics until the telemetry map is finalized.
+
+Author:  Irfan Annuar
+Org:     USC ISI SERC
+"""
+
 import zmq
 import pmt
 import re
@@ -10,16 +27,20 @@ from datetime import datetime, timezone
 
 # --- CONFIGURATION ---
 VERSION = "3.1"
-ZMQ_PORT = "52001"
+ZMQ_PORT = "52001"                       # Must match the ZMQ PUB Message Sink in GNU Radio
 ZMQ_ADDR = f"tcp://127.0.0.1:{ZMQ_PORT}"
-ZMQ_RECV_TIMEOUT_MS = 200
+ZMQ_RECV_TIMEOUT_MS = 200                # How long recv() blocks before returning to idle loop
 LOG_DIR = "logs"
 
-# Plausible epoch-ms range (~2024-01-01 to ~2028-01-01)
+# Plausible epoch-ms range for timestamp detection (~2024-01-01 to ~2028-01-01).
+# Prevents false positives from random 13-digit byte sequences.
+# Widen this range if the mission timeline extends.
 TS_MIN_MS = 1_704_067_200_000
 TS_MAX_MS = 1_830_297_600_000
 
-# ANSI Colors
+# ANSI Colors — used for terminal display only, stripped for log files.
+# Yellow = AX.25 frames, Green = AX100 frames, Red = unknown / errors,
+# Cyan = protocol fields, Dim = secondary info, Bold = values.
 C_CYAN    = "\033[96m"
 C_GREEN   = "\033[92m"
 C_YELLOW  = "\033[93m"
@@ -34,11 +55,17 @@ C_END     = "\033[0m"
 # =============================================================================
 
 def init_zmq(addr, timeout_ms):
-    """Initialize ZMQ SUB socket with receive timeout."""
+    """Initialize ZMQ SUB socket with receive timeout.
+
+    Uses PUB/SUB instead of PUSH/PULL because PUSH/PULL round-robins
+    messages across consumers — stale processes from previous runs
+    silently steal half the packets. PUB/SUB delivers to all subscribers
+    independently and allows multiple monitors on the same stream.
+    """
     context = zmq.Context()
     sock = context.socket(zmq.SUB)
-    sock.setsockopt(zmq.SUBSCRIBE, b"")
-    sock.setsockopt(zmq.RCVHWM, 10000)
+    sock.setsockopt(zmq.SUBSCRIBE, b"")      # receive all messages, no topic filter
+    sock.setsockopt(zmq.RCVHWM, 10000)      # receive buffer — generous for a cubesat beacon rate
     sock.setsockopt(zmq.RCVTIMEO, timeout_ms)
     sock.connect(addr)
     return context, sock
@@ -79,6 +106,10 @@ def detect_frame_type(meta):
     """
     Determine frame type from gr-satellites metadata.
     Returns ("AX.25", "AX100", or "UNKNOWN").
+
+    Depends on gr-satellites populating the 'transmitter' key with
+    the transmitter name from MAVERIC_DECODER.yml. If gr-satellites
+    changes its metadata format, this will fall through to UNKNOWN.
     """
     tx_info = str(meta.get("transmitter", ""))
     if not tx_info:
@@ -103,6 +134,10 @@ def normalize_frame(frame_type, raw):
     warnings = []
 
     if frame_type == "AX.25":
+        # 03 f0 = AX.25 UI frame control byte (0x03) + PID no-layer-3 (0xf0).
+        # Everything before this is AX.25 header (callsigns, SSIDs).
+        # If the satellite ever uses a different frame type or PID,
+        # this search will fail and return raw with a warning.
         idx = raw.find(b"\x03\xf0")
         if idx == -1:
             warnings.append("AX.25 frame but no 03 f0 delimiter found — returning raw")
@@ -129,6 +164,14 @@ def try_parse_csp_v1(payload):
     """
     Attempt to parse first 4 bytes as a CSP v1 header.
     Returns (parsed_dict, is_plausible) or (None, False).
+
+    CSP v1 header is a 32-bit big-endian word:
+      [31:30] priority  [29:25] source  [24:20] destination
+      [19:14] dest port  [13:8] source port  [7:0] flags
+
+    This will produce a valid-looking parse for ANY 4 bytes.
+    Plausibility check is a heuristic — update the thresholds
+    once the CSP address plan is confirmed.
     """
     if len(payload) < 4:
         return None, False
@@ -171,6 +214,11 @@ def scan_numeric(payload):
     Interpret leading bytes of payload as various numeric types.
     Returns dict with both little-endian and big-endian interpretations,
     or None if payload is too short.
+
+    Useful for packed binary telemetry. Not meaningful when the payload
+    is ASCII text (the current test beacon format). Both byte orders
+    are shown because CSP uses big-endian but flight software may differ.
+    Drop the unused endianness once the byte order is confirmed.
     """
     if len(payload) < 8:
         return None
@@ -217,7 +265,16 @@ def strip_ansi(s):
 
 
 class SessionLog:
-    """Manages persistent file handles for JSONL and text logs."""
+    """Manages persistent file handles for JSONL and text logs.
+
+    Opens both files at session start and keeps them open to avoid
+    per-packet open/close overhead. Each write is flushed immediately
+    so data survives if the process is killed.
+
+    Two log formats:
+      .jsonl — one JSON object per packet, for scripted analysis and replay
+      .txt   — human-readable plain text, for review and sharing
+    """
 
     def __init__(self, log_dir, zmq_addr):
         os.makedirs(log_dir, exist_ok=True)
@@ -237,12 +294,16 @@ class SessionLog:
         self._text_f.flush()
 
     def write_jsonl(self, record):
+        """Append one JSON-lines record. Contains raw_hex (ground truth),
+        payload_hex (after stripping), and all candidate parse results."""
         self._jsonl_f.write(json.dumps(record) + "\n")
         self._jsonl_f.flush()
 
     def write_text(self, pkt_num, gs_ts, frame_type, raw, inner_payload,
                    stripped_hdr, csp, csp_plausible, ts_result, scan, text,
                    warnings, delta_t):
+        """Append one human-readable packet entry. Mirrors the terminal
+        display but without ANSI color codes or box-drawing borders."""
         lines = []
 
         if delta_t is not None:
@@ -331,14 +392,18 @@ class SessionLog:
 
 # =============================================================================
 #  DISPLAY
+#
+#  Terminal rendering uses box-drawing characters at a fixed 80-column width.
+#  Each packet is drawn inside a bordered box with three sections:
+#  header (packet metadata), protocol (parsed candidates), and raw data.
 # =============================================================================
 
-BOX_W = 80  # total box width including borders
-INN_W = BOX_W - 4  # inner content width (│ + space ... space + │)
+BOX_W = 80                         # total box width including border characters
+INN_W = BOX_W - 4                  # usable content width (│ + space ... space + │)
 
-TOP    = f"┌{'─' * (BOX_W - 2)}┐"
-MID    = f"├{'─' * (BOX_W - 2)}┤"
-BOT    = f"└{'─' * (BOX_W - 2)}┘"
+TOP    = f"┌{'─' * (BOX_W - 2)}┐"  # box top
+MID    = f"├{'─' * (BOX_W - 2)}┤"  # section divider
+BOT    = f"└{'─' * (BOX_W - 2)}┘"  # box bottom
 
 
 def _row(content=""):
@@ -369,7 +434,20 @@ def _wrap_hex(hex_str, label, bytes_per_line=20):
 def render_packet(pkt_num, gs_ts, frame_type, raw, inner_payload,
                   stripped_hdr, csp, csp_plausible, ts_result, scan, text,
                   warnings, delta_t):
-    """Print formatted packet to terminal."""
+    """Print one packet to terminal inside an 80-column box.
+
+    Layout:
+      Δt (if not first packet)
+      ┌─ header: packet #, frame type, timestamp, byte counts ─┐
+      ├─ protocol: AX.25 header, CSP candidate, SAT TIME       ─┤
+      │  scanner: LE and BE numeric interpretations              │
+      ├─ raw data: hex dump (wrapped at 20 bytes), ASCII        ─┤
+      └─────────────────────────────────────────────────────────┘
+
+    Alignment is handled by _row() which uses strip_ansi() to
+    measure visible width, so adding or changing ANSI color codes
+    will not break the right border.
+    """
 
     color = C_YELLOW if frame_type == "AX.25" else (C_GREEN if frame_type == "AX100" else C_RED)
 
@@ -474,6 +552,18 @@ def render_packet(pkt_num, gs_ts, frame_type, raw, inner_payload,
 # =============================================================================
 
 def main():
+    """Main receive loop.
+
+    Runs continuously until Ctrl+C. The flowgraph can be started
+    and stopped independently — the monitor idles between packets
+    and resumes when new data arrives.
+
+    Each packet goes through four phases:
+      1. Detect frame type + strip transport headers → inner payload
+      2. Run candidate parsers (CSP, timestamp, scanner) on inner payload
+      3. Log to both JSONL and text files
+      4. Render to terminal
+    """
     context, sock = init_zmq(ZMQ_ADDR, ZMQ_RECV_TIMEOUT_MS)
     log = SessionLog(LOG_DIR, ZMQ_ADDR)
 
@@ -502,6 +592,10 @@ def main():
 
             if result is None:
                 # --- IDLE / WAITING ---
+                # Watchdog tracks time since last packet OR since startup.
+                # Color shifts: cyan (<10s) → yellow (<30s) → red (>30s).
+                # This is normal during gaps between passes — the monitor
+                # is designed to run continuously.
                 elapsed = time.time() - last_watchdog
                 tc = C_CYAN if elapsed <= 10 else (C_YELLOW if elapsed <= 30 else C_RED)
                 pkt_str = f" | {C_DIM}{packet_count} pkts{C_END}" if packet_count > 0 else ""
