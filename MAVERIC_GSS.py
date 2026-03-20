@@ -249,7 +249,7 @@ def log_packet_text(text_path, pkt_num, gs_ts, frame_type, raw, inner_payload,
         lines.append(f"  AX.25 HDR   {stripped_hdr}")
 
     if csp:
-        tag = "CSP v1" if csp_plausible else "CSP v1 [UNVERIFIED]"
+        tag = "CSP V1" if csp_plausible else "CSP V1 [UNVERIFIED]"
         lines.append(
             f"  {tag}  Prio: {csp['prio']} | Src: {csp['src']} | "
             f"Dest: {csp['dest']} | DPort: {csp['dport']} | SPort: {csp['sport']} | "
@@ -291,7 +291,40 @@ def log_packet_text(text_path, pkt_num, gs_ts, frame_type, raw, inner_payload,
 #  DISPLAY
 # =============================================================================
 
-SEPARATOR = "─" * 80
+BOX_W = 80  # total box width including borders
+INN_W = BOX_W - 4  # inner content width (│ + space ... space + │)
+
+TOP    = f"┌{'─' * (BOX_W - 2)}┐"
+MID    = f"├{'─' * (BOX_W - 2)}┤"
+BOT    = f"└{'─' * (BOX_W - 2)}┘"
+
+
+def _row(content="", ansi_extra=0):
+    """
+    Format one box row. content is the visible text (may contain ANSI codes).
+    ansi_extra = number of characters in content that are ANSI escapes
+    (invisible, so we need to add them to the padding width).
+    """
+    padded = content.ljust(INN_W + ansi_extra)
+    return f"{C_DIM}│{C_END} {padded} {C_DIM}│{C_END}"
+
+
+def _ansi_len(*codes):
+    """Return total length of ANSI escape sequences so padding can compensate."""
+    return sum(len(c) for c in codes)
+
+
+def _wrap_hex(hex_str, label, bytes_per_line=20):
+    """Wrap a hex string into multiple rows with a label on the first line."""
+    parts = hex_str.split(" ")
+    lines = []
+    for i in range(0, len(parts), bytes_per_line):
+        chunk = " ".join(parts[i:i + bytes_per_line])
+        if i == 0:
+            lines.append(f"{C_GREEN}{label}{C_END} {chunk}")
+        else:
+            lines.append(f"{'':>{len(label)}} {chunk}")
+    return lines
 
 
 def render_packet(pkt_num, gs_ts, frame_type, raw, inner_payload,
@@ -301,55 +334,111 @@ def render_packet(pkt_num, gs_ts, frame_type, raw, inner_payload,
 
     color = C_YELLOW if frame_type == "AX.25" else (C_GREEN if frame_type == "AX100" else C_RED)
 
+    # Delta-T left-aligned above the box
     if delta_t is not None:
-        print(f"    Delta-T: {C_CYAN}{delta_t:.3f}s{C_END}")
+        print(f"  {C_DIM}Δt{C_END} {C_CYAN}{delta_t:.3f}s{C_END}")
 
-    print(SEPARATOR)
-    print(
-        f"{C_BOLD}{color}Packet #{pkt_num:<4}{C_END} | {gs_ts} | "
-        f"{color}{frame_type:<7}{C_END} | {C_BOLD}PDU: {len(raw)} B{C_END} → "
-        f"{C_BOLD}Payload: {len(inner_payload)} B{C_END}"
-    )
+    # Header — build left and right parts, fill middle with spaces
+    print(f"{C_DIM}{TOP}{C_END}")
 
+    h_left  = f"{C_BOLD}{color}PKT #{pkt_num}{C_END}    {color}{frame_type}{C_END}"
+    h_mid   = f"{gs_ts}"
+    h_right = f"{C_DIM}{len(raw)} B PDU → {len(inner_payload)} B payload{C_END}"
+
+    h_left_vis  = len(f"PKT #{pkt_num}    {frame_type}")
+    h_mid_vis   = len(gs_ts)
+    h_right_vis = len(f"{len(raw)} B PDU → {len(inner_payload)} B payload")
+
+    gap1 = max(2, (INN_W - h_left_vis - h_mid_vis - h_right_vis) // 2)
+    gap2 = INN_W - h_left_vis - h_mid_vis - h_right_vis - gap1
+
+    header = f"{h_left}{' ' * gap1}{h_mid}{' ' * gap2}{h_right}"
+    ansi = _ansi_len(C_BOLD, color, C_END, color, C_END, C_DIM, C_END)
+    print(_row(header, ansi))
+
+    print(f"{C_DIM}{MID}{C_END}")
+
+    # Blank spacer
+    print(_row())
+
+    # Warnings
     for w in warnings:
-        print(f" {C_RED}⚠ {w}{C_END}")
+        line = f"{C_RED}  ⚠ {w}{C_END}"
+        print(_row(line, _ansi_len(C_RED, C_END)))
 
+    # AX.25 stripped header
     if stripped_hdr:
-        print(f" {C_DIM}AX.25 HDR  {stripped_hdr}{C_END}")
+        line = f"  {C_DIM}AX.25 HDR{C_END}   {C_DIM}{stripped_hdr}{C_END}"
+        print(_row(line, _ansi_len(C_DIM, C_END, C_DIM, C_END)))
+        print(_row())
 
+    # CSP header
     if csp:
-        tag = "CSP v1" if csp_plausible else f"CSP v1 {C_DIM}[UNVERIFIED]{C_END}"
-        print(
-            f" {C_CYAN}{tag} │ Prio: {csp['prio']} | Src: {csp['src']} | "
-            f"Dest: {csp['dest']} | DPort: {csp['dport']} | SPort: {csp['sport']} | "
-            f"Flags: 0x{csp['flags']:02x}{C_END}"
-        )
+        if csp_plausible:
+            tag = f"{C_CYAN}CSP V1{C_END}"
+            tag_ansi = _ansi_len(C_CYAN, C_END)
+        else:
+            tag = f"{C_CYAN}CSP V1{C_END} {C_DIM}[UNVERIFIED]{C_END}"
+            tag_ansi = _ansi_len(C_CYAN, C_END, C_DIM, C_END)
 
+        vals = (f"Prio {C_BOLD}{csp['prio']}{C_END}  "
+                f"Src {C_BOLD}{csp['src']}{C_END}  "
+                f"Dest {C_BOLD}{csp['dest']}{C_END}  "
+                f"DPort {C_BOLD}{csp['dport']}{C_END}  "
+                f"SPort {C_BOLD}{csp['sport']}{C_END}  "
+                f"Flags {C_BOLD}0x{csp['flags']:02x}{C_END}")
+        vals_ansi = _ansi_len(C_BOLD, C_END) * 6
+
+        print(_row(f"  {tag}      {vals}", tag_ansi + vals_ansi))
+
+    # Satellite timestamp
     if ts_result:
         dt_utc, dt_local, _ = ts_result
-        print(
-            f" SAT TIME   {dt_utc.strftime('%Y-%m-%d %H:%M:%S UTC')} | "
-            f"{dt_local.strftime('%Y-%m-%d %H:%M:%S %Z')}"
-        )
+        utc_s = dt_utc.strftime('%Y-%m-%d %H:%M:%S UTC')
+        loc_s = dt_local.strftime('%Y-%m-%d %H:%M:%S %Z')
+        line = f"  {C_CYAN}SAT TIME{C_END}    {utc_s}  {C_DIM}│{C_END}  {loc_s}"
+        print(_row(line, _ansi_len(C_CYAN, C_END, C_DIM, C_END)))
     else:
-        print(f" SAT TIME   {C_DIM}No plausible timestamp found{C_END}")
+        line = f"  {C_CYAN}SAT TIME{C_END}    {C_DIM}--{C_END}"
+        print(_row(line, _ansi_len(C_CYAN, C_END, C_DIM, C_END)))
 
+    print(_row())
+
+    # Scanner
     if scan:
         le, be = scan["le"], scan["be"]
-        print(
-            f" {C_BOLD}SCAN{C_END} {C_DIM}little-endian{C_END}  u8: {le['u8']:<3} | u16: {le['u16']:<5} | "
-            f"u32: {le['u32']:<10} | f32: {le['f32']}"
-        )
-        print(
-            f" {C_BOLD}SCAN{C_END} {C_DIM}big-endian{C_END}     u8: {be['u8']:<3} | u16: {be['u16']:<5} | "
-            f"u32: {be['u32']:<10} | f32: {be['f32']}"
-        )
+        le_line = (f"  {C_DIM}SCAN LE{C_END}     "
+                   f"u8 {C_BOLD}{le['u8']:<3}{C_END}   "
+                   f"u16 {C_BOLD}{le['u16']:<5}{C_END}   "
+                   f"u32 {C_BOLD}{le['u32']:<10}{C_END}   "
+                   f"f32 {C_BOLD}{le['f32']}{C_END}")
+        be_line = (f"  {C_DIM}SCAN BE{C_END}     "
+                   f"u8 {C_BOLD}{be['u8']:<3}{C_END}   "
+                   f"u16 {C_BOLD}{be['u16']:<5}{C_END}   "
+                   f"u32 {C_BOLD}{be['u32']:<10}{C_END}   "
+                   f"f32 {C_BOLD}{be['f32']}{C_END}")
+        scan_ansi = _ansi_len(C_DIM, C_END) + _ansi_len(C_BOLD, C_END) * 4
+        print(_row(le_line, scan_ansi))
+        print(_row(be_line, scan_ansi))
+        print(_row())
 
-    print(f" HEX        {raw.hex(' ')}")
+    # Hex dump and ASCII — separated by a mid-line
+    print(f"{C_DIM}{MID}{C_END}")
+    print(_row())
+
+    hex_lines = _wrap_hex(raw.hex(' '), "  HEX  ")
+    for i, hl in enumerate(hex_lines):
+        a = _ansi_len(C_GREEN, C_END) if i == 0 else 0
+        print(_row(hl, a))
+
+    print(_row())
+
     if text:
-        print(f" ASCII      {text}")
+        asc_line = f"  {C_GREEN}ASCII{C_END}  {text}"
+        print(_row(asc_line, _ansi_len(C_GREEN, C_END)))
+        print(_row())
 
-    print(SEPARATOR)
+    print(f"{C_DIM}{BOT}{C_END}")
 
 
 # =============================================================================
