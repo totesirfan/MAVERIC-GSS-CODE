@@ -359,7 +359,7 @@ class SessionLog:
         self._text_f.write("\n".join(lines) + "\n")
         self._text_f.flush()
 
-    def write_summary(self, packet_count, session_start, first_pkt_ts, last_pkt_ts, delta_ts):
+    def write_summary(self, packet_count, session_start, first_pkt_ts, last_pkt_ts):
         """Write session summary to the text log."""
         duration = time.time() - session_start
         summary = [
@@ -373,13 +373,6 @@ class SessionLog:
         if first_pkt_ts and last_pkt_ts:
             summary.append(f"  First packet:      {first_pkt_ts}")
             summary.append(f"  Last packet:       {last_pkt_ts}")
-        if delta_ts:
-            avg_dt = sum(delta_ts) / len(delta_ts)
-            min_dt = min(delta_ts)
-            max_dt = max(delta_ts)
-            summary.append(f"  Avg delta-t:       {avg_dt:.3f}s")
-            summary.append(f"  Min delta-t:       {min_dt:.3f}s")
-            summary.append(f"  Max delta-t:       {max_dt:.3f}s")
         summary.append(f"{'='*80}\n")
 
         self._text_f.write("\n".join(summary) + "\n")
@@ -573,7 +566,6 @@ def main():
     session_start = time.time()
     first_pkt_ts = None
     last_pkt_ts = None
-    delta_ts = []
 
     spinner = ["█", "▓", "▒", "░", "▒", "▓"]
     spin_idx = 0
@@ -622,8 +614,6 @@ def main():
             if first_pkt_ts is None:
                 first_pkt_ts = gs_ts
             last_pkt_ts = gs_ts
-            if delta_t is not None:
-                delta_ts.append(delta_t)
 
             # Phase 1: Detect + normalize
             frame_type = detect_frame_type(meta)
@@ -673,7 +663,7 @@ def main():
 
     except KeyboardInterrupt:
         # Session summary to text log
-        log.write_summary(packet_count, session_start, first_pkt_ts, last_pkt_ts, delta_ts)
+        log.write_summary(packet_count, session_start, first_pkt_ts, last_pkt_ts)
         log.close()
 
         # Terminal summary
@@ -683,8 +673,6 @@ def main():
         print(f"  {C_BOLD}Session ended{C_END}")
         print(f"  Packets:    {C_BOLD}{packet_count}{C_END}")
         print(f"  Duration:   {duration:.0f}s ({duration/60:.1f} min)")
-        if delta_ts:
-            print(f"  Avg Δt:     {sum(delta_ts)/len(delta_ts):.3f}s")
         print(f"{C_DIM}{'─' * 50}{C_END}")
         print(f"  {C_DIM}{log.text_path}{C_END}")
         print(f"  {C_DIM}{log.jsonl_path}{C_END}")
