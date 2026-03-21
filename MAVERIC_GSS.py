@@ -681,6 +681,9 @@ def main():
     last_pkt_ts = None
     seen_fps = set()               # fingerprints seen this session, for duplicate detection
     pkt_times = []                 # recent packet arrival times, for rolling rate
+    last_render = 0.0              # timestamp of last terminal render
+    render_skipped = 0             # packets not rendered since last render
+    RENDER_INTERVAL = 0.25         # minimum seconds between terminal renders
 
     spinner = ["█", "▓", "▒", "░", "▒", "▓"]
     spin_idx = 0
@@ -799,12 +802,25 @@ def main():
                     text, warnings, delta_t, fp, is_dup,
                 )
 
-            # Phase 4: Display
-            render_packet(
-                packet_count, gs_ts, frame_type, raw, inner_payload,
-                stripped_hdr, csp, csp_plausible, ts_result, cmd,
-                warnings, delta_t, loud, text, fp, is_dup,
-            )
+            # Phase 4: Display (throttled during bursts)
+            # Every packet is logged, but terminal rendering is limited
+            # to at most 4 per second to prevent I/O blocking the receive loop.
+            # During bursts the spinner never shows, so rate info goes here.
+            if now - last_render >= RENDER_INTERVAL:
+                if render_skipped > 0:
+                    cutoff = now - 60.0
+                    recent = sum(1 for t in pkt_times if t > cutoff)
+                    print(f"  {C_DIM}... +{render_skipped} received | {packet_count} total | {recent} pkt/min{C_END}")
+                render_packet(
+                    packet_count, gs_ts, frame_type, raw, inner_payload,
+                    stripped_hdr, csp, csp_plausible, ts_result, cmd,
+                    warnings, None if render_skipped > 0 else delta_t,
+                    loud, text, fp, is_dup,
+                )
+                last_render = now
+                render_skipped = 0
+            else:
+                render_skipped += 1
 
     except KeyboardInterrupt:
         if log:
