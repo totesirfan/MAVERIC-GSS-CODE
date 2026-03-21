@@ -1,3 +1,4 @@
 .DS_Store
 logs/
 mav_gss_lib/__pycache__
+legacy/
