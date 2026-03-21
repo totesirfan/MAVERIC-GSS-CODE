@@ -2,9 +2,24 @@
 
 Ground station tools for the MAVERIC CubeSat mission. Receives and displays decoded satellite frames, and provides a command terminal for uplink operations.
 
-## Components
+## Structure
 
-### MAVERIC_GSS.py — Packet Monitor
+```
+mav_gss_lib/              Shared library
+    protocol.py           Nodes, CSP, KISS, CRC, command wire format
+    display.py            Theme class, box drawing, terminal formatting
+    transport.py          ZMQ PUB/SUB, PMT PDU send/receive
+
+MAV_RX.py                 Downlink packet monitor
+MAV_TX.py                 Uplink command terminal
+ax100_loopback_test.py    AX100 encoder verification
+
+MAVERIC_TX.grc            GNU Radio TX flowgraph (AX100 ASM+Golay + GFSK)
+MAVERIC_DECODER.yml       gr-satellites satellite definition file
+Commands.py               Satellite-side command format (reference only)
+```
+
+## MAV_RX — Packet Monitor
 
 Subscribes to a ZMQ PUB socket where GNU Radio publishes decoded PDUs and displays packet contents for live debugging. Designed to run continuously — the flowgraph can be started and stopped independently.
 
@@ -22,11 +37,19 @@ With `--loud`, hex dump, ASCII, and CRC are also shown in the terminal. These ar
 
 Raw hex is ground truth. All parsed fields are diagnostic until the telemetry map is finalized.
 
-### MAVERIC_CMD.py — Command Terminal
+## MAV_TX — Command Terminal
 
-Interactive terminal for sending commands to the satellite via gr-satellites AX100 ASM+Golay framing. Sends payloads as PMT PDUs over ZMQ to a GNU Radio flowgraph that handles modulation and transmission.
+Interactive terminal for sending commands to the satellite. Commands are KISS-wrapped with a configurable CSP v1 header and published as PMT PDUs over ZMQ to a GNU Radio flowgraph that handles AX100 ASM+Golay encoding, GFSK modulation, and transmission.
 
-### AX100_Loopback_Test.py — Encoder Verification
+Features:
+
+- Single commands: `EPS PING`
+- Batch mode: queue multiple commands with `+`, send as one AX100 frame
+- Runtime CSP config: `csp dest 8`, `csp off`, etc.
+- Command history and arrow key navigation (readline)
+- JSONL uplink logging
+
+## ax100_loopback_test — Encoder Verification
 
 End-to-end loopback test that encodes a payload using our AX100 encoder (ASM, CCSDS scrambling, Golay, Reed-Solomon) and decodes it with gr-satellites blocks to verify round-trip correctness.
 
@@ -37,48 +60,41 @@ All scripts require the radioconda GNU Radio environment. Start your GNU Radio f
 ```bash
 conda activate gnuradio
 
-# Packet monitor (normal display)
-python3 MAVERIC_GSS.py
+# Downlink monitor
+python3 MAV_RX.py
+python3 MAV_RX.py --loud       # includes hex, ASCII, CRC, SHA256
+python3 MAV_RX.py --nolog      # display only, no log files
 
-# Packet monitor (verbose — includes hex, ASCII, CRC, SHA256 in terminal)
-python3 MAVERIC_GSS.py --loud
-
-# Packet monitor (display only, no log files)
-python3 MAVERIC_GSS.py --nolog
-
-# Command terminal
-python3 MAVERIC_CMD.py
+# Uplink command terminal
+python3 MAV_TX.py
 
 # AX100 encoder loopback test
-python3 AX100_Loopback_Test.py
+python3 ax100_loopback_test.py
 ```
 
-Press `Ctrl+C` to stop the monitor or command terminal.
+Press `Ctrl+C` to stop.
 
 ## Logging
 
-Each session writes two log files to `logs/`:
+Each monitor session writes two log files to `logs/`:
 
-- `.jsonl` — machine-readable, one JSON object per packet (includes all parse candidates)
+- `.jsonl` — machine-readable, one JSON object per packet
 - `.txt` — human-readable plain text
 
-The command terminal logs uplink commands to a separate `.jsonl` file.
-
-Logging can be disabled with `--nolog` on the monitor.
+The command terminal logs uplink transmissions to a separate `.jsonl` file. Logging can be disabled with `--nolog` on the monitor.
 
 ## Configuration
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `ZMQ_PORT` (GSS) | `52001` | Downlink — port to subscribe to |
-| `ZMQ_ADDR` (CMD) | `tcp://127.0.0.1:52002` | Uplink — port to publish on |
-| `ZMQ_RECV_TIMEOUT_MS` | `200` | Receive timeout in ms |
-| `LOG_DIR` | `logs` | Log output directory |
+| Variable | Default | Where |
+|----------|---------|-------|
+| `ZMQ_PORT` | `52001` | MAV_RX — downlink subscribe port |
+| `ZMQ_ADDR` | `tcp://127.0.0.1:52002` | MAV_TX — uplink publish port |
+| `ZMQ_RECV_TIMEOUT_MS` | `200` | MAV_RX — receive timeout (ms) |
+| `LOG_DIR` | `logs` | Both — log output directory |
 
-## Dependencies
+## Theming
 
-- [radioconda](https://github.com/ryanvolz/radioconda) (provides GNU Radio 3.10+, gr-satellites, PyZMQ, and pmt)
-- `crc` Python package (for command terminal and loopback test)
+All terminal colors are defined in `mav_gss_lib/display.py` in the `Theme` class. Colors are assigned by semantic role (LABEL, VALUE, SUCCESS, WARNING, ERROR), not by raw ANSI code. To retheme both tools, edit `Theme` only.
 
 ## Decoder
 
@@ -87,6 +103,11 @@ Logging can be disabled with `--nolog` on the monitor.
 - 19k2 FSK AX.25 G3RUH
 - 4k8 FSK AX.25 G3RUH
 - 4k8 FSK AX100 ASM+Golay
+
+## Dependencies
+
+- [radioconda](https://github.com/ryanvolz/radioconda) (GNU Radio 3.10+, gr-satellites, PyZMQ, pmt)
+- `crc` Python package (`pip install crc` in the gnuradio env)
 
 ## Status
 
