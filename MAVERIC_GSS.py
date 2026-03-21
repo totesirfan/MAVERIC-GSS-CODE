@@ -288,7 +288,7 @@ def try_parse_command(payload):
         "echo":      echo,
         "pkt_type":  pkt_type,
         "cmd_id":    cmd_id,
-        "args":      args_str,
+        "args":      args_str.split(),
     }
 
     return cmd, tail
@@ -410,8 +410,7 @@ class SessionLog:
                 f"Echo: {node_label(cmd['echo'])} | Type: {cmd['pkt_type']}"
             )
             lines.append(f"  CMD ID      {cmd['cmd_id']}")
-            args = cmd['args'].split()
-            for i, arg in enumerate(args):
+            for i, arg in enumerate(cmd['args']):
                 if len(arg) == 13 and arg.isdigit() and TS_MIN_MS <= int(arg) <= TS_MAX_MS:
                     lines.append(f"  UNIX TIME   {arg}")
                 else:
@@ -576,9 +575,7 @@ def render_packet(pkt_num, gs_ts, frame_type, raw, inner_payload,
 
         # Display each arg on its own line, labeling known fields.
         # Timestamp detection is position-independent — arg order may change.
-        # SAT TIME shows the human-readable conversion directly after UNIX TIME.
-        args = cmd['args'].split()
-        for i, arg in enumerate(args):
+        for i, arg in enumerate(cmd['args']):
             if len(arg) == 13 and arg.isdigit() and TS_MIN_MS <= int(arg) <= TS_MAX_MS:
                 print(_row(f"  {C_CYAN}UNIX TIME{C_END}   {C_BOLD}{arg}{C_END}"))
                 try:
