@@ -8,8 +8,8 @@ packet contents for live debugging.
 Designed to run continuously. The flowgraph can be started and stopped
 independently — the monitor will idle and resume when packets arrive.
 
-Raw hex is ground truth. All parsed fields (CSP, timestamps)
-are diagnostic heuristics until the telemetry map is finalized.
+Raw hex is ground truth. All parsed fields (CSP, timestamps, command structure)
+are diagnostic until the telemetry map is finalized.
 
 Author:  Irfan Annuar
 Org:     USC ISI SERC
@@ -410,7 +410,12 @@ class SessionLog:
                 f"Echo: {node_label(cmd['echo'])} | Type: {cmd['pkt_type']}"
             )
             lines.append(f"  CMD ID      {cmd['cmd_id']}")
-            lines.append(f"  CMD ARGS    {cmd['args']}")
+            args = cmd['args'].split()
+            for i, arg in enumerate(args):
+                if len(arg) == 13 and arg.isdigit() and TS_MIN_MS <= int(arg) <= TS_MAX_MS:
+                    lines.append(f"  UNIX TIME   {arg}")
+                else:
+                    lines.append(f"  ARG {i}       {arg}")
 
         lines.append(f"  HEX         {raw.hex(' ')}")
         if text:
@@ -545,7 +550,7 @@ def render_packet(pkt_num, gs_ts, frame_type, raw, inner_payload,
 
         print(_row(f"  {tag}      {vals}"))
 
-    # Satellite timestamp
+    # Satellite timestamp (human-readable)
     if ts_result:
         dt_utc, dt_local, _ = ts_result
         utc_s = dt_utc.strftime('%Y-%m-%d %H:%M:%S UTC')
@@ -569,14 +574,23 @@ def render_packet(pkt_num, gs_ts, frame_type, raw, inner_payload,
             f"  {C_CYAN}CMD ID{C_END}      {C_BOLD}{cmd['cmd_id']}{C_END}"
         ))
 
-        # Display each arg on its own line, labeling known fields
+        # Display each arg on its own line, labeling known fields.
+        # Timestamp detection is position-independent — arg order may change.
+        # SAT TIME shows the human-readable conversion directly after UNIX TIME.
         args = cmd['args'].split()
         for i, arg in enumerate(args):
-            if i == 1 and len(arg) == 13 and arg.isdigit():
-                label = f"  {C_CYAN}UNIX TIME{C_END}   {C_BOLD}{arg}{C_END}"
+            if len(arg) == 13 and arg.isdigit() and TS_MIN_MS <= int(arg) <= TS_MAX_MS:
+                print(_row(f"  {C_CYAN}UNIX TIME{C_END}   {C_BOLD}{arg}{C_END}"))
+                try:
+                    dt_utc = datetime.fromtimestamp(int(arg) / 1000.0, tz=timezone.utc)
+                    dt_local = dt_utc.astimezone()
+                    utc_s = dt_utc.strftime('%Y-%m-%d %H:%M:%S UTC')
+                    loc_s = dt_local.strftime('%Y-%m-%d %H:%M:%S %Z')
+                    print(_row(f"  {C_CYAN}SAT TIME{C_END}    {utc_s}  {C_DIM}│{C_END}  {loc_s}"))
+                except (OSError, ValueError):
+                    pass
             else:
-                label = f"  {C_CYAN}ARG {i}{C_END}       {C_BOLD}{arg}{C_END}"
-            print(_row(label))
+                print(_row(f"  {C_CYAN}ARG {i}{C_END}       {C_BOLD}{arg}{C_END}"))
 
         print(_row())
 
@@ -620,22 +634,19 @@ def main():
 
     Each packet goes through four phases:
       1. Detect frame type + strip transport headers → inner payload
-      2. Run candidate parsers (CSP, timestamp) on inner payload
+      2. Parse CSP header, timestamp, and MAVERIC command structure
       3. Log to both JSONL and text files (unless --nolog)
       4. Render to terminal
     """
     parser = argparse.ArgumentParser(description="MAVERIC GSS — Ground Station Packet Monitor")
     parser.add_argument("--nolog", action="store_true",
                         help="Disable logging to disk (display only)")
-    parser.add_argument("--quiet", action="store_true",
-                        help="Suppress terminal display (log only, faster throughput)")
     parser.add_argument("--loud", action="store_true",
                         help="Show hex dump, ASCII, and SHA256 in terminal display")
     args = parser.parse_args()
 
     context, sock = init_zmq(ZMQ_ADDR, ZMQ_RECV_TIMEOUT_MS)
     log = None if args.nolog else SessionLog(LOG_DIR, ZMQ_ADDR)
-    quiet = args.quiet
     loud = args.loud
 
     packet_count = 0
@@ -648,21 +659,20 @@ def main():
     spinner = ["█", "▓", "▒", "░", "▒", "▓"]
     spin_idx = 0
 
-    if not quiet:
-        print(f"\n{C_BOLD}┌──────────────────────────────────────────────────────────┐")
-        print(f"│                       MAVERIC GSS                        │")
-        print(f"│                           {C_END}{C_DIM}v{VERSION}{C_END}{C_BOLD}                           │")
-        print(f"└──────────────────────────────────────────────────────────┘{C_END}")
-        print()
-        print(f" {C_DIM}ZMQ{C_END}         {C_BOLD}{ZMQ_ADDR}{C_END}")
-        print(f" {C_DIM}Timeout{C_END}     {ZMQ_RECV_TIMEOUT_MS}ms")
-        print(f" {C_DIM}Display{C_END}     {'loud' if loud else 'normal'}")
-        if log:
-            print(f" {C_DIM}Log (txt){C_END}  {log.text_path}")
-            print(f" {C_DIM}Log (json){C_END} {log.jsonl_path}")
-        else:
-            print(f" {C_DIM}Logging{C_END}     disabled")
-        print()
+    print(f"\n{C_BOLD}┌──────────────────────────────────────────────────────────┐")
+    print(f"│                       MAVERIC GSS                        │")
+    print(f"│                           {C_END}{C_DIM}v{VERSION}{C_END}{C_BOLD}                           │")
+    print(f"└──────────────────────────────────────────────────────────┘{C_END}")
+    print()
+    print(f" {C_DIM}ZMQ{C_END}         {C_BOLD}{ZMQ_ADDR}{C_END}")
+    print(f" {C_DIM}Timeout{C_END}     {ZMQ_RECV_TIMEOUT_MS}ms")
+    print(f" {C_DIM}Display{C_END}     {'loud' if loud else 'normal'}")
+    if log:
+        print(f" {C_DIM}Log (txt){C_END}  {log.text_path}")
+        print(f" {C_DIM}Log (json){C_END} {log.jsonl_path}")
+    else:
+        print(f" {C_DIM}Logging{C_END}     disabled")
+    print()
 
     try:
         while True:
@@ -670,23 +680,21 @@ def main():
 
             if result is None:
                 # --- IDLE / WAITING ---
-                if not quiet:
-                    elapsed = time.time() - last_watchdog
-                    tc = C_CYAN if elapsed <= 10 else (C_YELLOW if elapsed <= 30 else C_RED)
-                    pkt_str = f" | {C_DIM}{packet_count} pkts{C_END}" if packet_count > 0 else ""
-                    sys.stdout.write(
-                        f"\r{C_BOLD}{C_CYAN} {spinner[spin_idx]} {C_END} "
-                        f"Waiting... {tc}[SILENCE: {elapsed:04.1f}s]{C_END}{pkt_str}  "
-                    )
-                    sys.stdout.flush()
-                    spin_idx = (spin_idx + 1) % len(spinner)
+                elapsed = time.time() - last_watchdog
+                tc = C_CYAN if elapsed <= 10 else (C_YELLOW if elapsed <= 30 else C_RED)
+                pkt_str = f" | {C_DIM}{packet_count} pkts{C_END}" if packet_count > 0 else ""
+                sys.stdout.write(
+                    f"\r{C_BOLD}{C_CYAN} {spinner[spin_idx]} {C_END} "
+                    f"Waiting... {tc}[SILENCE: {elapsed:04.1f}s]{C_END}{pkt_str}  "
+                )
+                sys.stdout.flush()
+                spin_idx = (spin_idx + 1) % len(spinner)
                 continue
 
             # --- PACKET RECEIVED ---
             meta, raw = result
             now = time.time()
-            if not quiet:
-                sys.stdout.write("\r" + " " * 80 + "\r")
+            sys.stdout.write("\r" + " " * 80 + "\r")
 
             delta_t = (now - last_arrival) if last_arrival is not None else None
             last_arrival = now
@@ -733,10 +741,10 @@ def main():
                 if csp:
                     log_record["csp_candidate"] = csp
                     log_record["csp_plausible"] = csp_plausible
-                if ts_result:
-                    log_record["sat_ts_ms"] = ts_result[2]
                 if cmd:
                     log_record["cmd"] = cmd
+                    if ts_result:
+                        log_record["sat_ts_ms"] = ts_result[2]
                     if cmd_tail:
                         log_record["checksum_hex"] = cmd_tail.hex()
 
@@ -748,13 +756,12 @@ def main():
                     text, warnings, delta_t, fp,
                 )
 
-            # Phase 4: Display (unless --quiet)
-            if not quiet:
-                render_packet(
-                    packet_count, gs_ts, frame_type, raw, inner_payload,
-                    stripped_hdr, csp, csp_plausible, ts_result, cmd,
-                    warnings, delta_t, loud, text, fp,
-                )
+            # Phase 4: Display
+            render_packet(
+                packet_count, gs_ts, frame_type, raw, inner_payload,
+                stripped_hdr, csp, csp_plausible, ts_result, cmd,
+                warnings, delta_t, loud, text, fp,
+            )
 
     except KeyboardInterrupt:
         if log:
