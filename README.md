@@ -6,17 +6,15 @@ Ground station tools for the MAVERIC CubeSat mission. Receives and displays deco
 
 ```
 mav_gss_lib/              Shared library
-    protocol.py           Nodes, CSP, KISS, CRC, command wire format
+    protocol.py           Nodes, CSP v1, KISS, CRC-16/CRC-32C, command wire format
     display.py            Theme class, box drawing, terminal formatting
     transport.py          ZMQ PUB/SUB, PMT PDU send/receive
 
 MAV_RX.py                 Downlink packet monitor
 MAV_TX.py                 Uplink command terminal
-ax100_loopback_test.py    AX100 encoder verification
 
-MAVERIC_TX.grc            GNU Radio TX flowgraph (AX100 ASM+Golay + GFSK)
-MAVERIC_DECODER.yml       gr-satellites satellite definition file
-Commands.py               Satellite-side command format (reference only)
+maveric_commands.yml      Command schema (arg names, types, validation)
+maveric_decoder.yml       gr-satellites satellite definition file
 ```
 
 ## MAV_RX — Packet Monitor
@@ -28,24 +26,31 @@ For each packet, the monitor shows:
 - Packet count, ground station timestamp, and inter-packet timing
 - Frame type (AX.25 or AX100), inferred from gr-satellites metadata
 - Inner payload after stripping transport framing
-- CSP v1 header candidate parse
-- Satellite timestamp candidate (epoch-ms detection)
-- Parsed command structure with node routing and arguments
+- CSP v1 header parse with plausibility check
+- CRC-32C (Castagnoli) verification over the full CSP packet
+- CRC-16 XMODEM verification on the command payload
+- Satellite timestamp (schema-resolved or heuristic epoch-ms detection)
+- Parsed command structure with node routing and typed arguments
 - SHA-256 fingerprint for duplicate detection
 
-With `--loud`, hex dump, ASCII, and CRC are also shown in the terminal. These are always written to the log files regardless.
+When `maveric_commands.yml` is present, known commands are parsed deterministically by the schema — no regex scanning or per-arg guessing. Unknown commands fall back to the heuristic path automatically.
+
+With `--loud`, hex dump, ASCII, CRC values, and SHA-256 are also shown in the terminal. These are always written to the log files regardless.
 
 Raw hex is ground truth. All parsed fields are diagnostic until the telemetry map is finalized.
 
 ## MAV_TX — Command Terminal
 
-Interactive terminal for sending commands to the satellite. Commands are KISS-wrapped with a configurable CSP v1 header and published as PMT PDUs over ZMQ to a GNU Radio flowgraph that handles AX100 ASM+Golay encoding, GFSK modulation, and transmission.
+Interactive terminal for sending commands to the satellite. Each command is wrapped with a CSP v1 header and CRC-32C, then published as a PMT PDU over ZMQ to a GNU Radio flowgraph that handles AX100 ASM+Golay encoding, GFSK modulation, and transmission.
+
+Output PDU format: `[CSP v1 header 4B][command + CRC-16][CRC-32C 4B BE]`
 
 Features:
 
 - Single commands: `EPS PING`
-- Batch mode: queue multiple commands with `+`, send as one AX100 frame
+- Batch mode: queue multiple commands with `+`, each sent as its own packet
 - Runtime CSP config: `csp dest 8`, `csp off`, etc.
+- Command schema validation against `maveric_commands.yml` (warnings only — operator has final say)
 - Command history and arrow key navigation (readline)
 - JSONL uplink logging
 
@@ -63,9 +68,6 @@ python3 MAV_RX.py --nolog      # display only, no log files
 
 # Uplink command terminal
 python3 MAV_TX.py
-
-# AX100 encoder loopback test
-python3 ax100_loopback_test.py
 ```
 
 Press `Ctrl+C` to stop.
@@ -79,6 +81,16 @@ Each monitor session writes two log files to `logs/`:
 
 The command terminal logs uplink transmissions to a separate `.jsonl` file. Logging can be disabled with `--nolog` on the monitor.
 
+## Command Schema
+
+`maveric_commands.yml` defines the argument schema for each known command. When present:
+
+- **RX** parses known commands deterministically by position and type (skips regex/heuristic scanning)
+- **TX** validates arguments before sending (type mismatches produce warnings but don't block transmission)
+- Unknown commands fall back to heuristic parsing automatically
+
+Supported arg types: `str`, `int`, `float`, `epoch_ms`, `bool`. See the file header for full documentation.
+
 ## Configuration
 
 | Variable | Default | Where |
@@ -87,6 +99,7 @@ The command terminal logs uplink transmissions to a separate `.jsonl` file. Logg
 | `ZMQ_ADDR` | `tcp://127.0.0.1:52002` | MAV_TX — uplink publish port |
 | `ZMQ_RECV_TIMEOUT_MS` | `200` | MAV_RX — receive timeout (ms) |
 | `LOG_DIR` | `logs` | Both — log output directory |
+| `CMD_DEFS_PATH` | `maveric_commands.yml` | Both — command schema file |
 
 ## Theming
 
@@ -94,7 +107,7 @@ All terminal colors are defined in `mav_gss_lib/display.py` in the `Theme` class
 
 ## Decoder
 
-`MAVERIC_DECODER.yml` is the gr-satellites satellite definition file. It configures three transmitter modes on 437.250 MHz:
+`maveric_decoder.yml` is the gr-satellites satellite definition file. It configures three transmitter modes on 437.250 MHz:
 
 - 19k2 FSK AX.25 G3RUH
 - 4k8 FSK AX.25 G3RUH
@@ -104,6 +117,7 @@ All terminal colors are defined in `mav_gss_lib/display.py` in the `Theme` class
 
 - [radioconda](https://github.com/ryanvolz/radioconda) (GNU Radio 3.10+, gr-satellites, PyZMQ, pmt)
 - `crc` Python package (`pip install crc` in the gnuradio env)
+- `pyyaml` Python package (`pip install pyyaml` — optional, needed for command schema validation)
 
 ## Status
 
