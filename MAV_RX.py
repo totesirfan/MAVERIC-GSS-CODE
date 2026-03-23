@@ -30,6 +30,7 @@ from mav_gss_lib.protocol import (
     try_parse_csp_v1, try_parse_command, try_extract_timestamp,
     clean_text, fingerprint, TS_MIN_MS, TS_MAX_MS,
     load_command_defs, apply_schema,
+    verify_csp_crc32,
 )
 from mav_gss_lib.display import (
     C, TOP, MID, BOT, INN_W,
@@ -40,7 +41,7 @@ from mav_gss_lib.transport import init_zmq_sub, receive_pdu
 
 # -- Config -------------------------------------------------------------------
 
-VERSION = "4.1"
+VERSION = "4.2"
 ZMQ_PORT = "52001"
 ZMQ_ADDR = f"tcp://127.0.0.1:{ZMQ_PORT}"
 ZMQ_RECV_TIMEOUT_MS = 200
@@ -118,7 +119,7 @@ class SessionLog:
 
     def write_text(self, pkt_num, gs_ts, frame_type, raw, inner_payload,
                    stripped_hdr, csp, csp_plausible, ts_result, cmd, cmd_tail,
-                   text, warnings, delta_t, fp, is_dup=False):
+                   text, warnings, delta_t, fp, crc_status, is_dup=False):
         lines = []
         if delta_t is not None:
             lines.append(f"    Delta-T: {delta_t:.3f}s")
@@ -177,8 +178,15 @@ class SessionLog:
         lines.append(f"  HEX         {raw.hex(' ')}")
         if text:
             lines.append(f"  ASCII       {text}")
+
+        # CRC status
         if cmd and cmd.get('crc') is not None:
-            lines.append(f"  CRC-16      0x{cmd['crc']:04x}")
+            tag = "OK" if cmd.get("crc_valid") else "FAIL"
+            lines.append(f"  CRC-16      0x{cmd['crc']:04x}  [{tag}]")
+        if crc_status["csp_crc32_valid"] is not None:
+            tag = "OK" if crc_status["csp_crc32_valid"] else "FAIL"
+            lines.append(f"  CRC-32C     0x{crc_status['csp_crc32_rx']:08x}  [{tag}]")
+
         lines.append(f"  SHA256      {fp}")
         lines.append("-" * 80)
         lines.append("")
@@ -210,7 +218,8 @@ class SessionLog:
 
 def render_packet(pkt_num, gs_ts, frame_type, raw, inner_payload,
                   stripped_hdr, csp, csp_plausible, ts_result, cmd,
-                  warnings, delta_t, loud=False, text=None, fp=None, is_dup=False):
+                  warnings, delta_t, crc_status,
+                  loud=False, text=None, fp=None, is_dup=False):
     """Render one received packet inside an 80-column box."""
 
     color = C.frame_color(frame_type)
@@ -303,8 +312,19 @@ def render_packet(pkt_num, gs_ts, frame_type, raw, inner_payload,
         print(row())
         if text:
             print(row(f"  {C.DIM}ASCII{C.END}   {C.DIM}{text}{C.END}"))
+
+        # CRC-16 status
         if cmd and cmd.get('crc') is not None:
-            print(row(f"  {C.DIM}CRC-16{C.END}  {C.DIM}0x{cmd['crc']:04x}{C.END}"))
+            c16_color = C.SUCCESS if cmd.get("crc_valid") else C.ERROR
+            c16_tag = "OK" if cmd.get("crc_valid") else "FAIL"
+            print(row(f"  {C.DIM}CRC-16{C.END}  {c16_color}0x{cmd['crc']:04x}  [{c16_tag}]{C.END}"))
+
+        # CRC-32C status
+        if crc_status["csp_crc32_valid"] is not None:
+            c32_color = C.SUCCESS if crc_status["csp_crc32_valid"] else C.ERROR
+            c32_tag = "OK" if crc_status["csp_crc32_valid"] else "FAIL"
+            print(row(f"  {C.DIM}CRC-32C{C.END} {c32_color}0x{crc_status['csp_crc32_rx']:08x}  [{c32_tag}]{C.END}"))
+
         if fp:
             print(row(f"  {C.DIM}SHA256{C.END}  {C.DIM}{fp}{C.END}"))
         print(row())
@@ -414,6 +434,14 @@ def main():
                 if cmd:
                     apply_schema(cmd, cmd_defs)
 
+            # CRC-32C verification (over full CSP packet)
+            crc_status = {"csp_crc32_valid": None, "csp_crc32_rx": None, "csp_crc32_comp": None}
+            if cmd and cmd.get("csp_crc32") is not None:
+                valid, rx, comp = verify_csp_crc32(inner_payload)
+                crc_status = {"csp_crc32_valid": valid, "csp_crc32_rx": rx, "csp_crc32_comp": comp}
+                if not valid:
+                    warnings.append(f"CRC-32C mismatch: rx 0x{rx:08x} != computed 0x{comp:08x}")
+
             # SAT TIME: schema already resolved it, or regex fallback
             if cmd and cmd.get("sat_time"):
                 ts_result = cmd["sat_time"]
@@ -445,7 +473,21 @@ def main():
                 if ts_result:
                     log_record["sat_ts_ms"] = ts_result[2]
 
+                # CRC status in log
+                if crc_status["csp_crc32_valid"] is not None:
+                    log_record["csp_crc32"] = {
+                        "valid": crc_status["csp_crc32_valid"],
+                        "received": f"0x{crc_status['csp_crc32_rx']:08x}",
+                    }
+
                 if cmd:
+                    cmd_log = {
+                        "src": cmd["src"], "dest": cmd["dest"],
+                        "echo": cmd["echo"], "pkt_type": cmd["pkt_type"],
+                        "cmd_id": cmd["cmd_id"], "crc": cmd["crc"],
+                        "crc_valid": cmd.get("crc_valid"),
+                    }
+
                     # Schema path: log typed args as named fields
                     if cmd.get("schema_match"):
                         typed_log = {}
@@ -454,22 +496,14 @@ def main():
                                 typed_log[ta["name"]] = ta["value"]["ms"]
                             else:
                                 typed_log[ta["name"]] = ta["value"]
-                        log_record["cmd"] = {
-                            "src": cmd["src"], "dest": cmd["dest"],
-                            "echo": cmd["echo"], "pkt_type": cmd["pkt_type"],
-                            "cmd_id": cmd["cmd_id"], "crc": cmd["crc"],
-                            "args": typed_log,
-                        }
+                        cmd_log["args"] = typed_log
                         if cmd["extra_args"]:
-                            log_record["cmd"]["extra_args"] = cmd["extra_args"]
+                            cmd_log["extra_args"] = cmd["extra_args"]
                     # Heuristic path: log raw args list
                     else:
-                        log_record["cmd"] = {
-                            "src": cmd["src"], "dest": cmd["dest"],
-                            "echo": cmd["echo"], "pkt_type": cmd["pkt_type"],
-                            "cmd_id": cmd["cmd_id"], "crc": cmd["crc"],
-                            "args": cmd["args"],
-                        }
+                        cmd_log["args"] = cmd["args"]
+
+                    log_record["cmd"] = cmd_log
                     if cmd_tail:
                         log_record["tail_hex"] = cmd_tail.hex()
 
@@ -477,7 +511,7 @@ def main():
                 log.write_text(
                     packet_count, gs_ts, frame_type, raw, inner_payload,
                     stripped_hdr, csp, csp_plausible, ts_result, cmd, cmd_tail,
-                    text, warnings, delta_t, fp, is_dup,
+                    text, warnings, delta_t, fp, crc_status, is_dup,
                 )
 
             # Phase 4: Display (throttled)
@@ -490,7 +524,7 @@ def main():
                     packet_count, gs_ts, frame_type, raw, inner_payload,
                     stripped_hdr, csp, csp_plausible, ts_result, cmd,
                     warnings, None if render_skipped > 0 else delta_t,
-                    loud, text, fp, is_dup,
+                    crc_status, loud, text, fp, is_dup,
                 )
                 last_render = now
                 render_skipped = 0

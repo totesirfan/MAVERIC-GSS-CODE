@@ -2,9 +2,9 @@
 mav_gss_lib.protocol -- MAVERIC Mission Protocol Definitions
 
 Node addressing, packet types, CSP v1 header (build and parse),
-KISS framing, CRC-16 XMODEM, command wire format (build and parse),
-timestamp detection, packet fingerprinting, and command schema for
-deterministic parsing.
+KISS framing, CRC-16 XMODEM, CRC-32C (CSP integrity), command wire
+format (build and parse), timestamp detection, packet fingerprinting,
+and command schema for deterministic parsing.
 
 Mirrors the wire format of Commands.py (satellite side) without
 importing it. Both build_cmd_raw() and try_parse_command() operate
@@ -20,7 +20,6 @@ Author:  Irfan Annuar - USC ISI SERC
 import re
 import hashlib
 from datetime import datetime, timezone
-from crc import Calculator, Crc16
 
 try:
     import yaml
@@ -105,7 +104,68 @@ def kiss_wrap(raw_cmd):
 #  CRC-16 XMODEM
 # =============================================================================
 
-crc_calc = Calculator(Crc16.XMODEM)
+def _crc16_xmodem(data):
+    """CRC-16 XMODEM (poly 0x1021, init 0x0000).
+    Pure Python fallback -- used when the 'crc' package is unavailable."""
+    crc = 0x0000
+    for b in data:
+        crc ^= b << 8
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x1021) if crc & 0x8000 else (crc << 1)
+            crc &= 0xFFFF
+    return crc
+
+
+try:
+    from crc import Calculator, Crc16
+    crc_calc = Calculator(Crc16.XMODEM)
+    def crc16(data):
+        return crc_calc.checksum(data)
+except ImportError:
+    crc_calc = None
+    crc16 = _crc16_xmodem
+
+
+# =============================================================================
+#  CRC-32C (Castagnoli) — CSP Packet Integrity
+#
+#  CSP v1 uses CRC-32C (poly 0x1EDC6F41, reflected as 0x82F63B78)
+#  over the entire CSP packet: header + payload (including the command's
+#  own CRC-16). Appended as 4 bytes big-endian.
+#
+#  Verified against captured MAVERIC downlink traffic:
+#    Packet 1 (AX.25):  CRC-32C = 0x3AA1DDAB  ✓
+#    Packet 2 (AX100):  CRC-32C = 0xB23EFBC3  ✓
+# =============================================================================
+
+def crc32c(data):
+    """CRC-32C (Castagnoli) checksum.
+
+    Used by CSP v1 for packet integrity. Covers CSP header + full payload
+    (including any inner checksums like the command CRC-16)."""
+    crc = 0xFFFFFFFF
+    poly = 0x82F63B78  # reflected polynomial
+    for b in data:
+        crc ^= b
+        for _ in range(8):
+            crc = ((crc >> 1) ^ poly) if crc & 1 else (crc >> 1)
+    return crc ^ 0xFFFFFFFF
+
+
+def verify_csp_crc32(inner_payload):
+    """Verify CRC-32C over a complete CSP packet (header + data + CRC-32C).
+
+    The last 4 bytes of inner_payload are the received CRC-32C (big-endian).
+    Computed over everything before those 4 bytes.
+
+    Returns (is_valid, received_crc, computed_crc) or (None, None, None)
+    if the payload is too short."""
+    if len(inner_payload) < 8:  # need at least CSP hdr + 4B CRC
+        return None, None, None
+    data = inner_payload[:-4]
+    received = int.from_bytes(inner_payload[-4:], 'big')
+    computed = crc32c(data)
+    return received == computed, received, computed
 
 
 # =============================================================================
@@ -114,11 +174,15 @@ crc_calc = Calculator(Crc16.XMODEM)
 #  Layout (from Commands.py):
 #    [orgn][dest][echo][ptype][id_len][args_len]
 #    [id_str][0x00][args_str][0x00][CRC-16 LE]
+#
+#  Full CSP packet on the wire:
+#    [CSP v1 header 4B][command + CRC-16][CRC-32C 4B BE]
 # =============================================================================
 
 def build_cmd_raw(dest, cmd, args="", echo=0, ptype=1, origin=GS_NODE):
-    """Build raw MAVERIC command payload with CRC-16 (before KISS wrapping).
-    Returns bytearray matching Commands.py wire format."""
+    """Build raw MAVERIC command payload with CRC-16.
+    Returns bytearray matching Commands.py wire format.
+    Ready for CSP wrapping via CSPConfig.wrap()."""
     p = bytearray()
     p.append(origin & 0xFF)
     p.append(dest & 0xFF)
@@ -130,7 +194,7 @@ def build_cmd_raw(dest, cmd, args="", echo=0, ptype=1, origin=GS_NODE):
     p.append(0x00)
     p.extend(args.encode('ascii'))
     p.append(0x00)
-    crc = crc_calc.checksum(p)
+    crc = crc16(p)
     p.extend(crc.to_bytes(2, byteorder='little'))
     return p
 
@@ -144,10 +208,17 @@ def build_kiss_cmd(dest, cmd, args="", echo=0, ptype=1, origin=GS_NODE):
 
 def try_parse_command(payload):
     """Attempt to parse a byte payload as a MAVERIC command structure.
-    Expects the payload AFTER the CSP header (bytes 4+).
+    Expects the payload AFTER the CSP header (bytes 4+), but INCLUDING
+    the trailing CRC-32C if present.
 
     Returns (parsed_dict, remaining_bytes) or (None, None) on failure.
-    Parses based on length fields, not hardcoded offsets."""
+
+    The parsed dict includes:
+        src, dest, echo, pkt_type, cmd_id, args, crc (CRC-16),
+        csp_crc32 (raw value if 4 trailing bytes present, else None)
+
+    CRC-16 is verified here. CRC-32C verification requires the CSP header,
+    so use verify_csp_crc32(inner_payload) at the call site."""
     if len(payload) < 6:
         return None, None
 
@@ -177,16 +248,26 @@ def try_parse_command(payload):
     if tail_start < len(payload) and payload[tail_start] == 0x00:
         tail_start += 1
 
+    # CRC-16 XMODEM (command integrity)
     crc = None
+    crc_valid = None
     if tail_start + 2 <= len(payload):
         crc = payload[tail_start] | (payload[tail_start + 1] << 8)
+        cmd_body = payload[:tail_start]
+        crc_valid = crc == crc16(cmd_body)
         tail_start += 2
 
+    # CRC-32C (CSP packet integrity) — consume if exactly 4 bytes remain
+    csp_crc32 = None
     tail = payload[tail_start:]
+    if len(tail) == 4:
+        csp_crc32 = int.from_bytes(tail, 'big')
+        tail = b""
 
     cmd = {
         "src": src, "dest": dest, "echo": echo, "pkt_type": pkt_type,
         "cmd_id": cmd_id, "args": args_str.split(), "crc": crc,
+        "crc_valid": crc_valid, "csp_crc32": csp_crc32,
     }
     return cmd, tail
 
@@ -223,15 +304,18 @@ class CSPConfig:
 
     Defaults derived from observed MAVERIC downlink traffic:
       Prio:2 Src:8 Dest:0 DPort:24 -- reversed for uplink.
-    These are placeholders until the CSP address plan is confirmed."""
+    These are placeholders until the CSP address plan is confirmed.
+
+    When enabled, wrap() prepends the 4-byte CSP header and appends
+    a 4-byte CRC-32C (Castagnoli) over the entire CSP packet."""
 
     def __init__(self):
         self.enabled = True
         self.prio    = 2
         self.src     = 0      # GS address
         self.dest    = 8      # satellite address
-        self.dport   = 24     # service port
-        self.sport   = 0
+        self.dport   = 0     # service port
+        self.sport   = 24
         self.flags   = 0x00
 
     def build_header(self):
@@ -245,13 +329,20 @@ class CSPConfig:
         return h.to_bytes(4, 'big')
 
     def overhead(self):
-        """Number of bytes the CSP header adds to a payload."""
-        return 4 if self.enabled else 0
+        """Number of bytes the CSP header + CRC-32C add to a payload."""
+        return 8 if self.enabled else 0  # 4B header + 4B CRC-32C
 
     def wrap(self, payload):
-        """Prepend CSP header to payload if enabled, otherwise pass through."""
+        """Prepend CSP header and append CRC-32C if enabled.
+
+        Output: [CSP header 4B] [payload] [CRC-32C 4B BE]
+
+        The CRC-32C covers the header + payload (everything before the
+        CRC-32C itself), matching observed satellite downlink format."""
         if self.enabled:
-            return self.build_header() + payload
+            packet = self.build_header() + payload
+            checksum = crc32c(packet).to_bytes(4, 'big')
+            return packet + checksum
         return payload
 
 

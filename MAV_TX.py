@@ -1,12 +1,16 @@
 """
 MAV_TX -- MAVERIC Command Terminal
 
-Uplink command interface for the MAVERIC CubeSat mission. Builds KISS-wrapped
-commands with a CSP v1 header and publishes them as PMT PDUs over ZMQ for
-the AX100 ASM+Golay encoder flowgraph in GNU Radio.
+Uplink command interface for the MAVERIC CubeSat mission. Builds raw
+commands with a CSP v1 header + CRC-32C and publishes them as PMT PDUs
+over ZMQ for the AX100 ASM+Golay encoder flowgraph in GNU Radio.
+
+Output PDU matches the downlink wire format:
+    [CSP v1 header 4B][command + CRC-16][CRC-32C 4B BE]
 
 Single command:    EPS PING
 Batch commands:    + EPS SET_MODE auto / + EPS SET_VOLTAGE 3.3 / send
+                   (each queued command is sent as its own packet)
 CSP config:        csp / csp dest 8 / csp dport 24
 
 When maveric_commands.yml is present, args are validated against the schema
@@ -15,6 +19,7 @@ not block transmission -- the operator always has final say.
 
 Requires GNU Radio flowgraph:
     ZMQ SUB Source (:52002) -> AX100 Encoder -> GFSK Mod -> USRP Sink
+    (PDU is already a complete CSP packet — no KISS framing)
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -32,7 +37,7 @@ except ImportError:
 from mav_gss_lib.protocol import (
     NODE_NAMES, NODE_IDS, GS_NODE,
     node_label, ptype_label, resolve_node,
-    build_kiss_cmd, CSPConfig,
+    build_cmd_raw, CSPConfig,
     load_command_defs, validate_args,
 )
 from mav_gss_lib.display import (
@@ -44,7 +49,7 @@ from mav_gss_lib.transport import init_zmq_pub, send_pdu
 
 # -- Config -------------------------------------------------------------------
 
-VERSION  = "3.1"
+VERSION  = "3.2"
 ZMQ_ADDR = "tcp://127.0.0.1:52002"
 LOG_DIR  = "logs"
 MAX_RS_PAYLOAD = 223
@@ -78,7 +83,9 @@ def csp_show(csp):
     print(f" {C.DIM}CSP V1{C.END}      {state}  "
           f"{C.DIM}Prio:{csp.prio} Src:{csp.src} Dest:{csp.dest} "
           f"DPort:{csp.dport} SPort:{csp.sport} Flags:0x{csp.flags:02X}{C.END}")
-    print(f" {C.DIM}CSP Bytes{C.END}   {hdr.hex(' ')}  {C.DIM}(placeholder){C.END}")
+    overhead = csp.overhead()
+    print(f" {C.DIM}CSP Bytes{C.END}   {hdr.hex(' ')}  "
+          f"{C.DIM}({overhead}B overhead: 4B hdr + 4B CRC-32C){C.END}")
 
 
 def csp_handle(csp, args):
@@ -89,10 +96,10 @@ def csp_handle(csp, args):
     cmd = parts[0].lower()
     if cmd == 'on':
         csp.enabled = True
-        print(f"  {C.SUCCESS}CSP header enabled{C.END}")
+        print(f"  {C.SUCCESS}CSP header + CRC-32C enabled{C.END}")
     elif cmd == 'off':
         csp.enabled = False
-        print(f"  {C.WARNING}CSP header disabled{C.END}")
+        print(f"  {C.WARNING}CSP header + CRC-32C disabled{C.END}")
     elif cmd in ('prio', 'src', 'dest', 'dport', 'sport', 'flags') and len(parts) > 1:
         val = int(parts[1], 0)
         setattr(csp, cmd, val)
@@ -122,12 +129,12 @@ def render_single(n, dest, cmd, args, payload, csp, raw_cmd):
     crc = int.from_bytes(raw_cmd[-2:], 'little')
     echo = raw_cmd[2]
     ptype = raw_cmd[3]
-    csp_tag = f"  {C.DIM}[CSP]{C.END}" if csp.enabled else ""
+    csp_tag = f"  {C.DIM}[CSP+CRC32C]{C.END}" if csp.enabled else ""
 
     print(f"{C.DIM}{TOP}{C.END}")
     h_left = f"{C.BOLD}{C.SUCCESS}TX #{n}{C.END}    {C.SUCCESS}UPLINK{C.END}{csp_tag}"
     h_right = f"{C.DIM}{len(payload)} B payload{C.END}"
-    h_lv = len(f"TX #{n}    UPLINK") + (7 if csp.enabled else 0)
+    h_lv = len(f"TX #{n}    UPLINK") + (14 if csp.enabled else 0)
     h_rv = len(f"{len(payload)} B payload")
     gap = INN_W - h_lv - len(ts) - h_rv
     g1 = max(2, gap // 2)
@@ -158,46 +165,9 @@ def render_single(n, dest, cmd, args, payload, csp, raw_cmd):
     for al in wrap_ascii(payload):
         print(al)
     print(row(f"  {C.DIM}CRC-16{C.END}      {C.DIM}0x{crc:04x}{C.END}"))
-    print(row())
-    print(f"{C.DIM}{BOT}{C.END}")
-
-
-def render_batch(n, batch_info, payload, csp):
-    ts = datetime.now().strftime("%H:%M:%S")
-    num = len(batch_info)
-    csp_tag = f"  {C.DIM}[CSP]{C.END}" if csp.enabled else ""
-
-    print(f"{C.DIM}{TOP}{C.END}")
-    h_left = f"{C.BOLD}{C.SUCCESS}TX #{n}{C.END}    {C.WARNING}BATCH ({num} cmds){C.END}{csp_tag}"
-    h_right = f"{C.DIM}{len(payload)} B payload{C.END}"
-    h_lv = len(f"TX #{n}    BATCH ({num} cmds)") + (7 if csp.enabled else 0)
-    h_rv = len(f"{len(payload)} B payload")
-    gap = INN_W - h_lv - len(ts) - h_rv
-    g1 = max(2, gap // 2)
-    g2 = gap - g1
-    print(row(f"{h_left}{' '*g1}{ts}{' '*g2}{h_right}"))
-
-    print(f"{C.DIM}{MID}{C.END}")
-    print(row())
     if csp.enabled:
-        print(_csp_row(csp))
-        print(row())
-    for i, (dest, cmd, args, kiss_len) in enumerate(batch_info):
-        args_str = f"  {C.LABEL}args{C.END} {C.VALUE}{args}{C.END}" if args else ""
-        print(row(
-            f"  {C.LABEL}CMD {i+1}{C.END}       "
-            f"Dest {C.VALUE}{node_label(dest)}{C.END}  "
-            f"{C.VALUE}{cmd}{C.END}{args_str}  {C.DIM}({kiss_len}B){C.END}"
-        ))
-    print(row())
-
-    print(f"{C.DIM}{MID}{C.END}")
-    print(row())
-    for hl in wrap_hex(payload.hex(' ')):
-        print(hl)
-    print(row())
-    for al in wrap_ascii(payload):
-        print(al)
+        csp_crc32 = int.from_bytes(payload[-4:], 'big')
+        print(row(f"  {C.DIM}CRC-32C{C.END}     {C.DIM}0x{csp_crc32:08x}{C.END}"))
     print(row())
     print(f"{C.DIM}{BOT}{C.END}")
 
@@ -247,7 +217,7 @@ def main():
     print()
     info_line("ZMQ", ZMQ_ADDR)
     info_line("Origin", f"GS ({GS_NODE})")
-    info_line("Framing", "KISS + AX100 ASM+Golay")
+    info_line("Framing", "CSP v1 + CRC-32C → AX100 ASM+Golay")
     if cmd_defs:
         info_line("Schema", f"{len(cmd_defs)} commands from {CMD_DEFS_PATH}")
     else:
@@ -263,9 +233,6 @@ def main():
     n = 0
     last = None
     batch = []
-
-    def max_payload():
-        return MAX_RS_PAYLOAD - csp.overhead()
 
     try:
         while True:
@@ -291,7 +258,7 @@ def main():
 
   {C.BOLD}Batch commands:{C.END}
     {C.LABEL}+ <dest> <cmd> [args]{C.END}   queue a command
-    {C.LABEL}send{C.END}                    transmit all queued
+    {C.LABEL}send{C.END}                    transmit queued (one per packet)
     {C.LABEL}batch{C.END}                   show queue
     {C.LABEL}clear{C.END}                   discard queue
 
@@ -325,13 +292,12 @@ def main():
                 if not batch:
                     print(f"  {C.DIM}batch is empty{C.END}")
                 else:
-                    total = sum(len(k) for _, _, _, k in batch)
                     print(f"\n  {C.BOLD}Batch Queue{C.END}  "
-                          f"{C.DIM}{len(batch)} commands, {total}B + {csp.overhead()}B CSP{C.END}")
-                    for i, (d, c, a, k) in enumerate(batch):
+                          f"{C.DIM}{len(batch)} commands (each sent as own packet){C.END}")
+                    for i, (d, c, a, r) in enumerate(batch):
                         print(f"    {C.DIM}{i+1}.{C.END} {C.BOLD}{node_label(d)}{C.END}  "
-                              f"{C.LABEL}{c}{C.END}  {a}  {C.DIM}({len(k)}B){C.END}")
-                    print(f"  {C.DIM}{max_payload()-total}B remaining in frame{C.END}\n")
+                              f"{C.LABEL}{c}{C.END}  {a}  {C.DIM}({len(r)}B){C.END}")
+                    print()
                 continue
 
             if low == 'clear':
@@ -346,20 +312,16 @@ def main():
                 if not batch:
                     print(f"  {C.ERROR}nothing queued -- use + to add commands{C.END}")
                     continue
-                kiss_stream = bytearray()
-                batch_info = []
-                for d, c, a, k in batch:
-                    kiss_stream.extend(k)
-                    batch_info.append((d, c, a, len(k)))
-                if len(kiss_stream) > max_payload():
-                    print(f"  {C.ERROR}batch too large: {len(kiss_stream)}B > {max_payload()}B max{C.END}")
-                    continue
-                payload = csp.wrap(bytes(kiss_stream))
-                n += 1
-                send_pdu(sock, payload)
-                render_batch(n, batch_info, payload, csp)
-                log_tx(logf, n, [{"dest": d, "dest_lbl": NODE_NAMES.get(d, "?"),
-                    "cmd": c, "args": a} for d, c, a, _ in batch], payload, csp.enabled)
+                num = len(batch)
+                print(f"  {C.WARNING}sending {num} commands (one per packet)...{C.END}")
+                for dest, cmd, args, raw_cmd in batch:
+                    payload = csp.wrap(raw_cmd)
+                    n += 1
+                    send_pdu(sock, payload)
+                    render_single(n, dest, cmd, args, payload, csp, raw_cmd)
+                    log_tx(logf, n, [{"dest": dest, "dest_lbl": NODE_NAMES.get(dest, "?"),
+                        "cmd": cmd, "args": args}], payload, csp.enabled)
+                print(f"  {C.SUCCESS}batch complete: {num} packets sent{C.END}")
                 batch.clear()
                 continue
 
@@ -374,14 +336,13 @@ def main():
                     continue
                 dest, cmd, args = parsed
                 check_args(cmd, args, cmd_defs)
-                kiss, raw = build_kiss_cmd(dest, cmd, args)
-                current = sum(len(k) for _, _, _, k in batch)
-                if current + len(kiss) > max_payload():
-                    print(f"  {C.ERROR}won't fit: {current+len(kiss)}B > {max_payload()}B{C.END}")
+                raw_cmd = build_cmd_raw(dest, cmd, args)
+                if len(raw_cmd) + csp.overhead() > MAX_RS_PAYLOAD:
+                    print(f"  {C.ERROR}command too large{C.END}")
                     continue
-                batch.append((dest, cmd, args, kiss))
+                batch.append((dest, cmd, args, raw_cmd))
                 print(f"  {C.DIM}queued #{len(batch)}: {node_label(dest)} {cmd} {args} "
-                      f"({len(kiss)}B, {max_payload()-current-len(kiss)}B remaining){C.END}")
+                      f"({len(raw_cmd)}B){C.END}")
                 continue
 
             if low in ('!!', 'last'):
@@ -410,11 +371,11 @@ def main():
             # Validate args against schema before sending
             check_args(cmd, args, cmd_defs)
 
-            kiss, raw_cmd = build_kiss_cmd(dest, cmd, args)
-            if len(kiss) + csp.overhead() > MAX_RS_PAYLOAD:
+            raw_cmd = build_cmd_raw(dest, cmd, args)
+            if len(raw_cmd) + csp.overhead() > MAX_RS_PAYLOAD:
                 print(f"  {C.ERROR}command too large{C.END}")
                 continue
-            payload = csp.wrap(kiss)
+            payload = csp.wrap(raw_cmd)
             n += 1
             send_pdu(sock, payload)
             render_single(n, dest, cmd, args, payload, csp, raw_cmd)
