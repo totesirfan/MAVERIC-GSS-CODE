@@ -18,11 +18,11 @@ back to the heuristic path automatically.
 Author:  Irfan Annuar - USC ISI SERC
 """
 
-import sys
-import time
+import argparse
 import json
 import os
-import argparse
+import sys
+import time
 from datetime import datetime
 
 from mav_gss_lib.protocol import (
@@ -57,29 +57,27 @@ def detect_frame_type(meta):
     """Determine frame type from gr-satellites metadata.
     Returns 'AX.25', 'AX100', or 'UNKNOWN'."""
     tx_info = str(meta.get("transmitter", ""))
-    if not tx_info:
-        return "UNKNOWN"
-    if "AX.25" in tx_info:
-        return "AX.25"
-    if "AX100" in tx_info:
-        return "AX100"
+    for frame_type in ("AX.25", "AX100"):
+        if frame_type in tx_info:
+            return frame_type
     return "UNKNOWN"
 
 
 def normalize_frame(frame_type, raw):
     """Strip outer framing, return (inner_payload, stripped_header_hex, warnings)."""
     warnings = []
+
     if frame_type == "AX.25":
         idx = raw.find(b"\x03\xf0")
         if idx == -1:
             warnings.append("AX.25 frame but no 03 f0 delimiter found")
             return raw, None, warnings
         return raw[idx + 2:], raw[:idx + 2].hex(" "), warnings
-    elif frame_type == "AX100":
-        return raw, None, warnings
-    else:
+
+    if frame_type != "AX100":
         warnings.append("Unknown frame type -- returning raw")
-        return raw, None, warnings
+
+    return raw, None, warnings
 
 
 # =============================================================================
@@ -313,17 +311,18 @@ def render_packet(pkt_num, gs_ts, frame_type, raw, inner_payload,
         if text:
             print(row(f"  {C.DIM}ASCII{C.END}   {C.DIM}{text}{C.END}"))
 
-        # CRC-16 status
+        # CRC status
         if cmd and cmd.get('crc') is not None:
-            c16_color = C.SUCCESS if cmd.get("crc_valid") else C.ERROR
-            c16_tag = "OK" if cmd.get("crc_valid") else "FAIL"
-            print(row(f"  {C.DIM}CRC-16{C.END}  {c16_color}0x{cmd['crc']:04x}  [{c16_tag}]{C.END}"))
+            valid = cmd.get("crc_valid")
+            color = C.SUCCESS if valid else C.ERROR
+            tag = "OK" if valid else "FAIL"
+            print(row(f"  {C.DIM}CRC-16{C.END}  {color}0x{cmd['crc']:04x}  [{tag}]{C.END}"))
 
-        # CRC-32C status
         if crc_status["csp_crc32_valid"] is not None:
-            c32_color = C.SUCCESS if crc_status["csp_crc32_valid"] else C.ERROR
-            c32_tag = "OK" if crc_status["csp_crc32_valid"] else "FAIL"
-            print(row(f"  {C.DIM}CRC-32C{C.END} {c32_color}0x{crc_status['csp_crc32_rx']:08x}  [{c32_tag}]{C.END}"))
+            valid = crc_status["csp_crc32_valid"]
+            color = C.SUCCESS if valid else C.ERROR
+            tag = "OK" if valid else "FAIL"
+            print(row(f"  {C.DIM}CRC-32C{C.END} {color}0x{crc_status['csp_crc32_rx']:08x}  [{tag}]{C.END}"))
 
         if fp:
             print(row(f"  {C.DIM}SHA256{C.END}  {C.DIM}{fp}{C.END}"))
@@ -389,7 +388,12 @@ def main():
 
             if result is None:
                 elapsed = time.time() - last_watchdog
-                tc = C.LABEL if elapsed <= 10 else (C.WARNING if elapsed <= 30 else C.ERROR)
+                if elapsed <= 10:
+                    tc = C.LABEL
+                elif elapsed <= 30:
+                    tc = C.WARNING
+                else:
+                    tc = C.ERROR
                 pkt_str = f" | {C.DIM}{packet_count} pkts{C.END}" if packet_count > 0 else ""
                 if pkt_times:
                     cutoff = time.time() - 60.0
@@ -435,12 +439,12 @@ def main():
                     apply_schema(cmd, cmd_defs)
 
             # CRC-32C verification (over full CSP packet)
-            crc_status = {"csp_crc32_valid": None, "csp_crc32_rx": None, "csp_crc32_comp": None}
+            crc_valid, crc_rx, crc_comp = (None, None, None)
             if cmd and cmd.get("csp_crc32") is not None:
-                valid, rx, comp = verify_csp_crc32(inner_payload)
-                crc_status = {"csp_crc32_valid": valid, "csp_crc32_rx": rx, "csp_crc32_comp": comp}
-                if not valid:
-                    warnings.append(f"CRC-32C mismatch: rx 0x{rx:08x} != computed 0x{comp:08x}")
+                crc_valid, crc_rx, crc_comp = verify_csp_crc32(inner_payload)
+                if crc_valid is False:
+                    warnings.append(f"CRC-32C mismatch: rx 0x{crc_rx:08x} != computed 0x{crc_comp:08x}")
+            crc_status = {"csp_crc32_valid": crc_valid, "csp_crc32_rx": crc_rx, "csp_crc32_comp": crc_comp}
 
             # SAT TIME: schema already resolved it, or regex fallback
             if cmd and cmd.get("sat_time"):

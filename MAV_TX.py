@@ -65,11 +65,17 @@ def open_log():
     return open(path, "a"), path
 
 
-def log_tx(f, n, cmds, payload, csp_enabled):
+def log_tx(f, n, dest, cmd, args, payload, csp_enabled):
     rec = {
-        "n": n, "ts": datetime.now().astimezone().isoformat(),
-        "cmds": cmds, "hex": payload.hex(), "len": len(payload),
-        "num_cmds": len(cmds), "csp": csp_enabled,
+        "n": n,
+        "ts": datetime.now().astimezone().isoformat(),
+        "dest": dest,
+        "dest_lbl": NODE_NAMES.get(dest, "?"),
+        "cmd": cmd,
+        "args": args,
+        "hex": payload.hex(),
+        "len": len(payload),
+        "csp": csp_enabled,
     }
     f.write(json.dumps(rec) + "\n")
     f.flush()
@@ -130,11 +136,12 @@ def render_single(n, dest, cmd, args, payload, csp, raw_cmd):
     echo = raw_cmd[2]
     ptype = raw_cmd[3]
     csp_tag = f"  {C.DIM}[CSP+CRC32C]{C.END}" if csp.enabled else ""
+    csp_tag_vis = len("  [CSP+CRC32C]") if csp.enabled else 0
 
     print(f"{C.DIM}{TOP}{C.END}")
     h_left = f"{C.BOLD}{C.SUCCESS}TX #{n}{C.END}    {C.SUCCESS}UPLINK{C.END}{csp_tag}"
     h_right = f"{C.DIM}{len(payload)} B payload{C.END}"
-    h_lv = len(f"TX #{n}    UPLINK") + (14 if csp.enabled else 0)
+    h_lv = len(f"TX #{n}    UPLINK") + csp_tag_vis
     h_rv = len(f"{len(payload)} B payload")
     gap = INN_W - h_lv - len(ts) - h_rv
     g1 = max(2, gap // 2)
@@ -319,8 +326,7 @@ def main():
                     n += 1
                     send_pdu(sock, payload)
                     render_single(n, dest, cmd, args, payload, csp, raw_cmd)
-                    log_tx(logf, n, [{"dest": dest, "dest_lbl": NODE_NAMES.get(dest, "?"),
-                        "cmd": cmd, "args": args}], payload, csp.enabled)
+                    log_tx(logf, n, dest, cmd, args, payload, csp.enabled)
                 print(f"  {C.SUCCESS}batch complete: {num} packets sent{C.END}")
                 batch.clear()
                 continue
@@ -379,8 +385,7 @@ def main():
             n += 1
             send_pdu(sock, payload)
             render_single(n, dest, cmd, args, payload, csp, raw_cmd)
-            log_tx(logf, n, [{"dest": dest, "dest_lbl": NODE_NAMES.get(dest, "?"),
-                "cmd": cmd, "args": args}], payload, csp.enabled)
+            log_tx(logf, n, dest, cmd, args, payload, csp.enabled)
 
     except KeyboardInterrupt:
         if batch:

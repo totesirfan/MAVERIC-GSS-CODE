@@ -155,16 +155,15 @@ def crc32c(data):
 def verify_csp_crc32(inner_payload):
     """Verify CRC-32C over a complete CSP packet (header + data + CRC-32C).
 
-    The last 4 bytes of inner_payload are the received CRC-32C (big-endian).
-    Computed over everything before those 4 bytes.
+    Last 4 bytes are the received CRC-32C (big-endian); computed over
+    everything preceding them.
 
-    Returns (is_valid, received_crc, computed_crc) or (None, None, None)
-    if the payload is too short."""
-    if len(inner_payload) < 8:  # need at least CSP hdr + 4B CRC
+    Returns (is_valid, received_crc, computed_crc).
+    Returns (None, None, None) if payload is too short to contain a CRC."""
+    if len(inner_payload) < 8:  # need at least 4B CSP header + 4B CRC
         return None, None, None
-    data = inner_payload[:-4]
     received = int.from_bytes(inner_payload[-4:], 'big')
-    computed = crc32c(data)
+    computed = crc32c(inner_payload[:-4])
     return received == computed, received, computed
 
 
@@ -183,13 +182,9 @@ def build_cmd_raw(dest, cmd, args="", echo=0, ptype=1, origin=GS_NODE):
     """Build raw MAVERIC command payload with CRC-16.
     Returns bytearray matching Commands.py wire format.
     Ready for CSP wrapping via CSPConfig.wrap()."""
-    p = bytearray()
-    p.append(origin & 0xFF)
-    p.append(dest & 0xFF)
-    p.append(echo & 0xFF)
-    p.append(ptype & 0xFF)
-    p.append(len(cmd) & 0xFF)
-    p.append(len(args) & 0xFF)
+    header = bytes([origin & 0xFF, dest & 0xFF, echo & 0xFF, ptype & 0xFF,
+                    len(cmd) & 0xFF, len(args) & 0xFF])
+    p = bytearray(header)
     p.extend(cmd.encode('ascii'))
     p.append(0x00)
     p.extend(args.encode('ascii'))
@@ -534,7 +529,7 @@ def validate_args(cmd_id, args_str, cmd_defs):
                 f"arg '{arg_def['name']}': '{raw_args[i]}' is not valid {arg_def['type']}"
             )
 
-    return len(issues) == 0, issues
+    return not issues, issues
 
 
 # =============================================================================
