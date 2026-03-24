@@ -3,7 +3,7 @@ mav_gss_lib.transport -- ZMQ + PMT Transport Layer
 
 PUB/SUB sockets and PMT PDU serialization for both RX (subscribe to
 decoded frames from gr-satellites) and TX (publish command PDUs to
-the AX100 encoder flowgraph).
+the AX.25 encoder flowgraph).
 
 Author:  Irfan Annuar - USC ISI SERC
 """

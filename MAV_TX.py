@@ -3,7 +3,7 @@ MAV_TX -- MAVERIC Command Terminal
 
 Uplink command interface for the MAVERIC CubeSat mission. Builds raw
 commands with a CSP v1 header + CRC-32C and publishes them as PMT PDUs
-over ZMQ for the AX100 ASM+Golay encoder flowgraph in GNU Radio.
+over ZMQ for the AX.25 encoder flowgraph in GNU Radio.
 
 Output PDU matches the downlink wire format:
     [CSP v1 header 4B][command + CRC-16][CRC-32C 4B BE]
@@ -18,7 +18,7 @@ before sending. Type mismatches and missing args produce warnings but do
 not block transmission -- the operator always has final say.
 
 Requires GNU Radio flowgraph:
-    ZMQ SUB Source (:52002) -> AX100 Encoder -> GFSK Mod -> USRP Sink
+    ZMQ SUB Source (:52002) -> AX.25 Encoder -> GFSK Mod -> USRP Sink
     (PDU is already a complete CSP packet — no KISS framing)
 
 Author:  Irfan Annuar - USC ISI SERC
@@ -224,7 +224,7 @@ def main():
     print()
     info_line("ZMQ", ZMQ_ADDR)
     info_line("Origin", f"GS ({GS_NODE})")
-    info_line("Framing", "CSP v1 + CRC-32C → AX100 ASM+Golay")
+    info_line("Framing", "CSP v1 + CRC-32C → AX.25")
     if cmd_defs:
         info_line("Schema", f"{len(cmd_defs)} commands from {CMD_DEFS_PATH}")
     else:

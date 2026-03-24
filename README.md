@@ -41,7 +41,7 @@ Raw hex is ground truth. All parsed fields are diagnostic until the telemetry ma
 
 ## MAV_TX — Command Terminal
 
-Interactive terminal for sending commands to the satellite. Each command is wrapped with a CSP v1 header and CRC-32C, then published as a PMT PDU over ZMQ to a GNU Radio flowgraph that handles AX100 ASM+Golay encoding, GFSK modulation, and transmission.
+Interactive terminal for sending commands to the satellite. Each command is wrapped with a CSP v1 header and CRC-32C, then published as a PMT PDU over ZMQ to a GNU Radio flowgraph that handles AX.25 encoding, GFSK modulation, and transmission.
 
 Output PDU format: `[CSP v1 header 4B][command + CRC-16][CRC-32C 4B BE]`
 
