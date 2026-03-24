@@ -234,7 +234,7 @@ def dashboard(stdscr, *, show_splash=True):
         stdscr.refresh()
 
     def send_queue():
-        nonlocal n, queue_scroll
+        nonlocal n, queue_scroll, hist_scroll
         if not queue:
             set_status("Nothing queued", 2)
             return
@@ -250,7 +250,7 @@ def dashboard(stdscr, *, show_splash=True):
             log_tx(logf, n, dest, cmd, args, payload, csp.enabled)
             echo = raw_cmd[2]
             ptype = raw_cmd[3]
-            history.insert(0, {
+            history.append({
                 "n": n,
                 "ts": datetime.now().strftime("%H:%M:%S"),
                 "dest": dest,
@@ -264,11 +264,12 @@ def dashboard(stdscr, *, show_splash=True):
         # Brief flash showing all as sent before clearing
         redraw(sending_idx=count)
         curses.napms(300)
-        # Cap history
+        # Cap history (remove oldest from the front)
         if len(history) > MAX_HISTORY:
-            del history[MAX_HISTORY:]
+            del history[:len(history) - MAX_HISTORY]
         queue.clear()
         queue_scroll = 0
+        hist_scroll = max(0, len(history) - 1)  # auto-scroll to bottom
         set_status(f"Sent {count} command{'s' if count != 1 else ''}")
 
     try:
@@ -411,17 +412,17 @@ def dashboard(stdscr, *, show_splash=True):
                     queue_scroll = 0
                 continue
 
-            # Page Up — scroll history up
+            # Page Up — scroll history up (show older)
             if ch == curses.KEY_PPAGE:
-                if hist_scroll > 0:
-                    hist_scroll = max(0, hist_scroll - 5)
+                # Minimum is data_rows-1 so a full page is visible
+                layout_h = layout["history"][2]
+                min_scroll = min(layout_h - 3, len(history) - 1)
+                hist_scroll = max(min_scroll, hist_scroll - 5)
                 continue
 
-            # Page Down — scroll history down
+            # Page Down — scroll history down (show newer)
             if ch == curses.KEY_NPAGE:
                 hist_scroll = min(len(history) - 1, hist_scroll + 5)
-                if hist_scroll < 0:
-                    hist_scroll = 0
                 continue
 
             # Up arrow — recall previous command

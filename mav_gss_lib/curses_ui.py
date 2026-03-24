@@ -324,7 +324,10 @@ def draw_history(stdscr, region, history, scroll_offset=0):
         _safe(stdscr, data_start, x + 2, "(no commands sent yet)",
               curses.color_pair(CP_DIM) | curses.A_DIM)
     else:
-        visible = history[scroll_offset:scroll_offset + data_rows]
+        # Bottom-anchored: scroll_offset is the last visible item index
+        end = min(scroll_offset + 1, count)
+        start = max(0, end - data_rows)
+        visible = history[start:end]
         for i, rec in enumerate(visible):
             row_y = data_start + i
             if row_y >= y + h:
@@ -378,7 +381,7 @@ def draw_history(stdscr, region, history, scroll_offset=0):
                       curses.color_pair(CP_DIM) | curses.A_DIM)
 
         if count > data_rows:
-            ind = f"[{scroll_offset + 1}-{min(scroll_offset + data_rows, count)}/{count}]"
+            ind = f"[{start + 1}-{end}/{count}]"
             _safe(stdscr, y + h - 1, x + w - len(ind) - 2, ind,
                   curses.color_pair(CP_DIM) | curses.A_DIM)
 
