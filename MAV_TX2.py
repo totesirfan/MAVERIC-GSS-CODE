@@ -16,6 +16,7 @@ Fallback: run MAV_TX.py for the original interactive CLI.
 Author:  Irfan Annuar - USC ISI SERC
 """
 
+import argparse
 import curses
 import os
 import json
@@ -46,6 +47,7 @@ LOG_DIR       = "logs"
 MAX_RS_PAYLOAD = 223
 CMD_DEFS_PATH  = "maveric_commands.yml"
 FREQUENCY      = "437.25 MHz"
+TX_DELAY_MS    = 500
 MAX_HISTORY    = 500
 
 
@@ -129,13 +131,14 @@ def csp_handle_msg(csp, args):
 
 # -- Dashboard ----------------------------------------------------------------
 
-def dashboard(stdscr):
+def dashboard(stdscr, *, show_splash=True):
     curses.curs_set(0)
     curses.raw()          # disable Ctrl+S/Ctrl+Q flow control so Ctrl+S works
     curses.set_escdelay(25)  # fast Esc response (25ms instead of default 1000ms)
     init_colors()
     stdscr.keypad(True)   # enable KEY_LEFT, KEY_UP, etc.
-    draw_splash(stdscr)
+    if show_splash:
+        draw_splash(stdscr)
     curses.halfdelay(5)   # 500ms timeout for getch — drives clock updates
 
     csp  = CSPConfig()
@@ -159,6 +162,7 @@ def dashboard(stdscr):
     cmd_hist_save = ""   # saved current input when browsing
     freq          = FREQUENCY  # mutable so config panel can change it
     zmq_addr_disp = ZMQ_ADDR   # display value (port change needs restart)
+    tx_delay_ms   = TX_DELAY_MS  # delay between queued commands (ms)
 
     # Side panel state
     help_open       = False
@@ -175,13 +179,35 @@ def dashboard(stdscr):
         status_msg = msg
         status_expire = time.time() + duration
 
+    def redraw(sending_idx=-1):
+        """Redraw all panels (used during send to show progress)."""
+        max_y, max_x = stdscr.getmaxyx()
+        stdscr.erase()
+        side_open = config_open or help_open
+        layout = calculate_layout(max_y, max_x, side_panel=side_open)
+        if layout is None:
+            return
+        draw_header(stdscr, layout["header"], csp, ax25, zmq_addr_disp,
+                    freq=freq, log_path=logpath)
+        draw_queue(stdscr, layout["queue"], queue,
+                   scroll_offset=queue_scroll, sending_idx=sending_idx)
+        draw_history(stdscr, layout["history"], history,
+                     scroll_offset=hist_scroll)
+        draw_input(stdscr, layout["input"], input_buf, cursor_pos,
+                   len(queue), status_msg)
+        stdscr.refresh()
+
     def send_queue():
         nonlocal n, queue_scroll
         if not queue:
             set_status("Nothing queued", 2)
             return
         count = len(queue)
-        for dest, cmd, args, raw_cmd in queue:
+        for i, (dest, cmd, args, raw_cmd) in enumerate(queue):
+            # Show this command as "SENDING", previous as "SENT"
+            redraw(sending_idx=i)
+            if i > 0 and tx_delay_ms > 0:
+                curses.napms(tx_delay_ms)
             payload = ax25.wrap(csp.wrap(raw_cmd))
             n += 1
             send_pdu(sock, payload)
@@ -199,6 +225,9 @@ def dashboard(stdscr):
                 "payload_len": len(payload),
                 "csp_enabled": csp.enabled,
             })
+        # Brief flash showing all as sent before clearing
+        redraw(sending_idx=count)
+        curses.napms(300)
         # Cap history
         if len(history) > MAX_HISTORY:
             del history[MAX_HISTORY:]
@@ -246,7 +275,7 @@ def dashboard(stdscr):
             if config_open and "side_panel" in layout:
                 if not config_values:
                     config_values = config_get_values(
-                        csp, ax25, freq, zmq_addr_disp, logpath)
+                        csp, ax25, freq, zmq_addr_disp, tx_delay_ms, logpath)
                 draw_config(stdscr, layout["side_panel"], config_values,
                             config_selected, config_editing,
                             config_buf, config_cursor, config_focused)
@@ -299,14 +328,14 @@ def dashboard(stdscr):
                     config_values[key] = config_buf
                     config_editing = False
                     try:
-                        freq, zmq_addr_disp = config_apply(
+                        freq, zmq_addr_disp, tx_delay_ms = config_apply(
                             config_values, csp, ax25)
                         config_values = config_get_values(
-                            csp, ax25, freq, zmq_addr_disp, logpath)
+                            csp, ax25, freq, zmq_addr_disp, tx_delay_ms, logpath)
                     except (ValueError, KeyError):
                         set_status("Invalid value", 2)
                         config_values = config_get_values(
-                            csp, ax25, freq, zmq_addr_disp, logpath)
+                            csp, ax25, freq, zmq_addr_disp, tx_delay_ms, logpath)
                 elif ch in (curses.KEY_BACKSPACE, 127, 8):
                     if config_cursor > 0:
                         config_buf = config_buf[:config_cursor - 1] + config_buf[config_cursor:]
@@ -500,7 +529,7 @@ def dashboard(stdscr):
                     config_selected = 0
                     config_editing = False
                     config_values = config_get_values(
-                        csp, ax25, freq, zmq_addr_disp, logpath)
+                        csp, ax25, freq, zmq_addr_disp, tx_delay_ms, logpath)
                     continue
 
                 # Nodes
@@ -574,7 +603,13 @@ def dashboard(stdscr):
 
 
 def main():
-    n, logpath = curses.wrapper(dashboard)
+    parser = argparse.ArgumentParser(description="MAVERIC TX Dashboard")
+    parser.add_argument("--nosplash", action="store_true",
+                        help="skip the startup splash screen")
+    args = parser.parse_args()
+
+    n, logpath = curses.wrapper(lambda stdscr: dashboard(
+        stdscr, show_splash=not args.nosplash))
     # Print session summary after curses restores the terminal
     print()
     print(f"  Session ended")

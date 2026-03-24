@@ -236,8 +236,13 @@ def draw_header(stdscr, region, csp, ax25, zmq_addr, freq="435.0 MHz",
 
 # -- Queue Panel --------------------------------------------------------------
 
-def draw_queue(stdscr, region, queue, scroll_offset=0):
-    """Draw the TX Queue panel with scrollable command list."""
+def draw_queue(stdscr, region, queue, scroll_offset=0, sending_idx=-1):
+    """Draw the TX Queue panel with scrollable command list.
+
+    sending_idx: index of the command currently being sent (-1 = not sending).
+    Items before sending_idx are dimmed (already sent), the active item is
+    highlighted green, and items after are normal (waiting).
+    """
     y, x, h, w = region
 
     # Title row
@@ -261,29 +266,60 @@ def draw_queue(stdscr, region, queue, scroll_offset=0):
             if row_y >= y + h:
                 break
             idx = scroll_offset + i + 1
+            abs_idx = scroll_offset + i  # 0-based index into queue
             dest_lbl = _node_name(dest)
             col = x + 1
 
+            # Determine row style based on send progress
+            if sending_idx >= 0:
+                if abs_idx < sending_idx:
+                    # Already sent — dim
+                    lbl_attr = curses.color_pair(CP_DIM) | curses.A_DIM
+                    val_attr = curses.color_pair(CP_DIM) | curses.A_DIM
+                    idx_attr = curses.color_pair(CP_DIM) | curses.A_DIM
+                    tag = " SENT"
+                    tag_attr = curses.color_pair(CP_SUCCESS) | curses.A_DIM
+                elif abs_idx == sending_idx:
+                    # Currently sending — green highlight
+                    lbl_attr = curses.color_pair(CP_SUCCESS) | curses.A_BOLD
+                    val_attr = curses.color_pair(CP_SUCCESS) | curses.A_BOLD
+                    idx_attr = curses.color_pair(CP_SUCCESS) | curses.A_BOLD
+                    tag = " SENDING"
+                    tag_attr = curses.color_pair(CP_SUCCESS) | curses.A_BOLD
+                else:
+                    # Waiting
+                    lbl_attr = curses.color_pair(CP_LABEL) | curses.A_BOLD
+                    val_attr = curses.color_pair(CP_VALUE) | curses.A_BOLD
+                    idx_attr = curses.color_pair(CP_DIM) | curses.A_DIM
+                    tag = ""
+                    tag_attr = 0
+            else:
+                lbl_attr = curses.color_pair(CP_LABEL) | curses.A_BOLD
+                val_attr = curses.color_pair(CP_VALUE) | curses.A_BOLD
+                idx_attr = curses.color_pair(CP_DIM) | curses.A_DIM
+                tag = ""
+                tag_attr = 0
+
             idx_str = f"{idx:>2}."
-            _safe(stdscr, row_y, col, idx_str,
-                  curses.color_pair(CP_DIM) | curses.A_DIM)
+            _safe(stdscr, row_y, col, idx_str, idx_attr)
             col += len(idx_str) + 1
 
-            _safe(stdscr, row_y, col, dest_lbl,
-                  curses.color_pair(CP_LABEL) | curses.A_BOLD)
+            _safe(stdscr, row_y, col, dest_lbl, lbl_attr)
             col += len(dest_lbl) + 1
 
-            _safe(stdscr, row_y, col, cmd,
-                  curses.color_pair(CP_VALUE) | curses.A_BOLD)
+            _safe(stdscr, row_y, col, cmd, val_attr)
             col += len(cmd) + 1
 
             if args:
                 _safe(stdscr, row_y, col, args,
-                      curses.color_pair(CP_VALUE))
+                      val_attr & ~curses.A_BOLD if sending_idx < 0 else val_attr)
 
-            size_str = f"({len(raw_cmd)}B)"
-            _safe(stdscr, row_y, x + w - len(size_str) - 2, size_str,
-                  curses.color_pair(CP_DIM) | curses.A_DIM)
+            # Right side: size + optional tag
+            right = f"({len(raw_cmd)}B)"
+            if tag:
+                right = tag + "  " + right
+            _safe(stdscr, row_y, x + w - len(right) - 2, right,
+                  tag_attr if tag else curses.color_pair(CP_DIM) | curses.A_DIM)
 
         if count > data_rows:
             ind = f"[{scroll_offset + 1}-{min(scroll_offset + data_rows, count)}/{count}]"
@@ -388,11 +424,12 @@ CONFIG_FIELDS = [
     ("CSP Flags",       "csp_flags",      True),
     ("Frequency",       "freq",           True),
     ("ZMQ Address",     "zmq_addr",       True),
+    ("TX Delay (ms)",   "tx_delay_ms",    True),
     ("Log File",        "log_path",       False),
 ]
 
 
-def config_get_values(csp, ax25, freq, zmq_addr, log_path):
+def config_get_values(csp, ax25, freq, zmq_addr, tx_delay_ms, log_path):
     """Read current config into a dict keyed by field key."""
     return {
         "ax25_src_call":  ax25.src_call,
@@ -407,12 +444,13 @@ def config_get_values(csp, ax25, freq, zmq_addr, log_path):
         "csp_flags":      f"0x{csp.flags:02X}",
         "freq":           freq,
         "zmq_addr":       zmq_addr,
+        "tx_delay_ms":    str(tx_delay_ms),
         "log_path":       log_path,
     }
 
 
 def config_apply(values, csp, ax25):
-    """Apply edited values back to csp/ax25. Returns (freq, zmq_addr)."""
+    """Apply edited values back to csp/ax25. Returns (freq, zmq_addr, tx_delay_ms)."""
     ax25.src_call  = values["ax25_src_call"].upper()[:6]
     ax25.src_ssid  = int(values["ax25_src_ssid"]) & 0x0F
     ax25.dest_call = values["ax25_dest_call"].upper()[:6]
@@ -423,7 +461,8 @@ def config_apply(values, csp, ax25):
     csp.dport = int(values["csp_dport"], 0)
     csp.sport = int(values["csp_sport"], 0)
     csp.flags = int(values["csp_flags"], 0)
-    return values["freq"], values["zmq_addr"]
+    tx_delay_ms = max(0, int(values["tx_delay_ms"]))
+    return values["freq"], values["zmq_addr"], tx_delay_ms
 
 
 def draw_config(stdscr, region, values, selected, editing,
