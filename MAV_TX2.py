@@ -261,6 +261,7 @@ def dashboard(stdscr, *, show_splash=True):
                 "payload_len": len(payload),
                 "csp_enabled": csp.enabled,
             })
+            hist_scroll = len(history) - 1  # keep history view on latest
         # Brief flash showing all as sent before clearing
         redraw(sending_idx=count)
         curses.napms(300)
