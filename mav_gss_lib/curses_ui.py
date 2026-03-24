@@ -217,7 +217,8 @@ def draw_header(stdscr, region, csp, ax25, zmq_addr, freq="435.0 MHz",
 
 # -- Queue Panel --------------------------------------------------------------
 
-def draw_queue(stdscr, region, queue, scroll_offset=0, sending_idx=-1):
+def draw_queue(stdscr, region, queue, scroll_offset=0, sending_idx=-1,
+               tx_delay_ms=0):
     """Draw the TX Queue panel with scrollable command list.
 
     sending_idx: index of the command currently being sent (-1 = not sending).
@@ -228,7 +229,15 @@ def draw_queue(stdscr, region, queue, scroll_offset=0, sending_idx=-1):
 
     # Title row
     count = len(queue)
-    title = f" TX QUEUE ({count})"
+    total_ms = (count - 1) * tx_delay_ms if count > 1 else 0
+    if total_ms >= 1000:
+        total_str = f"{total_ms / 1000:.1f}s"
+    else:
+        total_str = f"{total_ms}ms"
+    if count > 1:
+        title = f" TX QUEUE ({count})  buf: {tx_delay_ms}ms  total: {total_str}"
+    else:
+        title = f" TX QUEUE ({count})  buf: {tx_delay_ms}ms"
     _safe(stdscr, y, x, title,
           curses.color_pair(CP_WARNING) | curses.A_BOLD)
     hints = "Ctrl+S: send | Ctrl+X: clear"

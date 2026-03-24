@@ -225,7 +225,8 @@ def dashboard(stdscr, *, show_splash=True):
         draw_header(stdscr, layout["header"], csp, ax25, zmq_addr_disp,
                     freq=freq, log_path=logpath)
         draw_queue(stdscr, layout["queue"], queue,
-                   scroll_offset=queue_scroll, sending_idx=sending_idx)
+                   scroll_offset=queue_scroll, sending_idx=sending_idx,
+                   tx_delay_ms=tx_delay_ms)
         draw_history(stdscr, layout["history"], history,
                      scroll_offset=hist_scroll)
         draw_input(stdscr, layout["input"], input_buf, cursor_pos,
@@ -300,7 +301,7 @@ def dashboard(stdscr, *, show_splash=True):
             draw_header(stdscr, layout["header"], csp, ax25, zmq_addr_disp,
                         freq=freq, log_path=logpath)
             draw_queue(stdscr, layout["queue"], queue,
-                       scroll_offset=queue_scroll)
+                       scroll_offset=queue_scroll, tx_delay_ms=tx_delay_ms)
             draw_history(stdscr, layout["history"], history,
                          scroll_offset=hist_scroll)
             draw_input(stdscr, layout["input"], input_buf, cursor_pos,
