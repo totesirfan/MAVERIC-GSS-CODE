@@ -76,7 +76,8 @@ def calculate_rx_layout(max_y, max_x, detail_open=False, side_panel=False):
 # -- Header Panel -------------------------------------------------------------
 
 def draw_rx_header(stdscr, region, zmq_addr, freq="437.25 MHz",
-                   show_hex=True, logging_enabled=True, queue_depth=0):
+                   show_hex=True, logging_enabled=True, queue_depth=0,
+                   zmq_status="SUB"):
     """Draw the 4-row RX header with live clock, ZMQ, freq, toggles, queue."""
     y, x, h, w = region
     utc_now = datetime.now(timezone.utc).strftime("%H:%M:%S")
@@ -96,13 +97,22 @@ def draw_rx_header(stdscr, region, zmq_addr, freq="437.25 MHz",
     # Row 2: ZMQ address + freq + toggle indicators
     safe_addstr(stdscr, y + 2, x + 1, "ZMQ",
           curses.color_pair(CP_LABEL))
+    zmq_tag = f"[{zmq_status}]"
+    if zmq_status == "LIVE":
+        tag_attr = curses.color_pair(CP_SUCCESS) | curses.A_BOLD
+    elif zmq_status == "DOWN":
+        tag_attr = curses.color_pair(CP_ERROR) | curses.A_BOLD
+    else:
+        tag_attr = curses.color_pair(CP_VALUE) | curses.A_BOLD
     safe_addstr(stdscr, y + 2, x + 7,
-          f"{zmq_addr} [SUB]",
+          f"{zmq_addr} ",
           curses.color_pair(CP_VALUE) | curses.A_BOLD)
+    safe_addstr(stdscr, y + 2, x + 7 + len(zmq_addr) + 1,
+          zmq_tag, tag_attr)
 
     # Frequency (middle area)
     freq_str = f"Freq: {freq}"
-    freq_x = x + 7 + len(zmq_addr) + 8
+    freq_x = x + 7 + len(zmq_addr) + 1 + len(zmq_tag) + 2
     safe_addstr(stdscr, y + 2, freq_x, freq_str,
           curses.color_pair(CP_WARNING))
 

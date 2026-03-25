@@ -28,7 +28,8 @@ import time
 from datetime import datetime
 
 from mav_gss_lib.protocol import init_nodes, load_command_defs
-from mav_gss_lib.transport import init_zmq_sub, receive_pdu
+from mav_gss_lib.transport import (init_zmq_sub, receive_pdu,
+                                   create_monitor, poll_monitor, _SUB_STATUS)
 from mav_gss_lib.parsing import RxPipeline, build_rx_log_record
 from mav_gss_lib.logging import SessionLog
 from mav_gss_lib.curses_common import init_dashboard, draw_splash, edit_buffer
@@ -78,12 +79,14 @@ def _load_tx_frequencies(path):
 #  ZMQ RECEIVER THREAD
 # =============================================================================
 
-def _receiver_thread(sock, pkt_queue, stop_event, on_error=None):
+def _receiver_thread(sock, pkt_queue, stop_event, monitor, status_holder,
+                     on_error=None):
     """Background thread: continuously drain ZMQ into a thread-safe queue."""
     while not stop_event.is_set():
         result = receive_pdu(sock, on_error=on_error)
         if result is not None:
             pkt_queue.put(result)
+        status_holder[0] = poll_monitor(monitor, _SUB_STATUS, status_holder[0])
 
 
 # =============================================================================
@@ -170,6 +173,8 @@ def rx_dashboard(stdscr, show_splash=True):
     # -- Start receiver thread --
     pkt_queue = queue.Queue()
     stop_event = threading.Event()
+    zmq_monitor = create_monitor(sock)
+    zmq_status = ["SUB"]  # mutable container shared with receiver thread
 
     def on_zmq_error(msg):
         nonlocal error_msg, error_expire
@@ -178,7 +183,8 @@ def rx_dashboard(stdscr, show_splash=True):
 
     rx_thread = threading.Thread(
         target=_receiver_thread,
-        args=(sock, pkt_queue, stop_event, on_zmq_error),
+        args=(sock, pkt_queue, stop_event, zmq_monitor, zmq_status,
+              on_zmq_error),
         daemon=True,
     )
     rx_thread.start()
@@ -409,7 +415,8 @@ def rx_dashboard(stdscr, show_splash=True):
             draw_rx_header(stdscr, layout["header"], ZMQ_ADDR,
                            freq=frequency, show_hex=show_hex,
                            logging_enabled=logging_enabled,
-                           queue_depth=pkt_queue.qsize())
+                           queue_depth=pkt_queue.qsize(),
+                           zmq_status=zmq_status[0])
             draw_packet_list(stdscr, layout["packet_list"], packets,
                              actual_selected, scroll_offset,
                              auto_follow=auto_follow)
@@ -457,6 +464,7 @@ def rx_dashboard(stdscr, show_splash=True):
         except Exception:
             pass
         try:
+            zmq_monitor.close()
             sock.close()
             context.term()
         except Exception:

@@ -74,7 +74,7 @@ def calculate_layout(max_y, max_x, side_panel=False):
 # -- Header Panel -------------------------------------------------------------
 
 def draw_header(stdscr, region, csp, ax25, zmq_addr, freq="435.0 MHz",
-                log_path=""):
+                log_path="", zmq_status="BOUND"):
     """Draw the 4-row header with live clock, callsigns, CSP, ZMQ."""
     y, x, h, w = region
     utc_now = datetime.now(timezone.utc).strftime("%H:%M:%S")
@@ -111,9 +111,16 @@ def draw_header(stdscr, region, csp, ax25, zmq_addr, freq="435.0 MHz",
     # Row 3: ZMQ + Freq
     safe_addstr(stdscr, y + 3, x + 1, "ZMQ",
           curses.color_pair(CP_LABEL))
+    zmq_tag = f"[{zmq_status}]"
+    if zmq_status == "LIVE":
+        tag_attr = curses.color_pair(CP_SUCCESS) | curses.A_BOLD
+    else:
+        tag_attr = curses.color_pair(CP_VALUE) | curses.A_BOLD
     safe_addstr(stdscr, y + 3, x + 7,
-          f"{zmq_addr} [BOUND]",
+          f"{zmq_addr} ",
           curses.color_pair(CP_VALUE) | curses.A_BOLD)
+    safe_addstr(stdscr, y + 3, x + 7 + len(zmq_addr) + 1,
+          zmq_tag, tag_attr)
     freq_str = f"Freq: {freq}"
     safe_addstr(stdscr, y + 3, x + csp_x, freq_str,
           curses.color_pair(CP_WARNING))

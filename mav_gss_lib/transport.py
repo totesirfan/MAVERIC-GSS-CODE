@@ -79,3 +79,40 @@ def send_pdu(sock, payload):
     meta = pmt.make_dict()
     vec = pmt.init_u8vector(len(payload), list(payload))
     sock.send(pmt.serialize_str(pmt.cons(meta, vec)))
+
+
+# -- ZMQ Socket Monitoring ---------------------------------------------------
+
+# Event-to-status mappings for SUB (connect) and PUB (bind) sockets
+_SUB_STATUS = {
+    zmq.EVENT_CONNECTED:       "LIVE",
+    zmq.EVENT_DISCONNECTED:    "DOWN",
+    zmq.EVENT_CONNECT_RETRIED: "RETRY",
+}
+
+_PUB_STATUS = {
+    zmq.EVENT_LISTENING:    "BOUND",
+    zmq.EVENT_ACCEPTED:     "LIVE",
+    zmq.EVENT_DISCONNECTED: "BOUND",
+}
+
+
+def create_monitor(sock):
+    """Create and return a ZMQ monitor socket for connection state events."""
+    return sock.get_monitor_socket()
+
+
+def poll_monitor(monitor, status_map, current):
+    """Drain pending monitor events and return updated status string.
+
+    Non-blocking.  Returns *current* unchanged if no relevant events queued.
+    """
+    while True:
+        try:
+            msg = monitor.recv_multipart(zmq.NOBLOCK)
+            event = int.from_bytes(msg[0][:2], "little")
+            if event in status_map:
+                current = status_map[event]
+        except zmq.Again:
+            break
+    return current

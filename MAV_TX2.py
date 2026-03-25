@@ -24,7 +24,8 @@ from mav_gss_lib.protocol import (
     build_cmd_raw, AX25Config, CSPConfig,
     load_command_defs, validate_args, parse_cmd_line,
 )
-from mav_gss_lib.transport import init_zmq_pub, send_pdu
+from mav_gss_lib.transport import (init_zmq_pub, send_pdu,
+                                   create_monitor, poll_monitor, _PUB_STATUS)
 from mav_gss_lib.logging import TXLog
 from mav_gss_lib.curses_common import init_dashboard, draw_splash, edit_buffer
 from mav_gss_lib.config import (
@@ -89,6 +90,8 @@ def dashboard(stdscr, *, show_splash=True):
     cmd_defs = load_command_defs(CMD_DEFS_PATH)
 
     ctx, sock = init_zmq_pub(ZMQ_ADDR)
+    zmq_monitor = create_monitor(sock)
+    zmq_status = "BOUND"
     tx_log = TXLog(LOG_DIR, ZMQ_ADDR, version=VERSION)
     session_start = time.time()
 
@@ -132,7 +135,8 @@ def dashboard(stdscr, *, show_splash=True):
         if layout is None:
             return
         draw_header(stdscr, layout["header"], csp, ax25, zmq_addr_disp,
-                    freq=freq, log_path=tx_log.text_path)
+                    freq=freq, log_path=tx_log.text_path,
+                    zmq_status=zmq_status)
         draw_queue(stdscr, layout["queue"], tx_queue,
                    scroll_offset=queue_scroll, sending_idx=sending_idx,
                    tx_delay_ms=tx_delay_ms)
@@ -208,9 +212,11 @@ def dashboard(stdscr, *, show_splash=True):
             if status_msg and time.time() >= status_expire:
                 status_msg = ""
 
-            # -- Draw panels --
+            # -- Poll ZMQ monitor & draw panels --
+            zmq_status = poll_monitor(zmq_monitor, _PUB_STATUS, zmq_status)
             draw_header(stdscr, layout["header"], csp, ax25, zmq_addr_disp,
-                        freq=freq, log_path=tx_log.text_path)
+                        freq=freq, log_path=tx_log.text_path,
+                        zmq_status=zmq_status)
             draw_queue(stdscr, layout["queue"], tx_queue,
                        scroll_offset=queue_scroll, tx_delay_ms=tx_delay_ms)
             draw_history(stdscr, layout["history"], history,
@@ -497,6 +503,7 @@ def dashboard(stdscr, *, show_splash=True):
         except Exception:
             pass
         try:
+            zmq_monitor.close()
             sock.close()
             ctx.term()
         except Exception:
