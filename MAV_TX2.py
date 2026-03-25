@@ -15,20 +15,22 @@ Author:  Irfan Annuar - USC ISI SERC
 
 import argparse
 import curses
-import json
-import os
 import time
 from datetime import datetime
 
 import mav_gss_lib.protocol as protocol
 from mav_gss_lib.protocol import (
-    init_nodes, node_label, resolve_node, resolve_ptype,
+    init_nodes, node_label,
     build_cmd_raw, AX25Config, CSPConfig,
-    load_command_defs, validate_args,
+    load_command_defs, validate_args, parse_cmd_line,
 )
 from mav_gss_lib.transport import init_zmq_pub, send_pdu
+from mav_gss_lib.logging import TXLog
 from mav_gss_lib.curses_common import init_colors, draw_splash, edit_buffer
-from mav_gss_lib.config import load_gss_config, apply_ax25, apply_csp
+from mav_gss_lib.config import (
+    load_gss_config, apply_ax25, apply_csp,
+    ax25_handle_msg, csp_handle_msg,
+)
 from mav_gss_lib.curses_tx import (
     calculate_layout,
     draw_header, draw_queue, draw_history, draw_input,
@@ -51,111 +53,6 @@ FREQUENCY      = CFG["tx"]["frequency"]
 TX_DELAY_MS    = CFG["tx"]["delay_ms"]
 MAX_HISTORY      = 500
 MAX_CMD_HISTORY  = 500
-
-
-# -- Logging ------------------------------------------------------------------
-
-def open_log():
-    os.makedirs(LOG_DIR, exist_ok=True)
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    path = os.path.join(LOG_DIR, f"uplink_{ts}.jsonl")
-    return open(path, "a"), path
-
-
-def log_tx(f, n, dest, cmd, args, payload, csp_enabled):
-    rec = {
-        "n": n,
-        "ts": datetime.now().astimezone().isoformat(),
-        "dest": dest,
-        "dest_lbl": protocol.NODE_NAMES.get(dest, "?"),
-        "cmd": cmd,
-        "args": args,
-        "hex": payload.hex(),
-        "len": len(payload),
-        "csp": csp_enabled,
-    }
-    f.write(json.dumps(rec) + "\n")
-    f.flush()
-
-
-# -- Command Parsing ----------------------------------------------------------
-
-def parse_cmd_line(line):
-    """Parse command line: [SRC] DEST ECHO TYPE CMD [ARGS]
-
-    SRC is optional — if omitted, defaults to GS (node 6).
-    Detection: with 5+ tokens, if parts[3] resolves as a ptype then
-    the first token is SRC; otherwise the old 4-token format is assumed.
-
-    Returns (src, dest, echo, ptype, cmd, args) or None on failure."""
-    parts = line.split(None, 5)
-    if len(parts) < 4:
-        return None
-
-    # Detect format: if parts[3] is a valid ptype, first token is SRC
-    ptype3 = resolve_ptype(parts[3]) if len(parts) >= 5 else None
-    if ptype3 is not None:
-        offset, src = 1, resolve_node(parts[0])
-        if src is None:
-            return None
-        ptype = ptype3
-    else:
-        offset, src = 0, protocol.GS_NODE
-        ptype = resolve_ptype(parts[2])
-        if ptype is None:
-            return None
-
-    dest = resolve_node(parts[offset])
-    if dest is None:
-        return None
-    echo = resolve_node(parts[offset + 1])
-    if echo is None:
-        return None
-
-    cmd_idx = offset + 3
-    args = " ".join(parts[cmd_idx + 1:]) if len(parts) > cmd_idx + 1 else ""
-    return (src, dest, echo, ptype, parts[cmd_idx].lower(), args)
-
-
-# -- Config Handlers (return status strings instead of printing) --------------
-
-def ax25_handle_msg(ax25, args):
-    """Handle AX.25 config command, return status message."""
-    if not args:
-        return (f"AX.25  Dest:{ax25.dest_call}-{ax25.dest_ssid}  "
-                f"Src:{ax25.src_call}-{ax25.src_ssid}")
-    parts = args.split()
-    cmd = parts[0].lower()
-    if cmd == 'dest' and len(parts) > 1:
-        ax25.dest_call = parts[1].upper()[:6]
-        if len(parts) > 2 and parts[2].isdigit():
-            ax25.dest_ssid = int(parts[2]) & 0x0F
-        return f"AX.25 dest = {ax25.dest_call}-{ax25.dest_ssid}"
-    elif cmd == 'src' and len(parts) > 1:
-        ax25.src_call = parts[1].upper()[:6]
-        if len(parts) > 2 and parts[2].isdigit():
-            ax25.src_ssid = int(parts[2]) & 0x0F
-        return f"AX.25 src = {ax25.src_call}-{ax25.src_ssid}"
-    return "ax25 [dest <call> [ssid]|src <call> [ssid]]"
-
-
-def csp_handle_msg(csp, args):
-    """Handle CSP config command, return status message."""
-    if not args:
-        hdr = csp.build_header()
-        return (f"CSP  Prio:{csp.prio} Src:{csp.src} "
-                f"Dest:{csp.dest} DPort:{csp.dport} SPort:{csp.sport} "
-                f"Flags:0x{csp.flags:02X}  ({hdr.hex(' ')})")
-    parts = args.split()
-    cmd = parts[0].lower()
-    if cmd in ('prio', 'src', 'dest', 'dport', 'sport', 'flags') and len(parts) > 1:
-        try:
-            val = int(parts[1], 0)
-        except ValueError:
-            return f"Invalid value: {parts[1]}"
-        setattr(csp, cmd, val)
-        return f"CSP {cmd} = {val}"
-    return "csp [prio|src|dest|dport|sport|flags] [value]"
 
 
 # -- Dashboard ----------------------------------------------------------------
@@ -194,7 +91,7 @@ def dashboard(stdscr, *, show_splash=True):
     cmd_defs = load_command_defs(CMD_DEFS_PATH)
 
     ctx, sock = init_zmq_pub(ZMQ_ADDR)
-    logf, logpath = open_log()
+    tx_log = TXLog(LOG_DIR)
 
     queue   = []       # list of (src, dest, echo, ptype, cmd, args, raw_cmd)
     history = []       # list of dicts
@@ -236,7 +133,7 @@ def dashboard(stdscr, *, show_splash=True):
         if layout is None:
             return
         draw_header(stdscr, layout["header"], csp, ax25, zmq_addr_disp,
-                    freq=freq, log_path=logpath)
+                    freq=freq, log_path=tx_log.path)
         draw_queue(stdscr, layout["queue"], queue,
                    scroll_offset=queue_scroll, sending_idx=sending_idx,
                    tx_delay_ms=tx_delay_ms)
@@ -260,7 +157,8 @@ def dashboard(stdscr, *, show_splash=True):
             payload = ax25.wrap(csp.wrap(raw_cmd))
             n += 1
             send_pdu(sock, payload)
-            log_tx(logf, n, dest, cmd, args, payload, csp.enabled)
+            tx_log.write(n, dest, protocol.NODE_NAMES.get(dest, "?"),
+                         cmd, args, payload, csp.enabled)
             history.append({
                 "n": n,
                 "ts": datetime.now().strftime("%H:%M:%S"),
@@ -313,7 +211,7 @@ def dashboard(stdscr, *, show_splash=True):
 
             # -- Draw panels --
             draw_header(stdscr, layout["header"], csp, ax25, zmq_addr_disp,
-                        freq=freq, log_path=logpath)
+                        freq=freq, log_path=tx_log.path)
             draw_queue(stdscr, layout["queue"], queue,
                        scroll_offset=queue_scroll, tx_delay_ms=tx_delay_ms)
             draw_history(stdscr, layout["history"], history,
@@ -325,14 +223,14 @@ def dashboard(stdscr, *, show_splash=True):
             if config_open and "side_panel" in layout:
                 if not config_values:
                     config_values = config_get_values(
-                        csp, ax25, freq, zmq_addr_disp, tx_delay_ms, logpath)
+                        csp, ax25, freq, zmq_addr_disp, tx_delay_ms, tx_log.path)
                 draw_config(stdscr, layout["side_panel"], config_values,
                             config_selected, config_editing,
                             config_buf, config_cursor, config_focused)
             elif help_open and "side_panel" in layout:
                 draw_help(stdscr, layout["side_panel"],
                           version=VERSION, schema_count=len(cmd_defs),
-                          schema_path=CMD_DEFS_PATH, log_path=logpath)
+                          schema_path=CMD_DEFS_PATH, log_path=tx_log.path)
 
             stdscr.refresh()
 
@@ -383,11 +281,11 @@ def dashboard(stdscr, *, show_splash=True):
                         freq, zmq_addr_disp, tx_delay_ms = config_apply(
                             config_values, csp, ax25)
                         config_values = config_get_values(
-                            csp, ax25, freq, zmq_addr_disp, tx_delay_ms, logpath)
+                            csp, ax25, freq, zmq_addr_disp, tx_delay_ms, tx_log.path)
                     except (ValueError, KeyError):
                         set_status("Invalid value", 2)
                         config_values = config_get_values(
-                            csp, ax25, freq, zmq_addr_disp, tx_delay_ms, logpath)
+                            csp, ax25, freq, zmq_addr_disp, tx_delay_ms, tx_log.path)
                 else:
                     config_buf, config_cursor, _ = edit_buffer(
                         ch, config_buf, config_cursor)
@@ -539,7 +437,7 @@ def dashboard(stdscr, *, show_splash=True):
                     config_selected = 0
                     config_editing = False
                     config_values = config_get_values(
-                        csp, ax25, freq, zmq_addr_disp, tx_delay_ms, logpath)
+                        csp, ax25, freq, zmq_addr_disp, tx_delay_ms, tx_log.path)
                     continue
 
                 # Nodes
@@ -605,11 +503,11 @@ def dashboard(stdscr, *, show_splash=True):
             input_buf, cursor_pos, _ = edit_buffer(ch, input_buf, cursor_pos)
 
     finally:
-        logf.close()
+        tx_log.close()
         sock.close()
         ctx.term()
 
-    return n, logpath
+    return n, tx_log.path
 
 
 def main():

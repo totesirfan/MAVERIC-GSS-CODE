@@ -600,6 +600,80 @@ def validate_args(cmd_id, args_str, cmd_defs):
 
 
 # =============================================================================
+#  FRAME NORMALIZATION (RX direction)
+#
+#  Detect frame type from gr-satellites metadata and strip outer framing
+#  to expose the inner CSP+command payload.
+# =============================================================================
+
+def detect_frame_type(meta):
+    """Determine frame type from gr-satellites metadata."""
+    tx_info = str(meta.get("transmitter", ""))
+    for frame_type in ("AX.25", "AX100"):
+        if frame_type in tx_info:
+            return frame_type
+    return "UNKNOWN"
+
+
+def normalize_frame(frame_type, raw):
+    """Strip outer framing, return (inner_payload, stripped_header_hex, warnings)."""
+    warnings = []
+    if frame_type == "AX.25":
+        idx = raw.find(b"\x03\xf0")
+        if idx == -1:
+            warnings.append("AX.25 frame but no 03 f0 delimiter found")
+            return raw, None, warnings
+        return raw[idx + 2:], raw[:idx + 2].hex(" "), warnings
+    if frame_type != "AX100":
+        warnings.append("Unknown frame type -- returning raw")
+    return raw, None, warnings
+
+
+# =============================================================================
+#  TX COMMAND LINE PARSER
+#
+#  Parses user input into structured command fields for uplink.
+#  Counterpart to try_parse_command() which parses the wire format (RX).
+# =============================================================================
+
+def parse_cmd_line(line):
+    """Parse command line: [SRC] DEST ECHO TYPE CMD [ARGS]
+
+    SRC is optional -- if omitted, defaults to GS (node 6).
+    Detection: with 5+ tokens, if parts[3] resolves as a ptype then
+    the first token is SRC; otherwise the old 4-token format is assumed.
+
+    Returns (src, dest, echo, ptype, cmd, args) or None on failure."""
+    parts = line.split(None, 5)
+    if len(parts) < 4:
+        return None
+
+    # Detect format: if parts[3] is a valid ptype, first token is SRC
+    ptype3 = resolve_ptype(parts[3]) if len(parts) >= 5 else None
+    if ptype3 is not None:
+        offset, src = 1, resolve_node(parts[0])
+        if src is None:
+            return None
+        ptype = ptype3
+    else:
+        offset, src = 0, GS_NODE
+        ptype = resolve_ptype(parts[2])
+        if ptype is None:
+            return None
+
+    dest = resolve_node(parts[offset])
+    if dest is None:
+        return None
+    echo = resolve_node(parts[offset + 1])
+    if echo is None:
+        return None
+
+    cmd_idx = offset + 3
+    args = " ".join(parts[cmd_idx + 1:]) if len(parts) > cmd_idx + 1 else ""
+    return (src, dest, echo, ptype, parts[cmd_idx].lower(), args)
+
+
+# =============================================================================
 #  UTILITIES
 # =============================================================================
 

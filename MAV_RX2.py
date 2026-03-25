@@ -22,25 +22,16 @@ Author:  Irfan Annuar - USC ISI SERC
 import argparse
 import curses
 import gc
-import json
-import os
 import queue
-import sys
 import threading
 import time
 from collections import OrderedDict
-from datetime import datetime
 
-import mav_gss_lib.protocol as protocol
-from mav_gss_lib.protocol import (
-    init_nodes, node_label, ptype_label,
-    try_parse_csp_v1, try_parse_command,
-    clean_text,
-    load_command_defs, apply_schema,
-    verify_csp_crc32,
-)
+from mav_gss_lib.protocol import init_nodes, load_command_defs
 from mav_gss_lib.transport import init_zmq_sub, receive_pdu
-from mav_gss_lib.curses_common import init_colors, draw_splash, _safe, edit_buffer
+from mav_gss_lib.parsing import process_rx_packet, build_rx_log_record
+from mav_gss_lib.logging import SessionLog
+from mav_gss_lib.curses_common import init_colors, draw_splash, edit_buffer
 from mav_gss_lib.config import load_gss_config
 from mav_gss_lib.curses_rx import (
     calculate_rx_layout,
@@ -67,7 +58,7 @@ GC_INTERVAL = 300
 
 
 def _load_tx_frequencies(path):
-    """Load transmitter→frequency map from gr-satellites decoder YAML."""
+    """Load transmitter->frequency map from gr-satellites decoder YAML."""
     try:
         import yaml
         with open(path) as f:
@@ -81,162 +72,6 @@ def _load_tx_frequencies(path):
         return tx_map
     except Exception:
         return {}
-
-
-# =============================================================================
-#  FRAME NORMALIZATION (from MAV_RX.py)
-# =============================================================================
-
-def detect_frame_type(meta):
-    """Determine frame type from gr-satellites metadata."""
-    tx_info = str(meta.get("transmitter", ""))
-    for frame_type in ("AX.25", "AX100"):
-        if frame_type in tx_info:
-            return frame_type
-    return "UNKNOWN"
-
-
-def normalize_frame(frame_type, raw):
-    """Strip outer framing, return (inner_payload, stripped_header_hex, warnings)."""
-    warnings = []
-    if frame_type == "AX.25":
-        idx = raw.find(b"\x03\xf0")
-        if idx == -1:
-            warnings.append("AX.25 frame but no 03 f0 delimiter found")
-            return raw, None, warnings
-        return raw[idx + 2:], raw[:idx + 2].hex(" "), warnings
-    if frame_type != "AX100":
-        warnings.append("Unknown frame type -- returning raw")
-    return raw, None, warnings
-
-
-# =============================================================================
-#  LOGGING (from MAV_RX.py)
-# =============================================================================
-
-class SessionLog:
-    """Manages JSONL and text log file handles for one session."""
-
-    def __init__(self, log_dir, zmq_addr, flush_every=10):
-        os.makedirs(log_dir, exist_ok=True)
-        session_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.jsonl_path = os.path.join(log_dir, f"downlink_{session_ts}.jsonl")
-        self.text_path  = os.path.join(log_dir, f"downlink_{session_ts}.txt")
-        self._jsonl_f = open(self.jsonl_path, "a")
-        self._text_f  = open(self.text_path, "w")
-        self._flush_every = flush_every
-        self._writes_since_flush = 0
-
-        self._text_f.write(f"{'='*80}\n")
-        self._text_f.write(f"  MAVERIC Ground Station Log  (MAV_RX2 v{VERSION})\n")
-        self._text_f.write(f"  Session started: {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M:%S %Z')}\n")
-        self._text_f.write(f"  ZMQ source:      {zmq_addr}\n")
-        self._text_f.write(f"{'='*80}\n\n")
-        self._text_f.flush()
-
-    def _maybe_flush(self):
-        self._writes_since_flush += 1
-        if self._writes_since_flush >= self._flush_every:
-            self._jsonl_f.flush()
-            self._text_f.flush()
-            self._writes_since_flush = 0
-
-    def write_jsonl(self, record):
-        self._jsonl_f.write(json.dumps(record) + "\n")
-        self._maybe_flush()
-
-    def write_text(self, pkt_num, gs_ts, frame_type, raw, inner_payload,
-                   stripped_hdr, csp, csp_plausible, ts_result, cmd, cmd_tail,
-                   text, warnings, delta_t, crc_status,
-                   is_dup=False, is_uplink_echo=False):
-        lines = []
-        if delta_t is not None:
-            lines.append(f"    Delta-T: {delta_t:.3f}s")
-        flags = ""
-        if is_dup:
-            flags += " [DUP]"
-        if is_uplink_echo:
-            flags += " [UL]"
-        lines.append("-" * 80)
-        lines.append(
-            f"Packet #{pkt_num:<4} | {gs_ts} | {frame_type:<7}{flags} | "
-            f"PDU: {len(raw)} B -> Payload: {len(inner_payload)} B"
-        )
-        for w in warnings:
-            lines.append(f"  WARNING: {w}")
-        if stripped_hdr:
-            lines.append(f"  AX.25 HDR   {stripped_hdr}")
-        if csp:
-            tag = "CSP V1" if csp_plausible else "CSP V1 [UNVERIFIED]"
-            lines.append(
-                f"  {tag}  Prio: {csp['prio']} | Src: {csp['src']} | "
-                f"Dest: {csp['dest']} | DPort: {csp['dport']} | "
-                f"SPort: {csp['sport']} | Flags: 0x{csp['flags']:02x}"
-            )
-        if ts_result:
-            dt_utc, dt_local, raw_ms = ts_result
-            lines.append(
-                f"  SAT TIME    {dt_utc.strftime('%Y-%m-%d %H:%M:%S UTC')} | "
-                f"{dt_local.strftime('%Y-%m-%d %H:%M:%S %Z')}  (epoch-ms: {raw_ms})"
-            )
-        else:
-            lines.append(f"  SAT TIME    --")
-        if cmd:
-            lines.append(
-                f"  CMD         Src: {node_label(cmd['src'])} | "
-                f"Dest: {node_label(cmd['dest'])} | "
-                f"Echo: {node_label(cmd['echo'])} | "
-                f"Type: {ptype_label(cmd['pkt_type'])}"
-            )
-            lines.append(f"  CMD ID      {cmd['cmd_id']}")
-            if cmd.get("schema_match"):
-                for ta in cmd["typed_args"]:
-                    label = ta["name"].upper()
-                    if ta["type"] == "epoch_ms" and isinstance(ta["value"], dict):
-                        lines.append(f"  {label:<12}  {ta['value']['ms']}")
-                    else:
-                        lines.append(f"  {label:<12}  {ta['value']}")
-                for i, extra in enumerate(cmd["extra_args"]):
-                    lines.append(f"  ARG +{i}       {extra}")
-            else:
-                if cmd.get("schema_warning"):
-                    lines.append(f"  WARNING: {cmd['schema_warning']}")
-                for i, arg in enumerate(cmd['args']):
-                    lines.append(f"  ARG {i}       {arg}")
-
-        lines.append(f"  HEX         {raw.hex(' ')}")
-        if text:
-            lines.append(f"  ASCII       {text}")
-
-        if cmd and cmd.get('crc') is not None:
-            tag = "OK" if cmd.get("crc_valid") else "FAIL"
-            lines.append(f"  CRC-16      0x{cmd['crc']:04x}  [{tag}]")
-        if crc_status["csp_crc32_valid"] is not None:
-            tag = "OK" if crc_status["csp_crc32_valid"] else "FAIL"
-            lines.append(f"  CRC-32C     0x{crc_status['csp_crc32_rx']:08x}  [{tag}]")
-
-        lines.append("-" * 80)
-        lines.append("")
-        self._text_f.write("\n".join(lines) + "\n")
-        self._maybe_flush()
-
-    def write_summary(self, packet_count, session_start, first_pkt_ts, last_pkt_ts):
-        duration = time.time() - session_start
-        summary = [
-            "", f"{'='*80}", f"  Session Summary", f"{'='*80}",
-            f"  Packets received:  {packet_count}",
-            f"  Session duration:  {duration:.1f}s ({duration/60:.1f} min)",
-        ]
-        if first_pkt_ts and last_pkt_ts:
-            summary.append(f"  First packet:      {first_pkt_ts}")
-            summary.append(f"  Last packet:       {last_pkt_ts}")
-        summary.append(f"{'='*80}\n")
-        self._text_f.write("\n".join(summary) + "\n")
-        self._text_f.flush()
-
-    def close(self):
-        self._jsonl_f.close()
-        self._text_f.close()
 
 
 # =============================================================================
@@ -306,7 +141,7 @@ def rx_dashboard(stdscr, show_splash=True):
     show_hex = True
     logging_enabled = True
     frequency = "--"
-    log = SessionLog(LOG_DIR, ZMQ_ADDR)
+    log = SessionLog(LOG_DIR, ZMQ_ADDR, version=VERSION)
     error_msg = ""
     error_expire = 0
     status_msg = ""
@@ -332,7 +167,7 @@ def rx_dashboard(stdscr, show_splash=True):
             return "Logging OFF", 2
         else:
             logging_enabled = True
-            log = SessionLog(LOG_DIR, ZMQ_ADDR)
+            log = SessionLog(LOG_DIR, ZMQ_ADDR, version=VERSION)
             return f"Logging ON: {log.text_path}", 3
 
     # -- Start receiver thread --
@@ -361,152 +196,44 @@ def rx_dashboard(stdscr, show_splash=True):
                 except queue.Empty:
                     break
 
-                now = time.time()
-                delta_t = (now - last_arrival) if last_arrival is not None else None
-                last_arrival = now
-                last_watchdog = now
-                gs_ts = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
-                gs_ts_short = datetime.now().strftime("%H:%M:%S")
+                last_watchdog = time.time()
                 if first_pkt_ts is None:
-                    first_pkt_ts = gs_ts
-                last_pkt_ts = gs_ts
+                    from datetime import datetime
+                    first_pkt_ts = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
 
-                # Parse
-                frame_type = detect_frame_type(meta)
-                tx_name = str(meta.get("transmitter", ""))
-                if tx_name in tx_freq_map:
-                    frequency = tx_freq_map[tx_name]
-                inner_payload, stripped_hdr, warnings = normalize_frame(frame_type, raw)
-                csp, csp_plausible = try_parse_csp_v1(inner_payload)
+                # Process packet through library pipeline
+                pkt_record, counters = process_rx_packet(
+                    meta, raw, cmd_defs, seen_fps, tx_freq_map,
+                    last_arrival, packet_count, unknown_count,
+                    uplink_echo_count, pkt_times, MAX_SEEN_FPS,
+                )
 
-                cmd, cmd_tail = (None, None)
-                ts_result = None
-                if len(inner_payload) > 4:
-                    cmd, cmd_tail = try_parse_command(inner_payload[4:])
-                    if cmd:
-                        apply_schema(cmd, cmd_defs)
-
-                crc_valid, crc_rx, crc_comp = (None, None, None)
-                if cmd and cmd.get("csp_crc32") is not None:
-                    crc_valid, crc_rx, crc_comp = verify_csp_crc32(inner_payload)
-                    if crc_valid is False:
-                        warnings.append(f"CRC-32C mismatch: rx 0x{crc_rx:08x} != computed 0x{crc_comp:08x}")
-                crc_status = {"csp_crc32_valid": crc_valid, "csp_crc32_rx": crc_rx, "csp_crc32_comp": crc_comp}
-
-                if cmd and cmd.get("sat_time"):
-                    ts_result = cmd["sat_time"]
-
-                text = clean_text(inner_payload)
-
-                # Duplicate detection using satellite CRC-16 + CRC-32C
-                is_dup = False
-                fp = None
-                if cmd and cmd.get("crc") is not None and cmd.get("csp_crc32") is not None:
-                    fp = (cmd["crc"], cmd["csp_crc32"])
-                    is_dup = fp in seen_fps
-                    if is_dup:
-                        seen_fps.move_to_end(fp)
-                    else:
-                        seen_fps[fp] = None
-                    if len(seen_fps) > MAX_SEEN_FPS:
-                        for _ in range(MAX_SEEN_FPS // 5):
-                            seen_fps.popitem(last=False)
-                pkt_times.append(now)
-                pkt_times[:] = [t for t in pkt_times if t > now - 60.0]
-
-                # Unknown packet detection — no parseable command
-                is_unknown = cmd is None
-                unknown_num = None
-                if is_unknown:
-                    unknown_count += 1
-                    unknown_num = unknown_count
-                else:
-                    packet_count += 1
-
-                # Uplink echo detection — flag packets not addressed to GS
-                is_uplink_echo = bool(cmd and (cmd.get("dest") != protocol.GS_NODE or cmd.get("echo") != protocol.GS_NODE))
-                if is_uplink_echo:
-                    uplink_echo_count += 1
+                # Update state from counters
+                packet_count = counters["packet_count"]
+                unknown_count = counters["unknown_count"]
+                uplink_echo_count = counters["uplink_echo_count"]
+                last_arrival = counters["last_arrival"]
+                if counters["frequency"] is not None:
+                    frequency = counters["frequency"]
+                last_pkt_ts = pkt_record["gs_ts"]
 
                 # Log
                 if logging_enabled and log:
-                    log_record = {
-                        "v": VERSION, "pkt": packet_count, "gs_ts": gs_ts,
-                        "frame_type": frame_type,
-                        "tx_meta": str(meta.get("transmitter", "")),
-                        "raw_hex": raw.hex(), "payload_hex": inner_payload.hex(),
-                        "raw_len": len(raw), "payload_len": len(inner_payload),
-                        "duplicate": is_dup,
-                        "uplink_echo": is_uplink_echo,
-                        "unknown": is_unknown,
-                    }
-                    if delta_t is not None:
-                        log_record["delta_t"] = round(delta_t, 4)
-                    if csp:
-                        log_record["csp_candidate"] = csp
-                        log_record["csp_plausible"] = csp_plausible
-                    if ts_result:
-                        log_record["sat_ts_ms"] = ts_result[2]
-                    if crc_status["csp_crc32_valid"] is not None:
-                        log_record["csp_crc32"] = {
-                            "valid": crc_status["csp_crc32_valid"],
-                            "received": f"0x{crc_status['csp_crc32_rx']:08x}",
-                        }
-                    if cmd:
-                        cmd_log = {
-                            "src": cmd["src"], "dest": cmd["dest"],
-                            "echo": cmd["echo"], "pkt_type": cmd["pkt_type"],
-                            "cmd_id": cmd["cmd_id"], "crc": cmd["crc"],
-                            "crc_valid": cmd.get("crc_valid"),
-                        }
-                        if cmd.get("schema_match"):
-                            typed_log = {}
-                            for ta in cmd["typed_args"]:
-                                if ta["type"] == "epoch_ms" and isinstance(ta["value"], dict):
-                                    typed_log[ta["name"]] = ta["value"]["ms"]
-                                else:
-                                    typed_log[ta["name"]] = ta["value"]
-                            cmd_log["args"] = typed_log
-                            if cmd["extra_args"]:
-                                cmd_log["extra_args"] = cmd["extra_args"]
-                        else:
-                            cmd_log["args"] = cmd["args"]
-                            if cmd.get("schema_warning"):
-                                cmd_log["schema_warning"] = cmd["schema_warning"]
-                        log_record["cmd"] = cmd_log
-                        if cmd_tail:
-                            log_record["tail_hex"] = cmd_tail.hex()
+                    log_record = build_rx_log_record(pkt_record, VERSION, meta)
                     log.write_jsonl(log_record)
                     log.write_text(
-                        packet_count, gs_ts, frame_type, raw, inner_payload,
-                        stripped_hdr, csp, csp_plausible, ts_result, cmd,
-                        cmd_tail, text, warnings, delta_t, crc_status,
-                        is_dup, is_uplink_echo,
+                        pkt_record["pkt_num"], pkt_record["gs_ts"],
+                        pkt_record["frame_type"], pkt_record["raw"],
+                        pkt_record["inner_payload"], pkt_record["stripped_hdr"],
+                        pkt_record["csp"], pkt_record["csp_plausible"],
+                        pkt_record["ts_result"], pkt_record["cmd"],
+                        pkt_record["cmd_tail"], pkt_record["text"],
+                        pkt_record["warnings"], pkt_record["delta_t"],
+                        pkt_record["crc_status"],
+                        pkt_record["is_dup"], pkt_record["is_uplink_echo"],
                     )
 
                 # Store packet record for display
-                pkt_record = {
-                    "pkt_num": packet_count,
-                    "gs_ts": gs_ts,
-                    "gs_ts_short": gs_ts_short,
-                    "frame_type": frame_type,
-                    "raw": raw,
-                    "inner_payload": inner_payload,
-                    "stripped_hdr": stripped_hdr,
-                    "csp": csp,
-                    "csp_plausible": csp_plausible,
-                    "ts_result": ts_result,
-                    "cmd": cmd,
-                    "cmd_tail": cmd_tail,
-                    "text": text,
-                    "warnings": warnings,
-                    "delta_t": delta_t,
-                    "crc_status": crc_status,
-                    "is_dup": is_dup,
-                    "is_uplink_echo": is_uplink_echo,
-                    "is_unknown": is_unknown,
-                    "unknown_num": unknown_num,
-                }
                 packets.append(pkt_record)
                 if len(packets) > MAX_PACKETS:
                     del packets[:len(packets) - MAX_PACKETS]
