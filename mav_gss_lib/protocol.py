@@ -643,30 +643,31 @@ def parse_cmd_line(line):
     Detection: with 5+ tokens, if parts[3] resolves as a ptype then
     the first token is SRC; otherwise the old 4-token format is assumed.
 
-    Returns (src, dest, echo, ptype, cmd, args) or None on failure."""
+    Returns (src, dest, echo, ptype, cmd, args).
+    Raises ValueError with a specific message on failure."""
     parts = line.split(None, 5)
     if len(parts) < 4:
-        return None
+        raise ValueError("need at least: <dest> <echo> <type> <cmd>")
 
     # Detect format: if parts[3] is a valid ptype, first token is SRC
     ptype3 = resolve_ptype(parts[3]) if len(parts) >= 5 else None
     if ptype3 is not None:
         offset, src = 1, resolve_node(parts[0])
         if src is None:
-            return None
+            raise ValueError(f"unknown source node '{parts[0]}'")
         ptype = ptype3
     else:
         offset, src = 0, GS_NODE
         ptype = resolve_ptype(parts[2])
         if ptype is None:
-            return None
+            raise ValueError(f"unknown packet type '{parts[2]}'")
 
     dest = resolve_node(parts[offset])
     if dest is None:
-        return None
+        raise ValueError(f"unknown destination node '{parts[offset]}'")
     echo = resolve_node(parts[offset + 1])
     if echo is None:
-        return None
+        raise ValueError(f"unknown echo node '{parts[offset + 1]}'")
 
     cmd_idx = offset + 3
     args = " ".join(parts[cmd_idx + 1:]) if len(parts) > cmd_idx + 1 else ""

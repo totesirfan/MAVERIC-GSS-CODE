@@ -25,12 +25,11 @@ import gc
 import queue
 import threading
 import time
-from collections import OrderedDict
 from datetime import datetime
 
 from mav_gss_lib.protocol import init_nodes, load_command_defs
 from mav_gss_lib.transport import init_zmq_sub, receive_pdu
-from mav_gss_lib.parsing import process_rx_packet, build_rx_log_record
+from mav_gss_lib.parsing import RxPipeline, build_rx_log_record
 from mav_gss_lib.logging import SessionLog
 from mav_gss_lib.curses_common import init_colors, draw_splash, edit_buffer
 from mav_gss_lib.config import load_gss_config
@@ -118,17 +117,12 @@ def rx_dashboard(stdscr, show_splash=True):
     cmd_defs = load_command_defs(CMD_DEFS_PATH)
 
     # -- State --
+    pipeline = RxPipeline(cmd_defs, tx_freq_map, MAX_SEEN_FPS)
     packets = []
-    packet_count = 0
-    unknown_count = 0
-    uplink_echo_count = 0
-    last_arrival = None
     last_watchdog = time.time()
     session_start = time.time()
     first_pkt_ts = None
     last_pkt_ts = None
-    seen_fps = OrderedDict()
-    pkt_times = []
     last_gc = time.time()
 
     # UI state
@@ -161,12 +155,12 @@ def rx_dashboard(stdscr, show_splash=True):
         if logging_enabled:
             logging_enabled = False
             if log:
-                log.write_summary(packet_count, session_start,
+                log.write_summary(pipeline.packet_count, session_start,
                                   first_pkt_ts, last_pkt_ts,
-                                  unique=len(seen_fps),
-                                  duplicates=packet_count - len(seen_fps),
-                                  unknown=unknown_count,
-                                  uplink_echoes=uplink_echo_count)
+                                  unique=len(pipeline.seen_fps),
+                                  duplicates=pipeline.packet_count - len(pipeline.seen_fps),
+                                  unknown=pipeline.unknown_count,
+                                  uplink_echoes=pipeline.uplink_echo_count)
                 log.close()
                 log = None
             return "Logging OFF", 2
@@ -205,24 +199,15 @@ def rx_dashboard(stdscr, show_splash=True):
                 if first_pkt_ts is None:
                     first_pkt_ts = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
 
-                # Process packet through library pipeline
+                # Process packet through pipeline
                 try:
-                    pkt_record, counters = process_rx_packet(
-                        meta, raw, cmd_defs, seen_fps, tx_freq_map,
-                        last_arrival, packet_count, unknown_count,
-                        uplink_echo_count, pkt_times, MAX_SEEN_FPS,
-                    )
+                    pkt_record = pipeline.process(meta, raw)
                 except Exception as e:
                     error_msg = f"Packet error: {e}"
                     continue
 
-                # Update state from counters
-                packet_count = counters["packet_count"]
-                unknown_count = counters["unknown_count"]
-                uplink_echo_count = counters["uplink_echo_count"]
-                last_arrival = counters["last_arrival"]
-                if counters["frequency"] is not None:
-                    frequency = counters["frequency"]
+                if pipeline.frequency is not None:
+                    frequency = pipeline.frequency
                 last_pkt_ts = pkt_record["gs_ts"]
 
                 # Log
@@ -421,7 +406,7 @@ def rx_dashboard(stdscr, show_splash=True):
 
             # Rate
             now_rate = time.time()
-            rate_per_min = sum(1 for t in pkt_times if t > now_rate - 60.0)
+            rate_per_min = sum(1 for t in pipeline.pkt_times if t > now_rate - 60.0)
 
             draw_rx_header(stdscr, layout["header"], ZMQ_ADDR,
                            freq=frequency, show_hex=show_hex,
@@ -438,7 +423,7 @@ def rx_dashboard(stdscr, show_splash=True):
                                    show_hex=show_hex)
 
             draw_rx_input(stdscr, layout["input"], input_buf, cursor_pos,
-                          silence_secs, packet_count, rate_per_min,
+                          silence_secs, pipeline.packet_count, rate_per_min,
                           receiving=receiving,
                           spinner_char=spinner[spin_idx],
                           status_msg=status_msg, error_msg=error_msg)
@@ -463,12 +448,12 @@ def rx_dashboard(stdscr, show_splash=True):
         rx_thread.join(timeout=1)
         try:
             if log:
-                log.write_summary(packet_count, session_start,
+                log.write_summary(pipeline.packet_count, session_start,
                                   first_pkt_ts, last_pkt_ts,
-                                  unique=len(seen_fps),
-                                  duplicates=packet_count - len(seen_fps),
-                                  unknown=unknown_count,
-                                  uplink_echoes=uplink_echo_count)
+                                  unique=len(pipeline.seen_fps),
+                                  duplicates=pipeline.packet_count - len(pipeline.seen_fps),
+                                  unknown=pipeline.unknown_count,
+                                  uplink_echoes=pipeline.uplink_echo_count)
                 log.close()
         except Exception:
             pass
@@ -479,11 +464,11 @@ def rx_dashboard(stdscr, show_splash=True):
             pass
 
     return {
-        "packet_count": packet_count,
-        "unique": len(seen_fps),
-        "duplicates": packet_count - len(seen_fps),
-        "unknown": unknown_count,
-        "uplink_echoes": uplink_echo_count,
+        "packet_count": pipeline.packet_count,
+        "unique": len(pipeline.seen_fps),
+        "duplicates": pipeline.packet_count - len(pipeline.seen_fps),
+        "unknown": pipeline.unknown_count,
+        "uplink_echoes": pipeline.uplink_echo_count,
         "duration": time.time() - session_start,
         "log_txt": log.text_path if log else None,
         "log_jsonl": log.jsonl_path if log else None,

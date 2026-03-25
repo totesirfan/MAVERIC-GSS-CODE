@@ -30,6 +30,6 @@ from mav_gss_lib.transport import (
     init_zmq_sub, init_zmq_pub, receive_pdu, send_pdu,
 )
 
-from mav_gss_lib.parsing import process_rx_packet, build_rx_log_record
+from mav_gss_lib.parsing import RxPipeline, build_rx_log_record
 
 from mav_gss_lib.logging import SessionLog, TXLog

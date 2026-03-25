@@ -461,9 +461,10 @@ def dashboard(stdscr, *, show_splash=True):
                     continue
 
                 # Parse as command — queue it
-                parsed = parse_cmd_line(line)
-                if parsed is None:
-                    set_status("Bad command: need [src] <dest> <echo> <type> <cmd> [args]", 3)
+                try:
+                    parsed = parse_cmd_line(line)
+                except ValueError as e:
+                    set_status(f"Bad command: {e}", 3)
                     continue
 
                 src, dest, echo, ptype, cmd, args = parsed

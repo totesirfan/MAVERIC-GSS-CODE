@@ -1,8 +1,8 @@
 """
 mav_gss_lib.parsing -- RX Packet Processing Pipeline
 
-Stateless packet processing: takes raw PDU bytes from ZMQ and returns
-a structured packet record dict for display and logging.
+Stateful packet processing: takes raw PDU bytes from ZMQ and returns
+structured packet records for display and logging.
 
 No UI, no I/O, no threads -- pure data transformation.
 
@@ -10,6 +10,7 @@ Author:  Irfan Annuar - USC ISI SERC
 """
 
 import time
+from collections import OrderedDict
 from datetime import datetime
 
 import mav_gss_lib.protocol as protocol
@@ -20,130 +21,128 @@ from mav_gss_lib.protocol import (
 )
 
 
-def process_rx_packet(meta, raw, cmd_defs, seen_fps, tx_freq_map,
-                      last_arrival, packet_count, unknown_count,
-                      uplink_echo_count, pkt_times, max_seen_fps=10_000):
-    """Process one raw PDU into a structured packet record.
+class RxPipeline:
+    """Stateful RX packet processing pipeline.
 
-    Args:
-        meta:               gr-satellites metadata dict
-        raw:                raw PDU bytes
-        cmd_defs:           loaded command schema dict
-        seen_fps:           OrderedDict for duplicate detection (mutated in place)
-        tx_freq_map:        transmitter→frequency map
-        last_arrival:       timestamp of previous packet (or None)
-        packet_count:       current valid packet count
-        unknown_count:      current unknown packet count
-        uplink_echo_count:  current uplink echo count
-        pkt_times:          list of recent packet timestamps (mutated in place)
-        max_seen_fps:       max fingerprint cache size
-
-    Returns:
-        (pkt_record, counters) where counters is a dict with updated:
-            packet_count, unknown_count, uplink_echo_count, frequency, last_arrival
+    Holds all packet-tracking state internally. Call process(meta, raw)
+    for each received PDU -- counters update automatically.
     """
-    now = time.time()
-    delta_t = (now - last_arrival) if last_arrival is not None else None
-    gs_ts = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
-    gs_ts_short = datetime.now().strftime("%H:%M:%S")
 
-    # Frame detection and normalization
-    frame_type = detect_frame_type(meta)
-    tx_name = str(meta.get("transmitter", ""))
-    frequency = tx_freq_map.get(tx_name)
+    def __init__(self, cmd_defs, tx_freq_map, max_seen_fps=10_000):
+        self.cmd_defs = cmd_defs
+        self.tx_freq_map = tx_freq_map
+        self.max_seen_fps = max_seen_fps
 
-    inner_payload, stripped_hdr, warnings = normalize_frame(frame_type, raw)
-    csp, csp_plausible = try_parse_csp_v1(inner_payload)
+        # Counters and state
+        self.seen_fps = OrderedDict()
+        self.pkt_times = []
+        self.packet_count = 0
+        self.unknown_count = 0
+        self.uplink_echo_count = 0
+        self.last_arrival = None
+        self.frequency = None
 
-    # Command parsing
-    cmd, cmd_tail = (None, None)
-    ts_result = None
-    if len(inner_payload) > 4:
-        cmd, cmd_tail = try_parse_command(inner_payload[4:])
-        if cmd:
-            apply_schema(cmd, cmd_defs)
+    def process(self, meta, raw):
+        """Process one raw PDU into a structured packet record.
 
-    # CRC-32C verification
-    crc_valid, crc_rx, crc_comp = (None, None, None)
-    if cmd and cmd.get("csp_crc32") is not None:
-        crc_valid, crc_rx, crc_comp = verify_csp_crc32(inner_payload)
-        if crc_valid is False:
-            warnings.append(f"CRC-32C mismatch: rx 0x{crc_rx:08x} != computed 0x{crc_comp:08x}")
-    crc_status = {"csp_crc32_valid": crc_valid, "csp_crc32_rx": crc_rx, "csp_crc32_comp": crc_comp}
+        Returns a pkt_record dict. Internal counters are updated in place.
+        """
+        now = time.time()
+        delta_t = (now - self.last_arrival) if self.last_arrival is not None else None
+        gs_ts = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+        gs_ts_short = datetime.now().strftime("%H:%M:%S")
 
-    # Satellite timestamp
-    if cmd and cmd.get("sat_time"):
-        ts_result = cmd["sat_time"]
+        # Frame detection and normalization
+        frame_type = detect_frame_type(meta)
+        tx_name = str(meta.get("transmitter", ""))
+        freq = self.tx_freq_map.get(tx_name)
+        if freq is not None:
+            self.frequency = freq
 
-    text = clean_text(inner_payload)
+        inner_payload, stripped_hdr, warnings = normalize_frame(frame_type, raw)
+        csp, csp_plausible = try_parse_csp_v1(inner_payload)
 
-    # Duplicate detection using satellite CRC-16 + CRC-32C
-    is_dup = False
-    fp = None
-    if cmd and cmd.get("crc") is not None and cmd.get("csp_crc32") is not None:
-        fp = (cmd["crc"], cmd["csp_crc32"])
-        is_dup = fp in seen_fps
-        if is_dup:
-            seen_fps.move_to_end(fp)
+        # Command parsing
+        cmd, cmd_tail = (None, None)
+        ts_result = None
+        if len(inner_payload) > 4:
+            cmd, cmd_tail = try_parse_command(inner_payload[4:])
+            if cmd:
+                apply_schema(cmd, self.cmd_defs)
+
+        # CRC-32C verification
+        crc_valid, crc_rx, crc_comp = (None, None, None)
+        if cmd and cmd.get("csp_crc32") is not None:
+            crc_valid, crc_rx, crc_comp = verify_csp_crc32(inner_payload)
+            if crc_valid is False:
+                warnings.append(f"CRC-32C mismatch: rx 0x{crc_rx:08x} != computed 0x{crc_comp:08x}")
+        crc_status = {"csp_crc32_valid": crc_valid, "csp_crc32_rx": crc_rx, "csp_crc32_comp": crc_comp}
+
+        # Satellite timestamp
+        if cmd and cmd.get("sat_time"):
+            ts_result = cmd["sat_time"]
+
+        text = clean_text(inner_payload)
+
+        # Duplicate detection using satellite CRC-16 + CRC-32C
+        is_dup = False
+        fp = None
+        if cmd and cmd.get("crc") is not None and cmd.get("csp_crc32") is not None:
+            fp = (cmd["crc"], cmd["csp_crc32"])
+            is_dup = fp in self.seen_fps
+            if is_dup:
+                self.seen_fps.move_to_end(fp)
+            else:
+                self.seen_fps[fp] = None
+            if len(self.seen_fps) > self.max_seen_fps:
+                for _ in range(self.max_seen_fps // 5):
+                    self.seen_fps.popitem(last=False)
+
+        # Rate tracking
+        self.pkt_times.append(now)
+        self.pkt_times[:] = [t for t in self.pkt_times if t > now - 60.0]
+
+        # Unknown packet detection
+        is_unknown = cmd is None
+        unknown_num = None
+        if is_unknown:
+            self.unknown_count += 1
+            unknown_num = self.unknown_count
         else:
-            seen_fps[fp] = None
-        if len(seen_fps) > max_seen_fps:
-            for _ in range(max_seen_fps // 5):
-                seen_fps.popitem(last=False)
+            self.packet_count += 1
 
-    # Rate tracking
-    pkt_times.append(now)
-    pkt_times[:] = [t for t in pkt_times if t > now - 60.0]
+        # Uplink echo detection
+        is_uplink_echo = bool(cmd and (
+            cmd.get("src") == protocol.GS_NODE
+            or (cmd.get("dest") != protocol.GS_NODE and cmd.get("echo") != protocol.GS_NODE)
+        ))
+        if is_uplink_echo:
+            self.uplink_echo_count += 1
 
-    # Unknown packet detection
-    is_unknown = cmd is None
-    unknown_num = None
-    if is_unknown:
-        unknown_count += 1
-        unknown_num = unknown_count
-    else:
-        packet_count += 1
+        self.last_arrival = now
 
-    # Uplink echo detection
-    is_uplink_echo = bool(cmd and (
-        cmd.get("src") == protocol.GS_NODE
-        or (cmd.get("dest") != protocol.GS_NODE and cmd.get("echo") != protocol.GS_NODE)
-    ))
-    if is_uplink_echo:
-        uplink_echo_count += 1
-
-    pkt_record = {
-        "pkt_num": packet_count,
-        "gs_ts": gs_ts,
-        "gs_ts_short": gs_ts_short,
-        "frame_type": frame_type,
-        "raw": raw,
-        "inner_payload": inner_payload,
-        "stripped_hdr": stripped_hdr,
-        "csp": csp,
-        "csp_plausible": csp_plausible,
-        "ts_result": ts_result,
-        "cmd": cmd,
-        "cmd_tail": cmd_tail,
-        "text": text,
-        "warnings": warnings,
-        "delta_t": delta_t,
-        "crc_status": crc_status,
-        "is_dup": is_dup,
-        "is_uplink_echo": is_uplink_echo,
-        "is_unknown": is_unknown,
-        "unknown_num": unknown_num,
-    }
-
-    counters = {
-        "packet_count": packet_count,
-        "unknown_count": unknown_count,
-        "uplink_echo_count": uplink_echo_count,
-        "frequency": frequency,
-        "last_arrival": now,
-    }
-
-    return pkt_record, counters
+        return {
+            "pkt_num": self.packet_count,
+            "gs_ts": gs_ts,
+            "gs_ts_short": gs_ts_short,
+            "frame_type": frame_type,
+            "raw": raw,
+            "inner_payload": inner_payload,
+            "stripped_hdr": stripped_hdr,
+            "csp": csp,
+            "csp_plausible": csp_plausible,
+            "ts_result": ts_result,
+            "cmd": cmd,
+            "cmd_tail": cmd_tail,
+            "text": text,
+            "warnings": warnings,
+            "delta_t": delta_t,
+            "crc_status": crc_status,
+            "is_dup": is_dup,
+            "is_uplink_echo": is_uplink_echo,
+            "is_unknown": is_unknown,
+            "unknown_num": unknown_num,
+        }
 
 
 def build_rx_log_record(pkt, version, meta):
