@@ -21,7 +21,7 @@ import time
 from datetime import datetime
 
 from mav_gss_lib.protocol import (
-    NODE_NAMES, PTYPE_NAMES,
+    NODE_NAMES, PTYPE_NAMES, GS_NODE,
     node_label, resolve_node, resolve_ptype,
     build_cmd_raw, AX25Config, CSPConfig,
     load_command_defs, validate_args,
@@ -80,21 +80,40 @@ def log_tx(f, n, dest, cmd, args, payload, csp_enabled):
 # -- Command Parsing ----------------------------------------------------------
 
 def parse_cmd_line(line):
-    """Parse command line: DEST ECHO TYPE CMD [ARGS]
-    Returns (dest, echo, ptype, cmd, args) or None on failure."""
-    parts = line.split(None, 4)
+    """Parse command line: [SRC] DEST ECHO TYPE CMD [ARGS]
+
+    SRC is optional — if omitted, defaults to GS (node 6).
+    Detection: with 5+ tokens, if parts[3] resolves as a ptype then
+    the first token is SRC; otherwise the old 4-token format is assumed.
+
+    Returns (src, dest, echo, ptype, cmd, args) or None on failure."""
+    parts = line.split(None, 5)
     if len(parts) < 4:
         return None
-    dest = resolve_node(parts[0])
+
+    # Detect format: if parts[3] is a valid ptype, first token is SRC
+    ptype3 = resolve_ptype(parts[3]) if len(parts) >= 5 else None
+    if ptype3 is not None:
+        offset, src = 1, resolve_node(parts[0])
+        if src is None:
+            return None
+        ptype = ptype3
+    else:
+        offset, src = 0, GS_NODE
+        ptype = resolve_ptype(parts[2])
+        if ptype is None:
+            return None
+
+    dest = resolve_node(parts[offset])
     if dest is None:
         return None
-    echo = resolve_node(parts[1])
+    echo = resolve_node(parts[offset + 1])
     if echo is None:
         return None
-    ptype = resolve_ptype(parts[2])
-    if ptype is None:
-        return None
-    return (dest, echo, ptype, parts[3], parts[4] if len(parts) > 4 else "")
+
+    cmd_idx = offset + 3
+    args = " ".join(parts[cmd_idx + 1:]) if len(parts) > cmd_idx + 1 else ""
+    return (src, dest, echo, ptype, parts[cmd_idx], args)
 
 
 # -- Config Handlers (return status strings instead of printing) --------------
@@ -176,7 +195,7 @@ def dashboard(stdscr, *, show_splash=True):
     ctx, sock = init_zmq_pub(ZMQ_ADDR)
     logf, logpath = open_log()
 
-    queue   = []       # list of (dest, echo, ptype, cmd, args, raw_cmd)
+    queue   = []       # list of (src, dest, echo, ptype, cmd, args, raw_cmd)
     history = []       # list of dicts
     input_buf  = ""
     cursor_pos = 0
@@ -232,7 +251,7 @@ def dashboard(stdscr, *, show_splash=True):
             set_status("Nothing queued", 2)
             return
         count = len(queue)
-        for i, (dest, echo, ptype, cmd, args, raw_cmd) in enumerate(queue):
+        for i, (src, dest, echo, ptype, cmd, args, raw_cmd) in enumerate(queue):
             # Show this command as "SENDING", previous as "SENT"
             redraw(sending_idx=i)
             if i > 0 and tx_delay_ms > 0:
@@ -244,6 +263,7 @@ def dashboard(stdscr, *, show_splash=True):
             history.append({
                 "n": n,
                 "ts": datetime.now().strftime("%H:%M:%S"),
+                "src": src,
                 "dest": dest,
                 "cmd": cmd,
                 "args": args,
@@ -537,10 +557,10 @@ def dashboard(stdscr, *, show_splash=True):
                 # Parse as command — queue it
                 parsed = parse_cmd_line(line)
                 if parsed is None:
-                    set_status("Bad command: need <dest> <echo> <type> <cmd> [args]", 3)
+                    set_status("Bad command: need [src] <dest> <echo> <type> <cmd> [args]", 3)
                     continue
 
-                dest, echo, ptype, cmd, args = parsed
+                src, dest, echo, ptype, cmd, args = parsed
 
                 # Schema validation — reject invalid commands
                 valid, issues = validate_args(cmd, args, cmd_defs)
@@ -551,13 +571,15 @@ def dashboard(stdscr, *, show_splash=True):
                     set_status(f"Rejected: '{cmd}' not in command schema", 3)
                     continue
 
-                raw_cmd = build_cmd_raw(dest, cmd, args, echo=echo, ptype=ptype)
+                raw_cmd = build_cmd_raw(dest, cmd, args, echo=echo, ptype=ptype,
+                                        origin=src)
                 if len(raw_cmd) + csp.overhead() + ax25.overhead() > MAX_RS_PAYLOAD:
                     set_status("Command too large for RS payload", 3)
                     continue
 
-                queue.append((dest, echo, ptype, cmd, args, raw_cmd))
-                set_status(f"Queued: {node_label(dest)} echo:{echo} {PTYPE_NAMES.get(ptype, '?')} {cmd} {args} ({len(raw_cmd)}B)", 2)
+                queue.append((src, dest, echo, ptype, cmd, args, raw_cmd))
+                src_tag = f"{node_label(src)}\u2192" if src != GS_NODE else ""
+                set_status(f"Queued: {src_tag}{node_label(dest)} E:{echo} {PTYPE_NAMES.get(ptype, '?')} {cmd} {args} ({len(raw_cmd)}B)", 2)
                 continue
 
             # Text editing (backspace, arrows, Ctrl+W, printable chars, etc.)

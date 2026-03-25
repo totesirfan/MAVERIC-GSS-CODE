@@ -153,12 +153,13 @@ def draw_queue(stdscr, region, queue, scroll_offset=0, sending_idx=-1,
               curses.color_pair(CP_DIM) | curses.A_DIM)
     else:
         visible = queue[scroll_offset:scroll_offset + data_rows]
-        for i, (dest, echo, ptype, cmd, args, raw_cmd) in enumerate(visible):
+        for i, (src, dest, echo, ptype, cmd, args, raw_cmd) in enumerate(visible):
             row_y = y + 1 + i
             if row_y >= y + h:
                 break
             idx = scroll_offset + i + 1
             abs_idx = scroll_offset + i  # 0-based index into queue
+            src_lbl = node_label(src)
             dest_lbl = node_label(dest)
             echo_lbl = node_label(echo)
             ptype_lbl = PTYPE_NAMES.get(ptype, str(ptype))
@@ -182,9 +183,10 @@ def draw_queue(stdscr, region, queue, scroll_offset=0, sending_idx=-1,
                   base | curses.color_pair(CP_WARNING))
             col += len(idx_str) + 1
 
-            _safe(stdscr, row_y, col, dest_lbl,
+            route_str = f"{src_lbl} \u2192 {dest_lbl}"
+            _safe(stdscr, row_y, col, route_str,
                   base | curses.color_pair(CP_LABEL))
-            col += len(dest_lbl) + 1
+            col += len(route_str) + 1
 
             echo_str = f"E:{echo_lbl}"
             _safe(stdscr, row_y, col, echo_str,
@@ -248,7 +250,7 @@ def draw_history(stdscr, region, history, scroll_offset=0):
                 break
             n = rec["n"]
             ts = rec["ts"]
-            src_name = node_label(GS_NODE)
+            src_name = node_label(rec.get("src", GS_NODE))
             dest_name = node_label(rec["dest"])
             echo_name = node_label(rec["echo"])
             ptype_name = PTYPE_NAMES.get(rec["ptype"], str(rec["ptype"]))
@@ -433,12 +435,12 @@ def draw_config(stdscr, region, values, selected, editing,
 
 HELP_LINES = [
     ("COMMAND FORMAT", None),
-    ("DEST ECHO TYPE CMD [ARGS]", ""),
-    ("  DEST/ECHO", "Node name or ID"),
+    ("[SRC] DEST ECHO TYPE CMD [ARGS]", ""),
+    ("  SRC/DEST/ECHO", "Node name or ID"),
     ("  TYPE", "REQ|RES|ACK|NONE"),
-    ("SRC always GS (6)", ""),
+    ("SRC defaults to GS (6)", ""),
     ("e.g.", "EPS UPPM REQ PING"),
-    ("e.g.", "2 3 1 SET_VOLTAGE 3.3"),
+    ("e.g.", "EPS 2 3 1 SET_VOLTAGE 3.3"),
     ("KEYS", None),
     ("Ctrl+S / Ctrl+X", "Send / clear queue"),
     ("Up / Down", "History recall"),

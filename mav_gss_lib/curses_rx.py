@@ -186,6 +186,7 @@ def draw_packet_list(stdscr, region, packets, selected_idx, scroll_offset,
         ts_short = pkt.get("gs_ts_short", "??:??:??")
         frame_type = pkt.get("frame_type", "???")
         is_dup = pkt.get("is_dup", False)
+        is_uplink_echo = pkt.get("is_uplink_echo", False)
 
         # Command fields
         cmd = pkt.get("cmd")
@@ -291,6 +292,8 @@ def draw_packet_list(stdscr, region, packets, selected_idx, scroll_offset,
         if crc_str:
             right_parts.append(crc_str)
         right_parts.append(size_str)
+        if is_uplink_echo:
+            right_parts.append("UL")
         if is_dup:
             right_parts.append("DUP")
         right_str = "  ".join(right_parts)
@@ -302,25 +305,25 @@ def draw_packet_list(stdscr, region, packets, selected_idx, scroll_offset,
             _safe(stdscr, row_y, col, args_str[:max_args_w],
                   base_attr | curses.color_pair(CP_DIM))
 
-        # Draw right-aligned block
+        # Draw right-aligned block (left to right: CRC, size, UL, DUP)
         rx = right_x
-        if is_dup:
-            dup_w = 3
-            _safe(stdscr, row_y, rx + len(right_str) - dup_w, "DUP",
-                  base_attr | curses.color_pair(CP_ERROR) | curses.A_BOLD)
-        # Size
-        size_x = right_x
         if crc_str:
-            # CRC first, then size
             if "OK" in crc_str:
                 crc_attr = curses.color_pair(CP_SUCCESS)
             else:
                 crc_attr = curses.color_pair(CP_ERROR) | curses.A_BOLD
-            _safe(stdscr, row_y, rx, crc_str,
-                  base_attr | crc_attr)
+            _safe(stdscr, row_y, rx, crc_str, base_attr | crc_attr)
             rx += len(crc_str) + 2
         _safe(stdscr, row_y, rx, size_str,
               base_attr | curses.color_pair(CP_DIM))
+        rx += len(size_str) + 2
+        if is_uplink_echo:
+            _safe(stdscr, row_y, rx, "UL",
+                  base_attr | curses.color_pair(CP_WARNING) | curses.A_BOLD)
+            rx += 4
+        if is_dup:
+            _safe(stdscr, row_y, rx, "DUP",
+                  base_attr | curses.color_pair(CP_ERROR) | curses.A_BOLD)
 
 
 # -- Packet Detail Panel ------------------------------------------------------
@@ -384,6 +387,14 @@ def draw_packet_detail(stdscr, region, packet, show_hex=True):
             _safe(stdscr, row, x + 14, ts_str, val)
         else:
             _safe(stdscr, row, x + 14, "--", dim)
+        row += 1
+
+    # Uplink echo flag
+    if packet.get("is_uplink_echo") and row < max_row:
+        _safe(stdscr, row, x + 2, "UL ECHO",
+              curses.color_pair(CP_WARNING) | curses.A_BOLD)
+        _safe(stdscr, row, x + 14, "Uplink echo \u2014 dest/echo not addressed to GS",
+              curses.color_pair(CP_WARNING))
         row += 1
 
     # Command
@@ -575,6 +586,7 @@ RX_HELP_LINES = [
     ("q", "Exit"),
     ("INDICATORS", None),
     ("[LIVE]", "Auto-follow newest"),
+    ("UL", "Uplink echo"),
     ("DUP", "Duplicate packet"),
     ("CRC:OK/FAIL", "Integrity check"),
 ]

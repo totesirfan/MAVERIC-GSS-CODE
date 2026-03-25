@@ -32,7 +32,7 @@ from collections import OrderedDict
 from datetime import datetime
 
 from mav_gss_lib.protocol import (
-    node_label, ptype_label,
+    GS_NODE, node_label, ptype_label,
     try_parse_csp_v1, try_parse_command,
     clean_text,
     load_command_defs, apply_schema,
@@ -145,14 +145,19 @@ class SessionLog:
 
     def write_text(self, pkt_num, gs_ts, frame_type, raw, inner_payload,
                    stripped_hdr, csp, csp_plausible, ts_result, cmd, cmd_tail,
-                   text, warnings, delta_t, crc_status, is_dup=False):
+                   text, warnings, delta_t, crc_status,
+                   is_dup=False, is_uplink_echo=False):
         lines = []
         if delta_t is not None:
             lines.append(f"    Delta-T: {delta_t:.3f}s")
-        dup_str = " [DUP]" if is_dup else ""
+        flags = ""
+        if is_dup:
+            flags += " [DUP]"
+        if is_uplink_echo:
+            flags += " [UL]"
         lines.append("-" * 80)
         lines.append(
-            f"Packet #{pkt_num:<4} | {gs_ts} | {frame_type:<7}{dup_str} | "
+            f"Packet #{pkt_num:<4} | {gs_ts} | {frame_type:<7}{flags} | "
             f"PDU: {len(raw)} B -> Payload: {len(inner_payload)} B"
         )
         for w in warnings:
@@ -277,6 +282,7 @@ def rx_dashboard(stdscr, show_splash=True):
     # -- State --
     packets = []
     packet_count = 0
+    uplink_echo_count = 0
     last_arrival = None
     last_watchdog = time.time()
     session_start = time.time()
@@ -406,6 +412,11 @@ def rx_dashboard(stdscr, show_splash=True):
                 pkt_times.append(now)
                 pkt_times[:] = [t for t in pkt_times if t > now - 60.0]
 
+                # Uplink echo detection — flag packets not addressed to GS
+                is_uplink_echo = bool(cmd and (cmd.get("dest") != GS_NODE or cmd.get("echo") != GS_NODE))
+                if is_uplink_echo:
+                    uplink_echo_count += 1
+
                 # Log
                 if logging_enabled and log:
                     log_record = {
@@ -415,6 +426,7 @@ def rx_dashboard(stdscr, show_splash=True):
                         "raw_hex": raw.hex(), "payload_hex": inner_payload.hex(),
                         "raw_len": len(raw), "payload_len": len(inner_payload),
                         "duplicate": is_dup,
+                        "uplink_echo": is_uplink_echo,
                     }
                     if delta_t is not None:
                         log_record["delta_t"] = round(delta_t, 4)
@@ -457,7 +469,7 @@ def rx_dashboard(stdscr, show_splash=True):
                         packet_count, gs_ts, frame_type, raw, inner_payload,
                         stripped_hdr, csp, csp_plausible, ts_result, cmd,
                         cmd_tail, text, warnings, delta_t, crc_status,
-                        is_dup,
+                        is_dup, is_uplink_echo,
                     )
 
                 # Store packet record for display
@@ -479,6 +491,7 @@ def rx_dashboard(stdscr, show_splash=True):
                     "delta_t": delta_t,
                     "crc_status": crc_status,
                     "is_dup": is_dup,
+                    "is_uplink_echo": is_uplink_echo,
                 }
                 packets.append(pkt_record)
                 if len(packets) > MAX_PACKETS:
@@ -719,6 +732,7 @@ def rx_dashboard(stdscr, show_splash=True):
         "packet_count": packet_count,
         "unique": len(seen_fps),
         "duplicates": packet_count - len(seen_fps),
+        "uplink_echoes": uplink_echo_count,
         "duration": time.time() - session_start,
         "log_txt": log.text_path if log else None,
         "log_jsonl": log.jsonl_path if log else None,
@@ -743,7 +757,8 @@ def main():
     print()
     print(f"  Session ended")
     print(f"  Packets:    {result['packet_count']}  "
-          f"({result['unique']} unique, {result['duplicates']} duplicate)")
+          f"({result['unique']} unique, {result['duplicates']} duplicate, "
+          f"{result['uplink_echoes']} uplink echo)")
     print(f"  Duration:   {result['duration']:.0f}s "
           f"({result['duration']/60:.1f} min)")
     if result.get("log_txt"):
