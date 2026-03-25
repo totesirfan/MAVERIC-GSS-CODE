@@ -29,7 +29,7 @@ from datetime import datetime
 
 from mav_gss_lib.protocol import init_nodes, load_command_defs
 from mav_gss_lib.transport import (init_zmq_sub, receive_pdu,
-                                   create_monitor, poll_monitor, _SUB_STATUS)
+                                   poll_monitor, _SUB_STATUS)
 from mav_gss_lib.parsing import RxPipeline, build_rx_log_record
 from mav_gss_lib.logging import SessionLog
 from mav_gss_lib.curses_common import init_dashboard, draw_splash, edit_buffer
@@ -114,7 +114,7 @@ def rx_dashboard(stdscr, show_splash=True):
     curses.halfdelay(2)  # 200ms timeout for getch
 
     # -- Init ZMQ, logging, schema --
-    context, sock = init_zmq_sub(ZMQ_ADDR, ZMQ_RECV_TIMEOUT_MS)
+    context, sock, zmq_monitor = init_zmq_sub(ZMQ_ADDR, ZMQ_RECV_TIMEOUT_MS)
     cmd_defs = load_command_defs(CMD_DEFS_PATH)
 
     # -- State --
@@ -173,7 +173,6 @@ def rx_dashboard(stdscr, show_splash=True):
     # -- Start receiver thread --
     pkt_queue = queue.Queue()
     stop_event = threading.Event()
-    zmq_monitor = create_monitor(sock)
     zmq_status = ["SUB"]  # mutable container shared with receiver thread
 
     def on_zmq_error(msg):

@@ -25,7 +25,7 @@ from mav_gss_lib.protocol import (
     load_command_defs, validate_args, parse_cmd_line,
 )
 from mav_gss_lib.transport import (init_zmq_pub, send_pdu,
-                                   create_monitor, poll_monitor, _PUB_STATUS)
+                                   poll_monitor, _PUB_STATUS)
 from mav_gss_lib.logging import TXLog
 from mav_gss_lib.curses_common import init_dashboard, draw_splash, edit_buffer
 from mav_gss_lib.config import (
@@ -89,8 +89,7 @@ def dashboard(stdscr, *, show_splash=True):
     apply_ax25(CFG, ax25)
     cmd_defs = load_command_defs(CMD_DEFS_PATH)
 
-    ctx, sock = init_zmq_pub(ZMQ_ADDR)
-    zmq_monitor = create_monitor(sock)
+    ctx, sock, zmq_monitor = init_zmq_pub(ZMQ_ADDR)
     zmq_status = "BOUND"
     tx_log = TXLog(LOG_DIR, ZMQ_ADDR, version=VERSION)
     session_start = time.time()

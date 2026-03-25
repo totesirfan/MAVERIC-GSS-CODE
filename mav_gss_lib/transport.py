@@ -27,8 +27,9 @@ def init_zmq_sub(addr, timeout_ms=200):
     sock.setsockopt(zmq.SUBSCRIBE, b"")
     sock.setsockopt(zmq.RCVHWM, 10000)
     sock.setsockopt(zmq.RCVTIMEO, timeout_ms)
+    monitor = sock.get_monitor_socket()
     sock.connect(addr)
-    return context, sock
+    return context, sock, monitor
 
 
 def init_zmq_pub(addr, settle_ms=300):
@@ -39,9 +40,10 @@ def init_zmq_pub(addr, settle_ms=300):
     """
     context = zmq.Context()
     sock = context.socket(zmq.PUB)
+    monitor = sock.get_monitor_socket()
     sock.bind(addr)
     time.sleep(settle_ms / 1000.0)
-    return context, sock
+    return context, sock, monitor
 
 
 def receive_pdu(sock, on_error=None):
@@ -95,11 +97,6 @@ _PUB_STATUS = {
     zmq.EVENT_ACCEPTED:     "LIVE",
     zmq.EVENT_DISCONNECTED: "BOUND",
 }
-
-
-def create_monitor(sock):
-    """Create and return a ZMQ monitor socket for connection state events."""
-    return sock.get_monitor_socket()
 
 
 def poll_monitor(monitor, status_map, current):
