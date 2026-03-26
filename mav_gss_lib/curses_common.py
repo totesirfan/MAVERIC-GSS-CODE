@@ -8,6 +8,40 @@ Author:  Irfan Annuar - USC ISI SERC
 """
 
 import curses
+import time
+
+
+# -- Status message with auto-expiry -----------------------------------------
+
+class StatusMessage:
+    """Timed status message with automatic expiry."""
+    __slots__ = ("_text", "_expire")
+
+    def __init__(self, text="", duration=0):
+        self._text = text
+        self._expire = time.time() + duration if text else 0
+
+    def set(self, text, duration=3):
+        self._text = text
+        self._expire = time.time() + duration
+
+    def clear(self):
+        self._text = ""
+        self._expire = 0
+
+    def check_expiry(self):
+        if self._text and time.time() >= self._expire:
+            self._text = ""
+
+    @property
+    def text(self):
+        return self._text
+
+    def __bool__(self):
+        return bool(self._text)
+
+    def __str__(self):
+        return self._text
 
 
 # -- Buffer editing -----------------------------------------------------------
@@ -298,3 +332,32 @@ def draw_help_panel(stdscr, region, help_lines, hint="Esc: close",
                         f"Log: {log_path}"[:inner_w], dim)
 
     safe_addstr(stdscr, y + h - 1, x + 2, hint[:inner_w], dim)
+
+
+# -- Terminal size check -----------------------------------------------------
+
+def check_terminal_size(stdscr, min_cols, min_rows):
+    """Display warning if terminal is too small. Returns True if large enough."""
+    max_y, max_x = stdscr.getmaxyx()
+    if max_x >= min_cols and max_y >= min_rows:
+        return True
+    try:
+        stdscr.addstr(0, 0,
+                      f"Terminal too small (need {min_cols}x{min_rows},"
+                      f" have {max_x}x{max_y})")
+    except curses.error:
+        pass
+    stdscr.refresh()
+    return False
+
+
+# -- Config navigation -------------------------------------------------------
+
+def navigate_config(ch, selected, num_fields):
+    """Handle UP/DOWN keys for config field selection with wrap-around.
+    Returns new selected index, or None if ch wasn't a navigation key."""
+    if ch == curses.KEY_UP:
+        return (selected - 1) % num_fields
+    if ch == curses.KEY_DOWN:
+        return (selected + 1) % num_fields
+    return None

@@ -29,9 +29,11 @@ from mav_gss_lib.protocol import (
     load_command_defs, validate_args, parse_cmd_line,
 )
 from mav_gss_lib.transport import (init_zmq_pub, send_pdu,
-                                   poll_monitor, _PUB_STATUS)
+                                   poll_monitor, _PUB_STATUS, zmq_cleanup)
 from mav_gss_lib.logging import TXLog
-from mav_gss_lib.curses_common import init_dashboard, draw_splash, edit_buffer
+from mav_gss_lib.curses_common import (init_dashboard, draw_splash, edit_buffer,
+                                       StatusMessage, check_terminal_size,
+                                       navigate_config)
 from mav_gss_lib.config import (
     load_gss_config, apply_ax25, apply_csp,
     ax25_handle_msg, csp_handle_msg,
@@ -178,11 +180,9 @@ def dashboard(stdscr, *, show_splash=True):
         parts = [f"Restored {len(tx_queue)} queued command{'s' if len(tx_queue) != 1 else ''}"]
         if _q_skipped:
             parts.append(f" ({_q_skipped} skipped — corrupt)")
-        status_msg = "".join(parts)
-        status_expire = time.time() + 5
+        status = StatusMessage("".join(parts), 5)
     else:
-        status_msg = ""
-        status_expire = 0
+        status = StatusMessage()
     queue_scroll  = 0
     hist_scroll   = 0
     cmd_history   = []   # input history for up/down recall
@@ -207,13 +207,8 @@ def dashboard(stdscr, *, show_splash=True):
     send_lock  = threading.Lock()    # guards tx_queue mutations during send
     sending    = {"active": False, "idx": -1, "total": 0}  # read by main loop
 
-    def set_status(msg, duration=3):
-        nonlocal status_msg, status_expire
-        status_msg = msg
-        status_expire = time.time() + duration
-
     if schema_warning:
-        set_status(f"SCHEMA: {schema_warning}", 10)
+        status.set(f"SCHEMA: {schema_warning}", 10)
 
     def _send_worker(snapshot, delay_ms):
         """Background thread: sends queued commands, updates shared state.
@@ -236,7 +231,7 @@ def dashboard(stdscr, *, show_splash=True):
             payload = ax25.wrap(csp.wrap(raw_cmd))
             ok = send_pdu(sock, payload)
             if not ok:
-                set_status("ZMQ send error — aborting send", 5)
+                status.set("ZMQ send error — aborting send", 5)
                 break
             tx_count += 1
             sent += 1
@@ -266,9 +261,9 @@ def dashboard(stdscr, *, show_splash=True):
             hist_scroll = max(0, len(history) - 1)
             total = sending["total"]
         if send_abort.is_set():
-            set_status(f"Aborted: sent {sent}/{total}, {total - sent} remain in queue", 5)
+            status.set(f"Aborted: sent {sent}/{total}, {total - sent} remain in queue", 5)
         else:
-            set_status(f"Sent {sent} command{'s' if sent != 1 else ''}")
+            status.set(f"Sent {sent} command{'s' if sent != 1 else ''}")
         with send_lock:
             sending["active"] = False
             sending["idx"] = -1
@@ -277,10 +272,10 @@ def dashboard(stdscr, *, show_splash=True):
         nonlocal queue_scroll
         with send_lock:
             if sending["active"]:
-                set_status("Send already in progress", 2)
+                status.set("Send already in progress", 2)
                 return
             if not tx_queue:
-                set_status("Nothing queued", 2)
+                status.set("Nothing queued", 2)
                 return
             send_abort.clear()
             snapshot = list(tx_queue)
@@ -301,11 +296,7 @@ def dashboard(stdscr, *, show_splash=True):
             side_open = config_open or help_open
             layout = calculate_layout(max_y, max_x, side_panel=side_open)
             if layout is None:
-                try:
-                    stdscr.addstr(0, 0, f"Terminal too small (need 80x24, have {max_x}x{max_y})")
-                except curses.error:
-                    pass
-                stdscr.refresh()
+                check_terminal_size(stdscr, 80, 24)
                 try:
                     ch = stdscr.getch()
                 except KeyboardInterrupt:
@@ -315,8 +306,7 @@ def dashboard(stdscr, *, show_splash=True):
                 continue
 
             # -- Clear status if expired --
-            if status_msg and time.time() >= status_expire:
-                status_msg = ""
+            status.check_expiry()
 
             # -- Poll ZMQ monitor & snapshot thread-shared state --
             zmq_status = poll_monitor(zmq_monitor, _PUB_STATUS, zmq_status)
@@ -333,7 +323,7 @@ def dashboard(stdscr, *, show_splash=True):
             draw_history(stdscr, layout["history"], _history_snap,
                          scroll_offset=hist_scroll)
             draw_input(stdscr, layout["input"], input_buf, cursor_pos,
-                       len(tx_queue), status_msg)
+                       len(tx_queue), status.text)
 
             # Side panels
             if config_open and "side_panel" in layout:
@@ -365,7 +355,7 @@ def dashboard(stdscr, *, show_splash=True):
             if ch == 3:  # Ctrl+C
                 if _sending_snap["active"]:
                     send_abort.set()
-                    set_status("Aborting send...", 2)
+                    status.set("Aborting send...", 2)
                     continue
                 if help_open:
                     help_open = False
@@ -381,7 +371,7 @@ def dashboard(stdscr, *, show_splash=True):
             if ch == 27:
                 if _sending_snap["active"]:
                     send_abort.set()
-                    set_status("Aborting send...", 2)
+                    status.set("Aborting send...", 2)
                     continue
                 if config_editing:
                     config_editing = False
@@ -407,7 +397,7 @@ def dashboard(stdscr, *, show_splash=True):
                         config_values = config_get_values(
                             csp, ax25, freq, zmq_addr_disp, tx_delay_ms, tx_log.text_path)
                     except (ValueError, KeyError):
-                        set_status("Invalid value", 2)
+                        status.set("Invalid value", 2)
                         config_values = config_get_values(
                             csp, ax25, freq, zmq_addr_disp, tx_delay_ms, tx_log.text_path)
                 else:
@@ -422,11 +412,9 @@ def dashboard(stdscr, *, show_splash=True):
                     config_focused = not config_focused
                     continue
                 if config_focused:
-                    if ch == curses.KEY_UP:
-                        config_selected = (config_selected - 1) % len(CONFIG_FIELDS)
-                        continue
-                    if ch == curses.KEY_DOWN:
-                        config_selected = (config_selected + 1) % len(CONFIG_FIELDS)
+                    nav = navigate_config(ch, config_selected, len(CONFIG_FIELDS))
+                    if nav is not None:
+                        config_selected = nav
                         continue
                     if ch in (10, 13):  # Enter — edit field
                         _label, key, editable = CONFIG_FIELDS[config_selected]
@@ -446,15 +434,15 @@ def dashboard(stdscr, *, show_splash=True):
                 if tx_queue:
                     removed = tx_queue.pop()
                     _save_queue(tx_queue)
-                    set_status(f"Removed: {removed[4]} ({len(tx_queue)} left)", 2)
+                    status.set(f"Removed: {removed[4]} ({len(tx_queue)} left)", 2)
                 else:
-                    set_status("Queue is empty", 2)
+                    status.set("Queue is empty", 2)
                 continue
 
             # Ctrl+X — clear queue
             if ch == 24:
                 if tx_queue:
-                    set_status(f"Cleared {len(tx_queue)} command{'s' if len(tx_queue) != 1 else ''}", 2)
+                    status.set(f"Cleared {len(tx_queue)} command{'s' if len(tx_queue) != 1 else ''}", 2)
                     tx_queue.clear()
                     _save_queue(tx_queue)
                     queue_scroll = 0
@@ -525,12 +513,12 @@ def dashboard(stdscr, *, show_splash=True):
                 # Clear queue
                 if cmd_lower == 'clear':
                     if tx_queue:
-                        set_status(f"Cleared {len(tx_queue)} commands", 2)
+                        status.set(f"Cleared {len(tx_queue)} commands", 2)
                         tx_queue.clear()
                         _save_queue(tx_queue)
                         queue_scroll = 0
                     else:
-                        set_status("Nothing to clear", 2)
+                        status.set("Nothing to clear", 2)
                     continue
 
                 # Remove last queued command
@@ -538,19 +526,19 @@ def dashboard(stdscr, *, show_splash=True):
                     if tx_queue:
                         removed = tx_queue.pop()
                         _save_queue(tx_queue)
-                        set_status(f"Removed: {removed[4]} ({len(tx_queue)} left)", 2)
+                        status.set(f"Removed: {removed[4]} ({len(tx_queue)} left)", 2)
                     else:
-                        set_status("Queue is empty", 2)
+                        status.set("Queue is empty", 2)
                     continue
 
                 # Clear sent history
                 if cmd_lower == 'hclear':
                     if history:
-                        set_status(f"Cleared {len(history)} history entries", 2)
+                        status.set(f"Cleared {len(history)} history entries", 2)
                         history.clear()
                         hist_scroll = 0
                     else:
-                        set_status("History already empty", 2)
+                        status.set("History already empty", 2)
                     continue
 
                 # Help
@@ -572,26 +560,26 @@ def dashboard(stdscr, *, show_splash=True):
                 if cmd_lower == 'nodes':
                     names = ", ".join(f"{nid}={protocol.NODE_NAMES[nid]}"
                                      for nid in sorted(protocol.NODE_NAMES))
-                    set_status(f"Nodes: {names}", 5)
+                    status.set(f"Nodes: {names}", 5)
                     continue
 
                 # CSP config (quick inline)
                 if cmd_lower == 'csp' or cmd_lower.startswith('csp '):
                     msg = csp_handle_msg(csp, line[3:].strip() if len(line) > 3 else "")
-                    set_status(msg, 4)
+                    status.set(msg, 4)
                     continue
 
                 # AX.25 config (quick inline)
                 if cmd_lower == 'ax25' or cmd_lower.startswith('ax25 '):
                     msg = ax25_handle_msg(ax25, line[4:].strip() if len(line) > 4 else "")
-                    set_status(msg, 4)
+                    status.set(msg, 4)
                     continue
 
                 # Parse as command — queue it
                 try:
                     parsed = parse_cmd_line(line)
                 except ValueError as e:
-                    set_status(f"Bad command: {e}", 3)
+                    status.set(f"Bad command: {e}", 3)
                     continue
 
                 src, dest, echo, ptype, cmd, args = parsed
@@ -599,23 +587,23 @@ def dashboard(stdscr, *, show_splash=True):
                 # Schema validation — reject invalid commands
                 valid, issues = validate_args(cmd, args, cmd_defs)
                 if not valid and issues:
-                    set_status(f"Rejected: {issues[0]}", 3)
+                    status.set(f"Rejected: {issues[0]}", 3)
                     continue
                 if cmd_defs and cmd not in cmd_defs:
-                    set_status(f"Rejected: '{cmd}' not in command schema", 3)
+                    status.set(f"Rejected: '{cmd}' not in command schema", 3)
                     continue
 
                 raw_cmd = build_cmd_raw(dest, cmd, args, echo=echo, ptype=ptype,
                                         origin=src)
                 if len(raw_cmd) + csp.overhead() + ax25.overhead() > MAX_RS_PAYLOAD:
-                    set_status("Command too large for RS payload", 3)
+                    status.set("Command too large for RS payload", 3)
                     continue
 
                 entry = (src, dest, echo, ptype, cmd, args, raw_cmd)
                 tx_queue.append(entry)
                 _append_queue(entry)
                 src_tag = f"{node_label(src)}\u2192" if src != protocol.GS_NODE else ""
-                set_status(f"Queued: {src_tag}{node_label(dest)} E:{echo} {protocol.PTYPE_NAMES.get(ptype, '?')} {cmd} {args} ({len(raw_cmd)}B)", 2)
+                status.set(f"Queued: {src_tag}{node_label(dest)} E:{echo} {protocol.PTYPE_NAMES.get(ptype, '?')} {cmd} {args} ({len(raw_cmd)}B)", 2)
                 continue
 
             # Text editing (backspace, arrows, Ctrl+W, printable chars, etc.)
@@ -627,13 +615,7 @@ def dashboard(stdscr, *, show_splash=True):
             tx_log.close()
         except Exception:
             pass
-        try:
-            poll_monitor(zmq_monitor, _PUB_STATUS, zmq_status)
-            zmq_monitor.close()
-            sock.close()
-            ctx.term()
-        except Exception:
-            pass
+        zmq_cleanup(zmq_monitor, _PUB_STATUS, zmq_status, sock, ctx)
 
     return tx_count, tx_log.text_path
 

@@ -129,3 +129,14 @@ def poll_monitor(monitor, status_map, current):
         except Exception:
             break
     return current
+
+
+def zmq_cleanup(monitor, status_map, current_status, socket, context):
+    """Drain pending monitor events, then close monitor, socket, and context."""
+    try:
+        poll_monitor(monitor, status_map, current_status)
+        monitor.close()
+        socket.close()
+        context.term()
+    except Exception:
+        pass

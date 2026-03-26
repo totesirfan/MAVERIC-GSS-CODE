@@ -30,10 +30,12 @@ from datetime import datetime
 
 from mav_gss_lib.protocol import init_nodes, load_command_defs
 from mav_gss_lib.transport import (init_zmq_sub, receive_pdu,
-                                   poll_monitor, _SUB_STATUS)
+                                   poll_monitor, _SUB_STATUS, zmq_cleanup)
 from mav_gss_lib.parsing import RxPipeline, build_rx_log_record
 from mav_gss_lib.logging import SessionLog
-from mav_gss_lib.curses_common import init_dashboard, draw_splash, edit_buffer
+from mav_gss_lib.curses_common import (init_dashboard, draw_splash, edit_buffer,
+                                       StatusMessage, check_terminal_size,
+                                       navigate_config)
 from mav_gss_lib.config import load_gss_config
 from mav_gss_lib.curses_rx import (
     calculate_rx_layout,
@@ -139,10 +141,8 @@ def rx_dashboard(stdscr, show_splash=True):
     logging_enabled = True
     frequency = "--"
     log = SessionLog(LOG_DIR, ZMQ_ADDR, version=VERSION)
-    error_msg = f"SCHEMA: {_schema_warning}" if _schema_warning else ""
-    error_expire = time.time() + 10 if _schema_warning else 0
-    status_msg = ""
-    status_expire = 0
+    error_status = StatusMessage(f"SCHEMA: {_schema_warning}", 10) if _schema_warning else StatusMessage()
+    status = StatusMessage()
     input_buf = ""
     cursor_pos = 0
     receiving = False       # True when packets arrived this cycle
@@ -189,9 +189,7 @@ def rx_dashboard(stdscr, show_splash=True):
     zmq_status = ["SUB"]  # mutable container shared with receiver thread
 
     def on_zmq_error(msg):
-        nonlocal error_msg, error_expire
-        error_msg = msg
-        error_expire = time.time() + 5
+        error_status.set(msg, 5)
 
     rx_thread = threading.Thread(
         target=_receiver_thread,
@@ -219,7 +217,7 @@ def rx_dashboard(stdscr, show_splash=True):
                 try:
                     pkt_record = pipeline.process(meta, raw)
                 except Exception as e:
-                    error_msg = f"Packet error: {e}"
+                    error_status.set(f"Packet error: {e}", 5)
                     continue
 
                 if pipeline.frequency is not None:
@@ -233,7 +231,7 @@ def rx_dashboard(stdscr, show_splash=True):
                         log.write_jsonl(log_record)
                         log.write_packet(pkt_record)
                     except Exception as e:
-                        error_msg = f"Log error: {e}"
+                        error_status.set(f"Log error: {e}", 5)
 
                 # Store packet record for display
                 packets.append(pkt_record)
@@ -289,19 +287,18 @@ def rx_dashboard(stdscr, show_splash=True):
                 config_focused = not config_focused
 
             # Config panel navigation (when focused)
-            elif config_focused and config_open and ch == curses.KEY_UP:
-                config_selected = (config_selected - 1) % len(RX_CONFIG_FIELDS)
-            elif config_focused and config_open and ch == curses.KEY_DOWN:
-                config_selected = (config_selected + 1) % len(RX_CONFIG_FIELDS)
+            elif config_focused and config_open and ch in (curses.KEY_UP, curses.KEY_DOWN):
+                nav = navigate_config(ch, config_selected, len(RX_CONFIG_FIELDS))
+                if nav is not None:
+                    config_selected = nav
             elif config_focused and config_open and ch in (10, 13):  # Enter toggles
                 key = RX_CONFIG_FIELDS[config_selected][1]
                 if key == "show_hex":
                     show_hex = not show_hex
-                    status_msg = f"HEX {'ON' if show_hex else 'OFF'}"
-                    status_expire = time.time() + 2
+                    status.set(f"HEX {'ON' if show_hex else 'OFF'}", 2)
                 elif key == "logging":
-                    status_msg, dur = toggle_logging()
-                    status_expire = time.time() + dur
+                    msg, dur = toggle_logging()
+                    status.set(msg, dur)
 
             elif ch == curses.KEY_UP:
                 if selected_idx == -1:
@@ -352,38 +349,31 @@ def rx_dashboard(stdscr, show_splash=True):
                             help_open = False
                     elif cmd_lower == 'hex':
                         show_hex = not show_hex
-                        status_msg = f"HEX {'ON' if show_hex else 'OFF'}"
-                        status_expire = time.time() + 2
+                        status.set(f"HEX {'ON' if show_hex else 'OFF'}", 2)
                     elif cmd_lower == 'log':
-                        status_msg, dur = toggle_logging()
-                        status_expire = time.time() + dur
+                        msg, dur = toggle_logging()
+                        status.set(msg, dur)
                     elif cmd_lower == 'detail':
                         detail_open = not detail_open
                     elif cmd_lower == 'hclear':
                         if packets:
-                            status_msg = f"Cleared {len(packets)} packets"
-                            status_expire = time.time() + 2
+                            status.set(f"Cleared {len(packets)} packets", 2)
                             packets.clear()
                             selected_idx = -1
                             scroll_offset = 0
                         else:
-                            status_msg = "History already empty"
-                            status_expire = time.time() + 2
+                            status.set("History already empty", 2)
                     elif cmd_lower == 'live':
                         selected_idx = -1
                     else:
-                        status_msg = f"Unknown command: {line}"
-                        status_expire = time.time() + 3
+                        status.set(f"Unknown command: {line}", 3)
             else:
                 # Text editing
                 input_buf, cursor_pos, _ = edit_buffer(ch, input_buf, cursor_pos)
 
             # Clear expired messages
-            now_t = time.time()
-            if error_msg and now_t >= error_expire:
-                error_msg = ""
-            if status_msg and now_t >= status_expire:
-                status_msg = ""
+            error_status.check_expiry()
+            status.check_expiry()
 
             # -- Phase C: Redraw --
             max_y, max_x = stdscr.getmaxyx()
@@ -394,12 +384,7 @@ def rx_dashboard(stdscr, show_splash=True):
                                          detail_open=detail_open,
                                          side_panel=side_open)
             if layout is None:
-                try:
-                    stdscr.addstr(0, 0,
-                                  f"Terminal too small (need 80x{20}, have {max_x}x{max_y})")
-                except curses.error:
-                    pass
-                stdscr.refresh()
+                check_terminal_size(stdscr, 80, 20)
                 continue
 
             # Compute auto-follow and actual selected index
@@ -444,7 +429,7 @@ def rx_dashboard(stdscr, show_splash=True):
                           silence_secs, pipeline.packet_count, rate_per_min,
                           receiving=receiving,
                           spinner_char=spinner[spin_idx],
-                          status_msg=status_msg, error_msg=error_msg)
+                          status_msg=status.text, error_msg=error_status.text)
 
             if help_open and "side_panel" in layout:
                 draw_rx_help(stdscr, layout["side_panel"],
@@ -477,13 +462,7 @@ def rx_dashboard(stdscr, show_splash=True):
                 log.close()
         except Exception:
             pass
-        try:
-            poll_monitor(zmq_monitor, _SUB_STATUS, zmq_status[0])
-            zmq_monitor.close()
-            sock.close()
-            context.term()
-        except Exception:
-            pass
+        zmq_cleanup(zmq_monitor, _SUB_STATUS, zmq_status[0], sock, context)
 
     return {
         "packet_count": pipeline.packet_count,
