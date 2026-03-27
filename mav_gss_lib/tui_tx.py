@@ -47,7 +47,7 @@ class TxHeader(Widget):
 
 
 class TxQueue(ScrollableWidget):
-    DEFAULT_CSS = "TxQueue { height: 1fr; max-height: 33%; width: 100%; }"
+    DEFAULT_CSS = "TxQueue { height: 1fr; max-height: 33%; width: 100%; } TxQueue:focus { border: solid #00bfff; }"
 
     def __init__(self, state, **kw):
         super().__init__(**kw)
@@ -141,7 +141,7 @@ class TxQueue(ScrollableWidget):
 
 
 class SentHistory(ScrollableWidget):
-    DEFAULT_CSS = "SentHistory { height: 1fr; width: 100%; }"
+    DEFAULT_CSS = "SentHistory { height: 1fr; width: 100%; } SentHistory:focus { border: solid #00bfff; }"
 
     def __init__(self, state, **kw):
         super().__init__(**kw)

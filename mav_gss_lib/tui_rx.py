@@ -51,7 +51,7 @@ class RxHeader(Widget):
 
 
 class PacketList(Widget):
-    DEFAULT_CSS = "PacketList { height: 1fr; width: 100%; border-top: solid #555555; border-left: solid black; border-right: solid black; }"
+    DEFAULT_CSS = "PacketList { height: 1fr; width: 100%; border-top: solid #555555; border-left: solid black; border-right: solid black; } PacketList:focus { border: solid #00bfff; }"
     can_focus = True
 
     def __init__(self, state, **kw):

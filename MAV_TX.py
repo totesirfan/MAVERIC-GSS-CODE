@@ -275,9 +275,7 @@ class MavTxApp(MavAppBase):
     #bottom-bar { dock: bottom; height: 3; }
     #tx-input { height: 1; border: none; padding: 0; }
     TxQueue { border-top: solid #555555; border-left: solid black; border-right: solid black; border-bottom: solid black; }
-    TxQueue:focus { border: solid #00bfff; }
     SentHistory { border-top: solid #555555; border-left: solid black; border-right: solid black; border-bottom: solid black; }
-    SentHistory:focus { border: solid #00bfff; }
     """
     _WIDGET_QUERY = "TxHeader, TxQueue, SentHistory, TxStatusBar, HelpPanel"
     _INPUT_ID = "tx-input"
@@ -290,7 +288,6 @@ class MavTxApp(MavAppBase):
         Binding("up", "history_prev", "Up", show=False),
         Binding("down", "history_next", "Down", show=False),
         Binding("tab", "focus_next_widget", "Tab", show=False),
-        Binding("shift+tab", "focus_prev_widget", "Shift+Tab", show=False),
     ]
     _FOCUS_CYCLE = ["#tx-input", "#tx-queue", "#sent-history"]
 
@@ -324,8 +321,8 @@ class MavTxApp(MavAppBase):
             yield HelpPanel(s, HELP_LINES, "Esc: close", tx_help_info, id="help-panel")
         with Vertical(id="bottom-bar"):
             yield TxStatusBar(s, id="status-bar")
-            yield Input(id="tx-input", placeholder="> ")
-            yield Hints(" Enter: queue | cfg | help | imp | Ctrl+C: quit")
+            yield Input(id="tx-input")
+            yield Hints(" Tab: focus | Enter: queue | cfg | help | imp | Ctrl+C: quit")
 
     def on_mount(self):
         if self._show_splash:
@@ -386,7 +383,6 @@ class MavTxApp(MavAppBase):
         self.query_one(cycle[idx]).focus()
 
     def action_focus_next_widget(self): self._cycle_focus(1)
-    def action_focus_prev_widget(self): self._cycle_focus(-1)
 
     def action_history_prev(self):
         # Only recall command history when input is focused

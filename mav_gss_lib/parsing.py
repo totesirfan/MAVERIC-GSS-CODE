@@ -21,6 +21,9 @@ from mav_gss_lib.protocol import (
 )
 
 
+DUP_WINDOW = 1.0  # seconds -- only flag as duplicate if same fingerprint seen within this window
+
+
 class RxPipeline:
     """Stateful RX packet processing pipeline.
 
@@ -85,16 +88,16 @@ class RxPipeline:
 
         text = clean_text(inner_payload)
 
-        # Duplicate detection using satellite CRC-16 + CRC-32C
+        # Duplicate detection using satellite CRC-16 + CRC-32C with time window
         is_dup = False
         fp = None
         if cmd and cmd.get("crc") is not None and cmd.get("csp_crc32") is not None:
             fp = (cmd["crc"], cmd["csp_crc32"])
-            is_dup = fp in self.seen_fps
-            if is_dup:
-                self.seen_fps.move_to_end(fp)
-            else:
-                self.seen_fps[fp] = None
+            now = time.time()
+            prev = self.seen_fps.get(fp)
+            is_dup = prev is not None and (now - prev) < DUP_WINDOW
+            self.seen_fps[fp] = now
+            self.seen_fps.move_to_end(fp)
             if len(self.seen_fps) > self.max_seen_fps:
                 for _ in range(self.max_seen_fps // 5):
                     self.seen_fps.popitem(last=False)

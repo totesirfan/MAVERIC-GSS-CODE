@@ -44,7 +44,7 @@ MAX_PACKETS = 500
 MAX_SEEN_FPS = 10_000
 GC_INTERVAL = 300
 RECEIVING_TIMEOUT = 2.0
-SPINNER = ["▸", "▸▸", "▸▸▸", "▸▸▸▸", "▸▸▸▸▸", "▸▸▸▸", "▸▸▸", "▸▸", "▸"]
+SPINNER = ["▸", "▸▸", "▸▸▸", "▸▸▸▸", "▸▸▸▸▸"]
 
 
 def _load_tx_frequencies(path):
@@ -181,17 +181,18 @@ class MavRxApp(MavAppBase):
     #content-area { width: 1fr; }
     #bottom-bar { dock: bottom; height: 2; }
     #rx-input { height: 1; border: none; padding: 0; }
-    PacketList:focus { border: solid #00bfff; }
     """
     _WIDGET_QUERY = "RxHeader, PacketList, PacketDetail, HelpPanel"
     _INPUT_ID = "rx-input"
     BINDINGS = [
         Binding("ctrl+c", "quit_or_close", "Quit", priority=True),
         Binding("escape", "close_panel", "Close", show=False),
+        Binding("tab", "toggle_focus", "Tab", show=False),
         Binding("up", "select_prev", "Up", show=False),
         Binding("down", "select_next", "Down", show=False),
         Binding("pageup", "page_up", "PgUp", show=False),
         Binding("pagedown", "page_down", "PgDn", show=False),
+        Binding("shift+down", "jump_bottom", "Jump Bottom", show=False),
     ]
 
     def __init__(self, show_splash=True):
@@ -225,8 +226,8 @@ class MavRxApp(MavAppBase):
                 yield PacketDetail(s, id="packet-detail")
             yield HelpPanel(s, RX_HELP_LINES, "Esc: close", rx_help_info, id="help-panel")
         with Vertical(id="bottom-bar"):
-            yield Input(id="rx-input", placeholder="> ")
-            yield Hints(" cfg | help | Ctrl+C: quit | Enter on list: detail")
+            yield Input(id="rx-input")
+            yield Hints(" Tab: focus | ↑↓: select | Enter: detail | cfg | help | Ctrl+C: quit")
 
     def on_mount(self):
         if self._show_splash:
@@ -252,7 +253,7 @@ class MavRxApp(MavAppBase):
         _drain_rx_queue(s, self._pkt_queue)
         if time.time() - s.last_gc > GC_INTERVAL:
             gc.collect(); s.last_gc = time.time()
-        s._spin_acc += 1.0 if s.receiving else 0.5
+        s._spin_acc += 1.0 if s.receiving else 0.25
         s.spin_idx = int(s._spin_acc) % len(SPINNER)
         s.error_status.check_expiry(); s.status.check_expiry()
         s.silence_secs = time.time() - s.last_watchdog
@@ -261,15 +262,7 @@ class MavRxApp(MavAppBase):
         while s.pipeline.pkt_times and s.pipeline.pkt_times[0] <= now - 60.0:
             s.pipeline.pkt_times.popleft()
         s.rate_per_min = len(s.pipeline.pkt_times)
-        auto = (s.selected_idx == -1)
-        if not auto and s.packets:
-            actual = s.selected_idx
-            lh = self._plist.content_size.height - 4
-            if lh > 0:
-                if actual < s.scroll_offset: s.scroll_offset = actual
-                elif actual >= s.scroll_offset + lh: s.scroll_offset = actual - lh + 1
-                s.scroll_offset = max(0, s.scroll_offset)
-        else:
+        if s.selected_idx == -1:
             s.scroll_offset = 0
         self.query_one("#packet-detail").display = s.detail_open
         self.query_one("#help-panel").display = s.help_open
@@ -291,15 +284,19 @@ class MavRxApp(MavAppBase):
     def _plist(self):
         return self.query_one("#packet-list", PacketList)
 
+    def action_toggle_focus(self):
+        if isinstance(self.focused, Input):
+            self.query_one("#packet-list", PacketList).focus()
+        else:
+            self.query_one("#rx-input", Input).focus()
+
     def action_select_prev(self):
+        if isinstance(self.focused, Input): return
         s = self.state
         pl = self._plist
         if s.selected_idx == -1:
             if s.packets:
                 s.selected_idx = pl._find_last_visible()
-                lh = pl.content_size.height - 4
-                if lh > 0:
-                    s.scroll_offset = max(0, len(s.packets) - lh)
             else:
                 s.selected_idx = 0
         elif s.selected_idx > 0:
@@ -307,12 +304,14 @@ class MavRxApp(MavAppBase):
         self._act()
 
     def action_select_next(self):
+        if isinstance(self.focused, Input): return
         s = self.state
         if s.selected_idx != -1:
             s.selected_idx = self._plist._find_next_visible(s.selected_idx)
         self._act()
 
     def action_page_up(self):
+        if isinstance(self.focused, Input): return
         s = self.state
         pl = self._plist
         if s.selected_idx == -1:
@@ -325,6 +324,7 @@ class MavRxApp(MavAppBase):
         self._act()
 
     def action_page_down(self):
+        if isinstance(self.focused, Input): return
         s = self.state
         if s.selected_idx != -1:
             pl = self._plist
@@ -333,6 +333,11 @@ class MavRxApp(MavAppBase):
                 nxt = pl._find_next_visible(s.selected_idx)
                 if nxt == -1: s.selected_idx = -1; break
                 s.selected_idx = nxt
+        self._act()
+
+    def action_jump_bottom(self):
+        if isinstance(self.focused, Input): return
+        self.state.selected_idx = -1
         self._act()
 
     def _dispatch(self, line):
