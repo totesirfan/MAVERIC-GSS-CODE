@@ -54,6 +54,24 @@ def lr_line(left, right, w, fill_style=""):
     return line
 
 
+S_SCROLLBAR_THUMB = Style(bgcolor="#666666")  # lighter grey — thumb (visible area)
+S_SCROLLBAR_TRACK = Style(bgcolor="#222222")  # darker grey — track (background)
+
+def scrollbar_styles(total, visible, offset, height):
+    """Return a list of height Style objects for a vertical scrollbar track.
+
+    Returns empty list when content fits (total <= visible).
+    Uses background-colored spaces for a continuous solid look.
+    """
+    if total <= visible or height <= 0:
+        return []
+    thumb_size = max(1, round(visible / total * height))
+    max_offset = total - visible
+    thumb_start = round(offset / max_offset * (height - thumb_size)) if max_offset > 0 else 0
+    return [S_SCROLLBAR_THUMB if thumb_start <= i < thumb_start + thumb_size else S_SCROLLBAR_TRACK
+            for i in range(height)]
+
+
 class Hints(Widget):
     """Single-line hint bar docked at bottom."""
     DEFAULT_CSS = "Hints { height: 1; width: 100%; }"

@@ -43,7 +43,7 @@ MAX_PACKETS = 500
 MAX_SEEN_FPS = 10_000
 GC_INTERVAL = 300
 RECEIVING_TIMEOUT = 2.0
-SPINNER = ["█", "▓", "▒", "░", "▒", "▓"]
+SPINNER = ["▸", "▸▸", "▸▸▸", "▸▸▸▸", "▸▸▸▸▸", "▸▸▸▸", "▸▸▸", "▸▸", "▸"]
 
 
 def _load_tx_frequencies(path):
@@ -78,13 +78,17 @@ class RxState:
     scroll_offset: int = 0
     detail_open: bool = True
     help_open: bool = False
-    show_hex: bool = True
+    show_hex: bool = False
+    show_wrapper: bool = False
+    hide_uplink: bool = True
     logging_enabled: bool = True
     receiving: bool = False
     frequency: str = "--"
     error_status: StatusMessage = field(default_factory=StatusMessage)
     status: StatusMessage = field(default_factory=StatusMessage)
+    spinner: list = field(default_factory=list)
     spin_idx: int = 0
+    _spin_acc: float = 0.0
     # Computed per-tick (avoid recalculating in widgets)
     silence_secs: float = 0.0
     pkt_count: int = 0
@@ -175,9 +179,12 @@ def _dispatch_rx_command(state, line):
     elif cmd == 'hex':
         state.show_hex = not state.show_hex
         state.status.set(f"HEX {'ON' if state.show_hex else 'OFF'}", 2)
-    elif cmd == 'log':
-        msg, dur = _toggle_logging(state)
-        state.status.set(msg, dur)
+    elif cmd == 'ul':
+        state.hide_uplink = not state.hide_uplink
+        state.status.set(f"Hide Uplink {'ON' if state.hide_uplink else 'OFF'}", 2)
+    elif cmd == 'wrapper':
+        state.show_wrapper = not state.show_wrapper
+        state.status.set(f"Wrapper {'ON' if state.show_wrapper else 'OFF'}", 2)
     elif cmd == 'detail':
         state.detail_open = not state.detail_open
     elif cmd == 'hclear':
@@ -212,8 +219,6 @@ class MavRxApp(App):
         Binding("down", "select_next", "Down", show=False),
         Binding("pageup", "page_up", "PgUp", show=False),
         Binding("pagedown", "page_down", "PgDn", show=False),
-        Binding("shift+up", "detail_scroll_up", "Detail↑", show=False),
-        Binding("shift+down", "detail_scroll_down", "Detail↓", show=False),
     ]
 
     def __init__(self, show_splash=True):
@@ -227,7 +232,7 @@ class MavRxApp(App):
             log=SessionLog(LOG_DIR, ZMQ_ADDR, version=VERSION), cmd_defs=cmd_defs,
             session_start=now, last_watchdog=now, last_gc=now,
             zmq_addr=ZMQ_ADDR, version=VERSION, schema_count=len(cmd_defs),
-            schema_path=CMD_DEFS_PATH,
+            schema_path=CMD_DEFS_PATH, spinner=SPINNER,
             frequency=next(iter(self._tx_freq_map.values()), "N/A"),
         )
         if self._schema_warning:
@@ -243,7 +248,7 @@ class MavRxApp(App):
         yield RxHeader(s, self._zmq_status, self._pkt_queue, id="rx-header")
         with Horizontal(id="main-area"):
             with Vertical(id="content-area"):
-                yield PacketList(s, spinner=SPINNER, id="packet-list")
+                yield PacketList(s, id="packet-list")
                 yield PacketDetail(s, id="packet-detail")
             yield HelpPanel(s, RX_HELP_LINES, "Esc: close", rx_help_info, id="help-panel")
         with Vertical(id="bottom-bar"):
@@ -274,7 +279,8 @@ class MavRxApp(App):
         _drain_rx_queue(s, self._pkt_queue)
         if time.time() - s.last_gc > GC_INTERVAL:
             gc.collect(); s.last_gc = time.time()
-        s.spin_idx = (s.spin_idx + 1) % len(SPINNER)
+        s._spin_acc += 1.0 if s.receiving else 0.5
+        s.spin_idx = int(s._spin_acc) % len(SPINNER)
         s.error_status.check_expiry(); s.status.check_expiry()
         s.silence_secs = time.time() - s.last_watchdog
         s.pkt_count = s.pipeline.packet_count
@@ -286,7 +292,7 @@ class MavRxApp(App):
         if not auto and s.packets:
             actual = s.selected_idx
             plist = self.query_one("#packet-list", PacketList)
-            lh = plist.content_size.height - 2
+            lh = plist.content_size.height - 4
             if lh > 0:
                 if actual < s.scroll_offset: s.scroll_offset = actual
                 elif actual >= s.scroll_offset + lh: s.scroll_offset = actual - lh + 1
@@ -316,9 +322,16 @@ class MavRxApp(App):
     def action_select_prev(self):
         s = self.state
         if s.selected_idx == -1:
-            s.selected_idx = len(s.packets) - 1 if s.packets else 0
+            if s.packets:
+                s.selected_idx = len(s.packets) - 1
+                # Set scroll_offset to match auto-scroll view position
+                plist = self.query_one("#packet-list", PacketList)
+                lh = plist.content_size.height - 4
+                if lh > 0:
+                    s.scroll_offset = max(0, len(s.packets) - lh)
+            else:
+                s.selected_idx = 0
         elif s.selected_idx > 0: s.selected_idx -= 1
-        self.query_one("#packet-detail", PacketDetail)._detail_scroll = 0
         self._act()
 
     def action_select_next(self):
@@ -326,7 +339,6 @@ class MavRxApp(App):
         if s.selected_idx != -1:
             if s.selected_idx < len(s.packets) - 1: s.selected_idx += 1
             else: s.selected_idx = -1
-        self.query_one("#packet-detail", PacketDetail)._detail_scroll = 0
         self._act()
 
     def action_page_up(self):
@@ -340,14 +352,6 @@ class MavRxApp(App):
         if s.selected_idx != -1:
             s.selected_idx = min(len(s.packets) - 1, s.selected_idx + max(1, self.size.height - 10))
         self._act()
-
-    def action_detail_scroll_up(self):
-        detail = self.query_one("#packet-detail", PacketDetail)
-        if detail.scroll_detail(-1): self._act()
-
-    def action_detail_scroll_down(self):
-        detail = self.query_one("#packet-detail", PacketDetail)
-        if detail.scroll_detail(1): self._act()
 
     def on_input_submitted(self, event: Input.Submitted):
         if event.input.id != "rx-input": return
@@ -365,11 +369,14 @@ class MavRxApp(App):
     def _on_config_done(self, values):
         s = self.state
         new_hex = (values.get("show_hex", "OFF").upper() == "ON")
-        new_log = (values.get("logging", "OFF").upper() == "ON")
+        new_wrap = (values.get("show_wrapper", "OFF").upper() == "ON")
+        new_ul = (values.get("hide_uplink", "OFF").upper() == "ON")
         if new_hex != s.show_hex:
             s.show_hex = new_hex; s.status.set(f"HEX {'ON' if s.show_hex else 'OFF'}", 2)
-        if new_log != s.logging_enabled:
-            msg, dur = _toggle_logging(s); s.status.set(msg, dur)
+        if new_wrap != s.show_wrapper:
+            s.show_wrapper = new_wrap; s.status.set(f"Wrapper {'ON' if s.show_wrapper else 'OFF'}", 2)
+        if new_ul != s.hide_uplink:
+            s.hide_uplink = new_ul; s.status.set(f"Hide Uplink {'ON' if s.hide_uplink else 'OFF'}", 2)
         self._act()
 
     # -- Cleanup --------------------------------------------------------------

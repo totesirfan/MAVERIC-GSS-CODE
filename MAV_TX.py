@@ -275,6 +275,10 @@ class MavTxApp(App):
     #content-area { width: 1fr; }
     #bottom-bar { dock: bottom; height: 3; }
     #tx-input { height: 1; border: none; padding: 0; }
+    TxQueue { border-top: solid #555555; border-left: solid black; border-right: solid black; border-bottom: solid black; }
+    TxQueue:focus { border: solid #00bfff; }
+    SentHistory { border-top: solid #555555; border-left: solid black; border-right: solid black; border-bottom: solid black; }
+    SentHistory:focus { border: solid #00bfff; }
     """
     ENABLE_COMMAND_PALETTE = False
     BINDINGS = [
@@ -285,9 +289,10 @@ class MavTxApp(App):
         Binding("ctrl+x", "clear_queue", "Clear", show=False, priority=True),
         Binding("up", "history_prev", "Up", show=False),
         Binding("down", "history_next", "Down", show=False),
-        Binding("pageup", "page_up", "PgUp", show=False),
-        Binding("pagedown", "page_down", "PgDn", show=False),
+        Binding("tab", "focus_next_widget", "Tab", show=False),
+        Binding("shift+tab", "focus_prev_widget", "Shift+Tab", show=False),
     ]
+    _FOCUS_CYCLE = ["#tx-input", "#tx-queue", "#sent-history"]
 
     def __init__(self, show_splash=True):
         super().__init__()
@@ -375,7 +380,29 @@ class MavTxApp(App):
             s.tx_queue.clear(); _save_queue(s.tx_queue); s.queue_scroll = 0
         self._act()
 
+    def action_focus_next_widget(self):
+        cycle = self._FOCUS_CYCLE
+        current = self.focused
+        idx = 0
+        for i, sel in enumerate(cycle):
+            if current is self.query_one(sel):
+                idx = (i + 1) % len(cycle); break
+        target = self.query_one(cycle[idx])
+        target.focus()
+
+    def action_focus_prev_widget(self):
+        cycle = self._FOCUS_CYCLE
+        current = self.focused
+        idx = len(cycle) - 1
+        for i, sel in enumerate(cycle):
+            if current is self.query_one(sel):
+                idx = (i - 1) % len(cycle); break
+        target = self.query_one(cycle[idx])
+        target.focus()
+
     def action_history_prev(self):
+        # Only recall command history when input is focused
+        if not isinstance(self.focused, Input): return
         s = self.state
         inp = self.query_one("#tx-input", Input)
         if s.cmd_history:
@@ -384,21 +411,13 @@ class MavTxApp(App):
             inp.value = s.cmd_history[s.cmd_hist_idx]; inp.cursor_position = len(inp.value)
 
     def action_history_next(self):
+        if not isinstance(self.focused, Input): return
         s = self.state
         inp = self.query_one("#tx-input", Input)
         if s.cmd_hist_idx >= 0:
             s.cmd_hist_idx -= 1
             inp.value = s.cmd_hist_save if s.cmd_hist_idx == -1 else s.cmd_history[s.cmd_hist_idx]
             inp.cursor_position = len(inp.value)
-
-    def action_page_up(self):
-        s = self.state
-        s.hist_scroll = max(min(self.size.height - 3, len(s.history) - 1), s.hist_scroll - 5)
-        self._act()
-
-    def action_page_down(self):
-        s = self.state
-        s.hist_scroll = min(len(s.history) - 1, s.hist_scroll + 5); self._act()
 
     def on_input_submitted(self, event: Input.Submitted):
         if event.input.id != "tx-input": return
