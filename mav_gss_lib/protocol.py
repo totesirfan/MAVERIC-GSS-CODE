@@ -517,10 +517,14 @@ def load_command_defs(path="maveric_commands.yml"):
                 typ = a.get("type", "str")
                 if typ not in _TYPE_PARSERS:
                     typ = "str"
-                args.append({"name": name, "type": typ})
+                entry = {"name": name, "type": typ}
+                if a.get("important"):
+                    entry["important"] = True
+                args.append(entry)
             defs[cmd_id.lower()] = {
                 "args": args,
                 "variadic": spec.get("variadic", False),
+                "suggestions": [str(s) for s in (spec.get("suggestions") or [])],
             }
         return defs, None
     except (OSError, yaml.YAMLError):
@@ -566,11 +570,14 @@ def apply_schema(cmd, cmd_defs):
                 value = parser(raw_args[i])
             except (ValueError, TypeError):
                 value = raw_args[i]
-            typed.append({
+            ta = {
                 "name":  arg_def["name"],
                 "type":  arg_def["type"],
                 "value": value,
-            })
+            }
+            if arg_def.get("important"):
+                ta["important"] = True
+            typed.append(ta)
             # Surface the first resolved timestamp for SAT TIME display
             if arg_def["type"] == "epoch_ms" and isinstance(value, dict) and sat_time is None:
                 sat_time = (value["utc"], value["local"], value["ms"])

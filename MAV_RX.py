@@ -212,6 +212,8 @@ class MavRxApp(App):
         Binding("down", "select_next", "Down", show=False),
         Binding("pageup", "page_up", "PgUp", show=False),
         Binding("pagedown", "page_down", "PgDn", show=False),
+        Binding("shift+up", "detail_scroll_up", "Detail↑", show=False),
+        Binding("shift+down", "detail_scroll_down", "Detail↓", show=False),
     ]
 
     def __init__(self, show_splash=True):
@@ -315,6 +317,7 @@ class MavRxApp(App):
         if s.selected_idx == -1:
             s.selected_idx = len(s.packets) - 1 if s.packets else 0
         elif s.selected_idx > 0: s.selected_idx -= 1
+        self.query_one("#packet-detail", PacketDetail)._detail_scroll = 0
         self._act()
 
     def action_select_next(self):
@@ -322,6 +325,7 @@ class MavRxApp(App):
         if s.selected_idx != -1:
             if s.selected_idx < len(s.packets) - 1: s.selected_idx += 1
             else: s.selected_idx = -1
+        self.query_one("#packet-detail", PacketDetail)._detail_scroll = 0
         self._act()
 
     def action_page_up(self):
@@ -335,6 +339,14 @@ class MavRxApp(App):
         if s.selected_idx != -1:
             s.selected_idx = min(len(s.packets) - 1, s.selected_idx + max(1, self.size.height - 10))
         self._act()
+
+    def action_detail_scroll_up(self):
+        detail = self.query_one("#packet-detail", PacketDetail)
+        if detail.scroll_detail(-1): self._act()
+
+    def action_detail_scroll_down(self):
+        detail = self.query_one("#packet-detail", PacketDetail)
+        if detail.scroll_detail(1): self._act()
 
     def on_input_submitted(self, event: Input.Submitted):
         if event.input.id != "rx-input": return

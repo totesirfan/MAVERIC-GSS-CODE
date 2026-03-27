@@ -15,6 +15,7 @@ from mav_gss_lib.tui_common import (
 )
 
 
+
 class TxHeader(Widget):
     DEFAULT_CSS = "TxHeader { height: 4; width: 100%; dock: top; }"
 
@@ -76,10 +77,13 @@ class TxQueue(Widget):
             else:
                 base, tag, ts = "", "", ""
             left = Text(style=base)
-            left.append(f" {ai+1:>2}. ", style=f"{base} #ffd700" if not base else base)
-            left.append(f"{node_label(src)} → {node_label(dest)} ", style=f"{base} #00bfff" if not base else base)
+            left.append(f" #{ai+1:<4}", style=f"{base} #ffd700" if not base else base)
+            if src != protocol.GS_NODE:
+                left.append(f"{node_label(src)} → ", style=f"{base} #00bfff" if not base else base)
+            left.append(f"{node_label(dest)} ", style=f"{base} #00bfff" if not base else base)
             left.append(f"E:{node_label(echo)} ", style=f"{base} #888888")
-            left.append(f"{protocol.PTYPE_NAMES.get(ptype, str(ptype))} ", style=f"{base} #00bfff" if not base else base)
+            ptype_color = "#00ff87" if ptype == protocol.PTYPE_IDS.get("RES") else "#00bfff"
+            left.append(f"{protocol.PTYPE_NAMES.get(ptype, str(ptype))} ", style=f"{base} {ptype_color}" if not base else base)
             left.append(f"{cmd} ", style=f"{base} bold #ffffff" if not base else base)
             if args: left.append(args, style=f"{base} #888888")
             rs = f"{len(raw_cmd)}B"
@@ -112,12 +116,16 @@ class SentHistory(Widget):
         end = min(s.hist_scroll + 1, count)
         start = max(0, end - data_rows)
         for rec in hist[start:end]:
+            src = rec.get('src', protocol.GS_NODE)
             left = Text()
             left.append(f" #{rec['n']:<4}", style=S_SUCCESS)
             left.append(f"{rec['ts']} ", style=S_VALUE)
-            left.append(f"{node_label(rec.get('src',protocol.GS_NODE))} → {node_label(rec['dest'])} ", style=S_LABEL)
+            if src != protocol.GS_NODE:
+                left.append(f"{node_label(src)} → ", style=S_LABEL)
+            left.append(f"{node_label(rec['dest'])} ", style=S_LABEL)
             left.append(f"E:{node_label(rec['echo'])} ", style=S_DIM)
-            left.append(f"{protocol.PTYPE_NAMES.get(rec['ptype'],'?')} ", style=S_LABEL)
+            left.append(f"{protocol.PTYPE_NAMES.get(rec['ptype'], '?')} ",
+                        style=S_SUCCESS if rec['ptype'] == protocol.PTYPE_IDS.get("RES") else S_LABEL)
             left.append(f"{rec['cmd']} ", style=S_VALUE)
             if rec["args"]: left.append(rec["args"], style=S_DIM)
             t.append_text(lr_line(left, Text(f"{rec['payload_len']}B ", style=S_DIM), w))
@@ -153,7 +161,7 @@ HELP_LINES = [
     ("Ctrl+W / Ctrl+U", "Del word / clear input"),
     ("COMMANDS", None), ("send", "Send all queued"), ("undo / pop", "Remove last queued"),
     ("clear / hclear", "Clear queue / history"), ("cfg / help / nodes", "Panels & info"),
-    ("raw <hex>", "Send raw bytes"), ("q", "Exit"),
+    ("imp [file]", "Import from generated_commands/"), ("raw <hex>", "Send raw bytes"), ("q", "Exit"),
 ]
 
 CONFIG_FIELDS = [

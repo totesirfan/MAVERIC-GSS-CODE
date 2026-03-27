@@ -129,12 +129,14 @@ class PacketList(Widget):
             ft = pkt.get("frame_type", "???")
             left.append(f"{ft:<6} ", style=f"{b} {'#ffd700' if ft=='AX.25' else '#00ff87' if ft=='AX100' else '#ff4444'}")
             if cmd:
-                left.append(f"{node_label(cmd['src'])} → {node_label(cmd['dest'])} ", style=f"{b} #00bfff")
+                left.append(f"{node_label(cmd['src'])} → ", style=f"{b} #00bfff")
+                left.append(f"{node_label(cmd['dest'])} ", style=f"{b} #00bfff")
                 left.append(f"E:{node_label(cmd['echo'])} ", style=f"{b} #888888")
-                left.append(f"{protocol.PTYPE_NAMES.get(cmd['pkt_type'],'?')} ", style=f"{b} #00bfff")
+                ptype_color = "#00ff87" if cmd['pkt_type'] == protocol.PTYPE_IDS.get("RES") else "#00bfff"
+                left.append(f"{protocol.PTYPE_NAMES.get(cmd['pkt_type'],'?')} ", style=f"{b} {ptype_color}")
                 left.append(f"{cmd['cmd_id'][:14]} ", style=f"{b} bold #ffffff")
-                args = (" ".join([format_arg_value(ta) for ta in cmd.get("typed_args",[])]
-                                 + [str(e) for e in cmd.get("extra_args",[])])
+                args = (" ".join(format_arg_value(ta) for ta in cmd.get("typed_args",[])
+                                 if ta.get("important"))
                         if cmd.get("schema_match")
                         else " ".join(str(a) for a in cmd.get("args",[])))
                 if args:
@@ -154,31 +156,40 @@ class PacketList(Widget):
 
 
 class PacketDetail(Widget):
-    DEFAULT_CSS = "PacketDetail { height: auto; max-height: 25; width: 100%; }"
+    DEFAULT_CSS = "PacketDetail { height: 1fr; width: 100%; }"
+    can_focus = True
 
     def __init__(self, state, **kw):
         super().__init__(**kw)
         self.s = state
+        self._detail_scroll = 0
+        self._detail_lines = 0
+
+    def scroll_detail(self, delta):
+        """Scroll detail by delta lines. Returns True if scrolled."""
+        old = self._detail_scroll
+        self._detail_scroll = max(0, min(self._detail_scroll + delta,
+                                         max(0, self._detail_lines - self.content_size.height)))
+        return self._detail_scroll != old
 
     def render(self):
-        s, w = self.s, self.content_size.width
+        s, w, h = self.s, self.content_size.width, self.content_size.height
         auto = (s.selected_idx == -1)
         actual = len(s.packets) - 1 if auto and s.packets else s.selected_idx
         pkt = s.packets[actual] if 0 <= actual < len(s.packets) else None
-        g = Table.grid(expand=True, padding=(0, 0, 0, 2))
-        g.add_column(width=12, style=S_LABEL)
-        g.add_column(ratio=1)
-        from rich.console import Group
         sep = Text("─" * w, style=S_SEP)
         if not pkt:
             return sep
         is_unk = pkt.get("is_unknown", False)
         if is_unk and pkt.get("unknown_num") is not None:
-            title = Text(f" UNKNOWN U-{pkt['unknown_num']}", style=S_ERROR)
+            title = f" UNKNOWN U-{pkt['unknown_num']}"
+            title_st = S_ERROR
         else:
-            title = Text(f" PACKET #{pkt.get('pkt_num',0)} DETAIL", style=S_WARNING)
+            title = f" PACKET #{pkt.get('pkt_num',0)} DETAIL"
+            title_st = S_WARNING
+        lines = []  # list of (label, value, style)
         def f(lbl, val, st=S_VALUE):
-            g.add_row(Text(lbl), Text(str(val), style=st))
+            lines.append((lbl, str(val), st))
         if is_unk:
             if s.show_hex:
                 raw = pkt.get("raw", b"")
@@ -186,45 +197,66 @@ class PacketDetail(Widget):
                 if pkt.get("text"): f("ASCII", pkt["text"], S_DIM)
                 inner = pkt.get("inner_payload", b"")
                 if inner: f("SIZE", f"{len(inner)}B (raw {len(raw)}B)", S_DIM)
-            return Group(sep, title, g)
-        for wm in pkt.get("warnings", []):
-            g.add_row(Text("⚠", style=S_ERROR), Text(wm, style=S_ERROR))
-        if pkt.get("is_uplink_echo"):
-            f("UL ECHO", "Uplink echo — dest/echo not addressed to GS", S_WARNING)
-        if pkt.get("stripped_hdr"):
-            f("AX.25 HDR", pkt["stripped_hdr"], S_DIM)
-        csp = pkt.get("csp")
-        if csp:
-            tag = "CSP V1" if pkt.get("csp_plausible") else "CSP V1 [?]"
-            f(tag, f"Prio:{csp['prio']}  Src:{csp['src']}  Dest:{csp['dest']}  DPort:{csp['dport']}  SPort:{csp['sport']}  Flags:0x{csp['flags']:02x}")
-        ts_r = pkt.get("ts_result")
-        if ts_r:
-            f("SAT TIME", f"{ts_r[0].strftime('%Y-%m-%d %H:%M:%S UTC')}  │  {ts_r[1].strftime('%Y-%m-%d %H:%M:%S %Z')}")
         else:
-            f("SAT TIME", "--", S_DIM)
-        cmd = pkt.get("cmd")
-        if cmd:
-            f("CMD", f"Src:{node_label(cmd['src'])}  Dest:{node_label(cmd['dest'])}  Echo:{node_label(cmd['echo'])}  Type:{ptype_label(cmd['pkt_type'])}")
-            f("CMD ID", cmd["cmd_id"])
-            if cmd.get("schema_match"):
-                for ta in cmd.get("typed_args", []): f(ta["name"].upper()[:12], format_arg_value(ta))
-                for i, ex in enumerate(cmd.get("extra_args", [])): f(f"ARG +{i}", str(ex))
+            for wm in pkt.get("warnings", []):
+                lines.append(("⚠", wm, S_ERROR))
+            if pkt.get("is_uplink_echo"):
+                f("UL ECHO", "Uplink echo — dest/echo not addressed to GS", S_WARNING)
+            if pkt.get("stripped_hdr"):
+                f("AX.25 HDR", pkt["stripped_hdr"], S_DIM)
+            csp = pkt.get("csp")
+            if csp:
+                tag = "CSP V1" if pkt.get("csp_plausible") else "CSP V1 [?]"
+                f(tag, f"Prio:{csp['prio']}  Src:{csp['src']}  Dest:{csp['dest']}  DPort:{csp['dport']}  SPort:{csp['sport']}  Flags:0x{csp['flags']:02x}")
+            ts_r = pkt.get("ts_result")
+            if ts_r:
+                f("SAT TIME", f"{ts_r[0].strftime('%Y-%m-%d %H:%M:%S UTC')}  │  {ts_r[1].strftime('%Y-%m-%d %H:%M:%S %Z')}")
             else:
-                if cmd.get("schema_warning"):
-                    g.add_row(Text("⚠", style=S_WARNING), Text(cmd["schema_warning"], style=S_WARNING))
-                for i, a in enumerate(cmd.get("args", [])): f(f"ARG {i}", str(a))
-        if cmd and cmd.get("crc") is not None:
-            v = cmd.get("crc_valid")
-            f("CRC-16", f"0x{cmd['crc']:04x}  [{'OK' if v else 'FAIL'}]", S_SUCCESS if v else S_ERROR)
-        crc_st = pkt.get("crc_status", {})
-        if crc_st.get("csp_crc32_valid") is not None:
-            v = crc_st["csp_crc32_valid"]
-            f("CRC-32C", f"0x{crc_st['csp_crc32_rx']:08x}  [{'OK' if v else 'FAIL'}]", S_SUCCESS if v else S_ERROR)
-        if s.show_hex:
-            raw = pkt.get("raw", b"")
-            if raw: f("HEX", raw.hex(" "), S_DIM)
-        if pkt.get("text"): f("ASCII", pkt["text"], S_DIM)
-        return Group(sep, title, g)
+                f("SAT TIME", "--", S_DIM)
+            cmd = pkt.get("cmd")
+            if cmd:
+                f("CMD", f"Src:{node_label(cmd['src'])}  Dest:{node_label(cmd['dest'])}  Echo:{node_label(cmd['echo'])}  Type:{ptype_label(cmd['pkt_type'])}")
+                f("CMD ID", cmd["cmd_id"])
+                if cmd.get("schema_match"):
+                    for ta in cmd.get("typed_args", []): f(ta["name"].upper()[:12], format_arg_value(ta))
+                    for i, ex in enumerate(cmd.get("extra_args", [])): f(f"ARG +{i}", str(ex))
+                else:
+                    if cmd.get("schema_warning"):
+                        lines.append(("⚠", cmd["schema_warning"], S_WARNING))
+                    for i, a in enumerate(cmd.get("args", [])): f(f"ARG {i}", str(a))
+            if cmd and cmd.get("crc") is not None:
+                v = cmd.get("crc_valid")
+                f("CRC-16", f"0x{cmd['crc']:04x}  [{'OK' if v else 'FAIL'}]", S_SUCCESS if v else S_ERROR)
+            crc_st = pkt.get("crc_status", {})
+            if crc_st.get("csp_crc32_valid") is not None:
+                v = crc_st["csp_crc32_valid"]
+                f("CRC-32C", f"0x{crc_st['csp_crc32_rx']:08x}  [{'OK' if v else 'FAIL'}]", S_SUCCESS if v else S_ERROR)
+            if s.show_hex:
+                raw = pkt.get("raw", b"")
+                if raw: f("HEX", raw.hex(" "), S_DIM)
+            if pkt.get("text"): f("ASCII", pkt["text"], S_DIM)
+
+        self._detail_lines = len(lines) + 2  # title + sep + data lines
+        # Render with scroll offset
+        data_rows = max(0, h - 2)  # reserve for sep + title
+        scroll = min(self._detail_scroll, max(0, len(lines) - data_rows))
+        self._detail_scroll = scroll
+        t = Text()
+        t.append_text(sep)
+        t.append("\n")
+        title_text = Text(title, style=title_st)
+        if len(lines) > data_rows:
+            title_text.append(f"  [{scroll+1}-{min(scroll+data_rows, len(lines))}/{len(lines)}]", style=S_DIM)
+            title_text.append("  ↑↓ scroll", style=S_DIM)
+        t.append_text(lr_line(title_text, Text(), w))
+        visible = lines[scroll:scroll + data_rows] if data_rows > 0 else []
+        for lbl, val, st in visible:
+            t.append("\n")
+            row = Text()
+            row.append(f" {lbl:<12}", style=S_LABEL)
+            row.append(val, style=st)
+            t.append_text(row)
+        return t
 
 
 class RxStatusBar(Widget):
@@ -242,7 +274,7 @@ class RxStatusBar(Widget):
 
 RX_HELP_LINES = [
     ("KEYS", None), ("Up / Down", "Select packet"), ("PgUp / PgDn", "Scroll page"),
-    ("Enter", "Toggle detail"), ("Ctrl+A / Ctrl+E", "Cursor start / end"),
+    ("Shift+Up / Down", "Scroll detail"), ("Enter", "Toggle detail"), ("Ctrl+A / Ctrl+E", "Cursor start / end"),
     ("Ctrl+W / Ctrl+U", "Del word / clear input"), ("Ctrl+C", "Quit"),
     ("COMMANDS", None), ("cfg / help", "Toggle panels"), ("hclear", "Clear history"),
     ("hex / log", "Toggle hex / logging"), ("detail / live", "Toggle detail / follow"),

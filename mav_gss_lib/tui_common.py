@@ -152,6 +152,38 @@ class ConfigScreen(ModalScreen):
             self.dismiss(self._values); return
         event.prevent_default(); self._refresh()
 
+
+class ImportScreen(ModalScreen):
+    """Modal file picker for generated_commands/."""
+    CSS = """
+    ImportScreen { align: center middle; background: black 60%; }
+    #imp-box { width: auto; min-width: 40; height: auto; border: solid #555555;
+               background: black; padding: 1 2; }
+    """
+    def __init__(self, files):
+        super().__init__()
+        self._files, self._sel = files, 0
+    def compose(self) -> ComposeResult:
+        yield Static(id="imp-box")
+    def on_mount(self): self._refresh()
+    def _refresh(self):
+        t = Text()
+        t.append(" IMPORT FILE\n\n", style=S_WARNING)
+        for i, f in enumerate(self._files):
+            sel = (i == self._sel)
+            t.append("▶ " if sel else "  ", style=S_SUCCESS if sel else S_DIM)
+            t.append(f + "\n", style="bold #ffffff" if sel else S_VALUE)
+        t.append("\n ↑↓:select  Enter:import  Esc:cancel", style=S_DIM)
+        self.query_one("#imp-box", Static).update(t)
+    def on_key(self, event: Key):
+        k = event.key
+        if k == "up": self._sel = (self._sel - 1) % len(self._files)
+        elif k == "down": self._sel = (self._sel + 1) % len(self._files)
+        elif k == "enter": self.dismiss(self._files[self._sel]); return
+        elif k == "escape": self.dismiss(None); return
+        event.prevent_default(); self._refresh()
+
+
 # -- Status message -----------------------------------------------------------
 
 class StatusMessage:

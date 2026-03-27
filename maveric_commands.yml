@@ -24,6 +24,10 @@
 #                Resolved to full timestamp (UTC + local)
 #    bool      - true/false, 1/0, yes/no
 #
+#  Optional per-argument fields:
+#    important: true  Show this arg in the RX packet list.
+#                     Args without this flag only appear in the detail panel.
+#
 #  Optional per-command fields:
 #    variadic: true   Extra args beyond the schema are kept as raw strings.
 #                     Default is false -- extra args are still captured but
@@ -40,6 +44,8 @@ commands:
     args:
     - name: type
       type: str
+      important: true
+    suggestions: ["ping"]
 
   # -- Telemetry Beacon -------------------------------------------------------
   # From captured packet: args = "1 1767230528021 0 0"
@@ -52,8 +58,10 @@ commands:
     args:
       - name: Beacon Type
         type: int
+        important: true
       - name: unix time
         type: epoch_ms
+        important: true
       - name: status_a
         type: int
       - name: status_b
@@ -65,11 +73,15 @@ commands:
     args:
       - name: mode
         type: str
+        important: true
+    suggestions: ["safe", "nominal", "low_power"]
 
   set_voltage:
     args:
       - name: voltage
         type: float
+        important: true
+    suggestions: ["3.3", "5.0"]
 
   # -- Examples showing epoch_ms and variadic usage ---------------------------
   #

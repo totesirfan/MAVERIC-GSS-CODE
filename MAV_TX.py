@@ -27,7 +27,7 @@ from mav_gss_lib.transport import (init_zmq_pub, send_pdu,
                                    poll_monitor, _PUB_STATUS, zmq_cleanup)
 from mav_gss_lib.logging import TXLog
 from mav_gss_lib.tui_common import (StatusMessage, SplashScreen,
-                                    Hints, HelpPanel, ConfigScreen)
+                                    Hints, HelpPanel, ConfigScreen, ImportScreen)
 from mav_gss_lib.config import (
     load_gss_config, apply_ax25, apply_csp, ax25_handle_msg, csp_handle_msg,
     save_gss_config, update_cfg_from_state,
@@ -50,6 +50,7 @@ TX_DELAY_MS   = CFG["tx"]["delay_ms"]
 MAX_HISTORY   = 500
 MAX_CMD_HISTORY = 500
 QUEUE_FILE = os.path.join(LOG_DIR, ".pending_queue.jsonl")
+IMPORT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "generated_commands")
 
 # -- Queue persistence --------------------------------------------------------
 
@@ -61,6 +62,20 @@ def _queue_entry_to_dict(entry):
 def _dict_to_queue_entry(d):
     return (d["src"], d["dest"], d["echo"], d["ptype"],
             d["cmd"], d["args"], bytes.fromhex(d["raw_cmd"]))
+
+def _array_to_queue_entry(arr):
+    """Convert a 6-element JSON array [src, dest, echo, ptype, cmd, args]
+    (as exported by MAVERIC Command Generator) into a queue tuple."""
+    src_s, dest_s, echo_s, ptype_s, cmd, args = arr
+    src   = protocol.resolve_node(str(src_s))
+    dest  = protocol.resolve_node(str(dest_s))
+    echo  = protocol.resolve_node(str(echo_s))
+    ptype = protocol.resolve_ptype(str(ptype_s))
+    if None in (src, dest, echo, ptype):
+        raise ValueError("unresolvable node/ptype in array entry")
+    cmd = cmd.lower()
+    raw_cmd = build_cmd_raw(dest, cmd, args, echo=echo, ptype=ptype, origin=src)
+    return (src, dest, echo, ptype, cmd, args, raw_cmd)
 
 def _save_queue(tx_queue):
     if not tx_queue:
@@ -88,10 +103,48 @@ def _load_queue():
             for line in f:
                 line = line.strip()
                 if not line: continue
-                try: result.append(_dict_to_queue_entry(json.loads(line)))
+                try:
+                    obj = json.loads(line)
+                    if isinstance(obj, list):
+                        result.append(_array_to_queue_entry(obj))
+                    else:
+                        result.append(_dict_to_queue_entry(obj))
                 except (json.JSONDecodeError, KeyError, ValueError): skipped += 1
     except FileNotFoundError: pass
     return result, skipped
+
+# -- Import from generated_commands/ ------------------------------------------
+
+def _list_import_files():
+    """Return .jsonl files in IMPORT_DIR sorted newest-first by mtime."""
+    try:
+        files = [f for f in os.listdir(IMPORT_DIR) if f.endswith(".jsonl")]
+    except FileNotFoundError:
+        return []
+    files.sort(key=lambda f: os.path.getmtime(os.path.join(IMPORT_DIR, f)), reverse=True)
+    return files
+
+def _import_file(state, filename):
+    """Import commands from a JSONL file into the TX queue.
+    Returns (loaded_count, skipped_count) or raises FileNotFoundError."""
+    path = os.path.join(IMPORT_DIR, filename)
+    entries, skipped = [], 0
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line: continue
+            try:
+                obj = json.loads(line)
+                if isinstance(obj, list):
+                    entries.append(_array_to_queue_entry(obj))
+                else:
+                    entries.append(_dict_to_queue_entry(obj))
+            except (json.JSONDecodeError, KeyError, ValueError):
+                skipped += 1
+    for e in entries:
+        state.tx_queue.append(e)
+        _append_queue(e)
+    return len(entries), skipped
 
 # -- State (widgets read directly) --------------------------------------------
 
@@ -192,6 +245,8 @@ def _dispatch_tx_command(state, line, sock):
     if cl == 'help': state.help_open = True; return True
     if cl in ('config', 'cfg'):
         return "open_config"
+    if cl == 'imp':
+        return "open_import"
     if cl == 'nodes':
         state.status.set("Nodes: " + ", ".join(f"{n}={protocol.NODE_NAMES[n]}" for n in sorted(protocol.NODE_NAMES)), 5); return True
     if cl == 'csp' or cl.startswith('csp '):
@@ -272,7 +327,7 @@ class MavTxApp(App):
         with Vertical(id="bottom-bar"):
             yield TxStatusBar(s, id="status-bar")
             yield Input(id="tx-input", placeholder="> ")
-            yield Hints(" Enter: queue | cfg | help | Ctrl+C: quit")
+            yield Hints(" Enter: queue | cfg | help | imp | Ctrl+C: quit")
 
     def on_mount(self):
         if self._show_splash:
@@ -366,6 +421,13 @@ class MavTxApp(App):
             vals = config_get_values(s.csp, s.ax25, s.freq, s.zmq_addr_disp, s.tx_delay_ms)
             self.push_screen(ConfigScreen(CONFIG_FIELDS, vals), self._on_config_done)
             return
+        if result == "open_import":
+            files = _list_import_files()
+            if not files:
+                s.status.set("No .jsonl files in generated_commands/", 3)
+            else:
+                self.push_screen(ImportScreen(files), self._on_import_done)
+            self._act(); return
         self._act()
 
     def _on_config_done(self, values):
@@ -375,6 +437,20 @@ class MavTxApp(App):
             s.status.set("Config saved", 2)
         except (ValueError, KeyError):
             s.status.set("Invalid config value — reverted", 3)
+        self._act()
+
+    def _on_import_done(self, filename):
+        if not filename: self._act(); return
+        s = self.state
+        try:
+            loaded, skipped = _import_file(s, filename)
+            msg = f"Loaded {loaded} command{'s' if loaded != 1 else ''} from {filename}"
+            if skipped: msg += f" ({skipped} skipped)"
+            s.status.set(msg, 5)
+        except FileNotFoundError:
+            s.status.set(f"Not found: {filename}", 3)
+        except Exception as e:
+            s.status.set(f"Import error: {e}", 5)
         self._act()
 
     def _cleanup(self):
