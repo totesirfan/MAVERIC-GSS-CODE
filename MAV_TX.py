@@ -24,7 +24,7 @@ from mav_gss_lib.protocol import (
     load_command_defs, validate_args, parse_cmd_line,
 )
 from mav_gss_lib.transport import (init_zmq_pub, send_pdu,
-                                   poll_monitor, _PUB_STATUS, zmq_cleanup)
+                                   poll_monitor, PUB_STATUS, zmq_cleanup)
 from mav_gss_lib.logging import TXLog
 from mav_gss_lib.tui_common import (StatusMessage, SplashScreen,
                                     Hints, HelpPanel, ConfigScreen, ImportScreen)
@@ -35,7 +35,7 @@ from mav_gss_lib.config import (
 from mav_gss_lib.tui_tx import (
     TxHeader, TxQueue, SentHistory, TxStatusBar,
     HELP_LINES, CONFIG_FIELDS, config_get_values, config_apply,
-    _tx_help_info,
+    tx_help_info,
 )
 
 CFG = load_gss_config()
@@ -96,22 +96,28 @@ def _append_queue(entry):
     with open(QUEUE_FILE, "a") as f:
         f.write(json.dumps(_queue_entry_to_dict(entry)) + "\n")
 
+def _parse_jsonl_file(path):
+    """Parse a JSONL file of queue entries (dict or array format).
+    Returns (entries, skipped_count). Raises FileNotFoundError if missing."""
+    entries, skipped = [], 0
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line: continue
+            try:
+                obj = json.loads(line)
+                if isinstance(obj, list):
+                    entries.append(_array_to_queue_entry(obj))
+                else:
+                    entries.append(_dict_to_queue_entry(obj))
+            except (json.JSONDecodeError, KeyError, ValueError): skipped += 1
+    return entries, skipped
+
 def _load_queue():
-    result, skipped = [], 0
     try:
-        with open(QUEUE_FILE) as f:
-            for line in f:
-                line = line.strip()
-                if not line: continue
-                try:
-                    obj = json.loads(line)
-                    if isinstance(obj, list):
-                        result.append(_array_to_queue_entry(obj))
-                    else:
-                        result.append(_dict_to_queue_entry(obj))
-                except (json.JSONDecodeError, KeyError, ValueError): skipped += 1
-    except FileNotFoundError: pass
-    return result, skipped
+        return _parse_jsonl_file(QUEUE_FILE)
+    except FileNotFoundError:
+        return [], 0
 
 # -- Import from generated_commands/ ------------------------------------------
 
@@ -127,20 +133,7 @@ def _list_import_files():
 def _import_file(state, filename):
     """Import commands from a JSONL file into the TX queue.
     Returns (loaded_count, skipped_count) or raises FileNotFoundError."""
-    path = os.path.join(IMPORT_DIR, filename)
-    entries, skipped = [], 0
-    with open(path) as f:
-        for line in f:
-            line = line.strip()
-            if not line: continue
-            try:
-                obj = json.loads(line)
-                if isinstance(obj, list):
-                    entries.append(_array_to_queue_entry(obj))
-                else:
-                    entries.append(_dict_to_queue_entry(obj))
-            except (json.JSONDecodeError, KeyError, ValueError):
-                skipped += 1
+    entries, skipped = _parse_jsonl_file(os.path.join(IMPORT_DIR, filename))
     for e in entries:
         state.tx_queue.append(e)
         _append_queue(e)
@@ -323,7 +316,7 @@ class MavTxApp(App):
             with Vertical(id="content-area"):
                 yield TxQueue(s, id="tx-queue")
                 yield SentHistory(s, id="sent-history")
-            yield HelpPanel(s, HELP_LINES, "Esc: close", _tx_help_info, id="help-panel")
+            yield HelpPanel(s, HELP_LINES, "Esc: close", tx_help_info, id="help-panel")
         with Vertical(id="bottom-bar"):
             yield TxStatusBar(s, id="status-bar")
             yield Input(id="tx-input", placeholder="> ")
@@ -343,7 +336,7 @@ class MavTxApp(App):
 
     def _tick(self):
         s = self.state
-        s.zmq_status = poll_monitor(self._zmq_monitor, _PUB_STATUS, s.zmq_status)
+        s.zmq_status = poll_monitor(self._zmq_monitor, PUB_STATUS, s.zmq_status)
         s.status.check_expiry()
         self.query_one("#help-panel").display = s.help_open
         for w in self.query("TxHeader, TxQueue, SentHistory, TxStatusBar, HelpPanel"):
@@ -461,7 +454,7 @@ class MavTxApp(App):
             update_cfg_from_state(CFG, s.csp, s.ax25, s.freq, s.zmq_addr_disp, s.tx_delay_ms)
             save_gss_config(CFG)
         except Exception: pass
-        zmq_cleanup(self._zmq_monitor, _PUB_STATUS, s.zmq_status, self._sock, self._zmq_ctx)
+        zmq_cleanup(self._zmq_monitor, PUB_STATUS, s.zmq_status, self._sock, self._zmq_ctx)
 
 
 def main():

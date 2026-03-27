@@ -72,7 +72,7 @@ def load_gss_config(path="maveric_gss.yml"):
         if not isinstance(user, dict):
             user = {}
         return _deep_merge(_DEFAULTS, user)
-    return dict(_DEFAULTS)
+    return _deep_merge(_DEFAULTS, {})
 
 
 def apply_ax25(cfg, ax25):

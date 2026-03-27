@@ -49,8 +49,9 @@ class RxPipeline:
         """
         now = time.time()
         delta_t = (now - self.last_arrival) if self.last_arrival is not None else None
-        gs_ts = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
-        gs_ts_short = datetime.now().strftime("%H:%M:%S")
+        now_dt = datetime.now().astimezone()
+        gs_ts = now_dt.strftime("%Y-%m-%d %H:%M:%S %Z")
+        gs_ts_short = now_dt.strftime("%H:%M:%S")
 
         # Frame detection and normalization
         frame_type = detect_frame_type(meta)

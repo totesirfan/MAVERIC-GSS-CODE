@@ -217,5 +217,5 @@ def config_apply(values, csp, ax25):
     csp.sport = int(values["csp_sport"], 0); csp.flags = int(values["csp_flags"], 0)
     return values["freq"], values["zmq_addr"], max(0, int(values["tx_delay_ms"]))
 
-def _tx_help_info(s):
+def tx_help_info(s):
     return (s.version, s.schema_count, s.schema_path, s.tx_log.text_path)

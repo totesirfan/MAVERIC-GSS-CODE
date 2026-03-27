@@ -20,15 +20,15 @@ from textual.widgets import Input
 
 from mav_gss_lib.protocol import init_nodes, load_command_defs
 from mav_gss_lib.transport import (init_zmq_sub, receive_pdu,
-                                   poll_monitor, _SUB_STATUS, zmq_cleanup)
+                                   poll_monitor, SUB_STATUS, zmq_cleanup)
 from mav_gss_lib.parsing import RxPipeline, build_rx_log_record
 from mav_gss_lib.logging import SessionLog
 from mav_gss_lib.tui_common import (StatusMessage, SplashScreen,
                                     Hints, HelpPanel, ConfigScreen)
 from mav_gss_lib.config import load_gss_config
 from mav_gss_lib.tui_rx import (
-    RxHeader, PacketList, PacketDetail, RxStatusBar,
-    RX_HELP_LINES, RX_CONFIG_FIELDS, rx_config_get_values, _rx_help_info,
+    RxHeader, PacketList, PacketDetail,
+    RX_HELP_LINES, RX_CONFIG_FIELDS, rx_config_get_values, rx_help_info,
 )
 
 CFG = load_gss_config()
@@ -104,7 +104,7 @@ def _receiver_thread(sock, pkt_queue, stop_event, monitor, status_holder,
         result = receive_pdu(sock, on_error=on_error)
         if result is not None:
             pkt_queue.put(result)
-        status_holder[0] = poll_monitor(monitor, _SUB_STATUS, status_holder[0])
+        status_holder[0] = poll_monitor(monitor, SUB_STATUS, status_holder[0])
 
 
 def _drain_rx_queue(state, pkt_queue):
@@ -201,7 +201,7 @@ class MavRxApp(App):
     SplashScreen * { background: transparent; }
     #main-area { height: 1fr; }
     #content-area { width: 1fr; }
-    #bottom-bar { dock: bottom; height: 3; }
+    #bottom-bar { dock: bottom; height: 2; }
     #rx-input { height: 1; border: none; padding: 0; }
     """
     ENABLE_COMMAND_PALETTE = False
@@ -245,9 +245,8 @@ class MavRxApp(App):
             with Vertical(id="content-area"):
                 yield PacketList(s, spinner=SPINNER, id="packet-list")
                 yield PacketDetail(s, id="packet-detail")
-            yield HelpPanel(s, RX_HELP_LINES, "Esc: close", _rx_help_info, id="help-panel")
+            yield HelpPanel(s, RX_HELP_LINES, "Esc: close", rx_help_info, id="help-panel")
         with Vertical(id="bottom-bar"):
-            yield RxStatusBar(s, id="status-bar")
             yield Input(id="rx-input", placeholder="> ")
             yield Hints(" Enter: detail | cfg | help | Ctrl+C: quit")
 
@@ -280,7 +279,9 @@ class MavRxApp(App):
         s.silence_secs = time.time() - s.last_watchdog
         s.pkt_count = s.pipeline.packet_count
         now = time.time()
-        s.rate_per_min = sum(1 for t in s.pipeline.pkt_times if t > now - 60.0)
+        while s.pipeline.pkt_times and s.pipeline.pkt_times[0] <= now - 60.0:
+            s.pipeline.pkt_times.popleft()
+        s.rate_per_min = len(s.pipeline.pkt_times)
         auto = (s.selected_idx == -1)
         if not auto and s.packets:
             actual = s.selected_idx
@@ -294,11 +295,11 @@ class MavRxApp(App):
             s.scroll_offset = 0
         self.query_one("#packet-detail").display = s.detail_open
         self.query_one("#help-panel").display = s.help_open
-        for w in self.query("RxHeader, PacketList, PacketDetail, RxStatusBar, HelpPanel"):
+        for w in self.query("RxHeader, PacketList, PacketDetail, HelpPanel"):
             w.refresh()
 
     def _act(self):
-        for w in self.query("RxHeader, PacketList, PacketDetail, RxStatusBar, HelpPanel"):
+        for w in self.query("RxHeader, PacketList, PacketDetail, HelpPanel"):
             w.refresh()
 
     def action_quit_or_close(self):
@@ -387,7 +388,7 @@ class MavRxApp(App):
                     unknown=s.pipeline.unknown_count, uplink_echoes=s.pipeline.uplink_echo_count)
                 s.log.close()
         except Exception: pass
-        zmq_cleanup(self._zmq_monitor, _SUB_STATUS, self._zmq_status[0], self._sock, self._zmq_ctx)
+        zmq_cleanup(self._zmq_monitor, SUB_STATUS, self._zmq_status[0], self._sock, self._zmq_ctx)
         self.result = {
             "packet_count": s.pipeline.packet_count, "unique": len(s.pipeline.seen_fps),
             "duplicates": s.pipeline.packet_count - len(s.pipeline.seen_fps),

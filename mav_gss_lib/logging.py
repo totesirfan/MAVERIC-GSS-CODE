@@ -76,12 +76,10 @@ class _BaseLog:
             if kind == "jsonl":
                 self._jsonl_f.write(data)
                 self._jsonl_f.flush()
-                self._text_f.flush()
             elif kind == "text":
                 self._text_f.write(data)
             elif kind == "text_flush":
                 self._text_f.write(data)
-                self._jsonl_f.flush()
                 self._text_f.flush()
 
     # -- Shared helpers -------------------------------------------------------

@@ -99,13 +99,13 @@ def send_pdu(sock, payload):
 # -- ZMQ Socket Monitoring ---------------------------------------------------
 
 # Event-to-status mappings for SUB (connect) and PUB (bind) sockets
-_SUB_STATUS = {
+SUB_STATUS = {
     zmq.EVENT_CONNECTED:       "LIVE",
     zmq.EVENT_DISCONNECTED:    "DOWN",
     zmq.EVENT_CONNECT_RETRIED: "RETRY",
 }
 
-_PUB_STATUS = {
+PUB_STATUS = {
     zmq.EVENT_LISTENING:    "BOUND",
     zmq.EVENT_ACCEPTED:     "LIVE",
     zmq.EVENT_DISCONNECTED: "BOUND",

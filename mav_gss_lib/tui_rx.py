@@ -259,16 +259,6 @@ class PacketDetail(Widget):
         return t
 
 
-class RxStatusBar(Widget):
-    DEFAULT_CSS = "RxStatusBar { height: 1; width: 100%; }"
-
-    def __init__(self, state, **kw):
-        super().__init__(**kw)
-        self.s = state
-
-    def render(self):
-        return Text()
-
 
 # -- Help / Config data -------------------------------------------------------
 
@@ -288,5 +278,5 @@ RX_CONFIG_FIELDS = [("Hex Display", "show_hex", "toggle"), ("Logging", "logging"
 def rx_config_get_values(s):
     return {"show_hex": "ON" if s.show_hex else "OFF", "logging": "ON" if s.logging_enabled else "OFF"}
 
-def _rx_help_info(s):
+def rx_help_info(s):
     return (s.version, s.schema_count, s.schema_path, s.log.text_path if s.log else "(disabled)")
