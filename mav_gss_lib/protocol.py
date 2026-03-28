@@ -135,48 +135,27 @@ def kiss_wrap(raw_cmd):
 
 
 # =============================================================================
-#  CRC-16 XMODEM
-# =============================================================================
-
-def _crc16_xmodem(data):
-    """CRC-16 XMODEM (poly 0x1021, init 0x0000).
-    Pure Python fallback -- used when the 'crc' package is unavailable."""
-    crc = 0x0000
-    for b in data:
-        crc ^= b << 8
-        for _ in range(8):
-            crc = ((crc << 1) ^ 0x1021) if crc & 0x8000 else (crc << 1)
-            crc &= 0xFFFF
-    return crc
-
-
-try:
-    from crc import Calculator, Crc16
-    crc_calc = Calculator(Crc16.XMODEM)
-    def crc16(data):
-        return crc_calc.checksum(data)
-except ImportError:
-    crc_calc = None
-    crc16 = _crc16_xmodem
-
-
-# =============================================================================
-#  CRC-32C (Castagnoli) — CSP Packet Integrity
+#  CRC-16 XMODEM & CRC-32C (Castagnoli)
 #
-#  CSP v1 uses CRC-32C (poly 0x1EDC6F41, reflected as 0x82F63B78)
-#  over the entire CSP packet: header + payload (including the command's
-#  own CRC-16). Appended as 4 bytes big-endian.
+#  CRC-16 uses the 'crc' package when available, pure-Python fallback otherwise.
+#  CRC-32C uses a pure-Python reflected loop — faster than the 'crc'
+#  package's generic Configuration-based calculator for this polynomial.
 #
-#  Verified against captured MAVERIC downlink traffic:
+#  CRC-32C verified against captured MAVERIC downlink traffic:
 #    Packet 1 (AX.25):  CRC-32C = 0x3AA1DDAB  ✓
 #    Packet 2 (AX100):  CRC-32C = 0xB23EFBC3  ✓
 # =============================================================================
 
-def crc32c(data):
-    """CRC-32C (Castagnoli) checksum.
+from crc import Calculator, Crc16
 
-    Used by CSP v1 for packet integrity. Covers CSP header + full payload
-    (including any inner checksums like the command CRC-16)."""
+_crc16_calc = Calculator(Crc16.XMODEM)
+
+def crc16(data):
+    """CRC-16 XMODEM checksum."""
+    return _crc16_calc.checksum(data)
+
+def crc32c(data):
+    """CRC-32C (Castagnoli) checksum for CSP v1 packet integrity."""
     crc = 0xFFFFFFFF
     poly = 0x82F63B78  # reflected polynomial
     for b in data:
@@ -639,9 +618,9 @@ def validate_args(cmd_id, args_str, cmd_defs):
 def detect_frame_type(meta):
     """Determine frame type from gr-satellites metadata."""
     tx_info = str(meta.get("transmitter", ""))
-    for frame_type in ("AX.25", "AX100"):
-        if frame_type in tx_info:
-            return frame_type
+    for keyword, label in (("AX.25", "AX.25"), ("AX100", "ASM+GOLAY")):
+        if keyword in tx_info:
+            return label
     return "UNKNOWN"
 
 
@@ -654,7 +633,7 @@ def normalize_frame(frame_type, raw):
             warnings.append("AX.25 frame but no 03 f0 delimiter found")
             return raw, None, warnings
         return raw[idx + 2:], raw[:idx + 2].hex(" "), warnings
-    if frame_type != "AX100":
+    if frame_type != "ASM+GOLAY":
         warnings.append("Unknown frame type -- returning raw")
     return raw, None, warnings
 

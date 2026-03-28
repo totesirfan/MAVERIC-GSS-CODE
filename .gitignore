@@ -4,3 +4,4 @@ __pycache__/
 .DS_Store
 logs/
 legacy/
+perf_bench.py

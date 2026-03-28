@@ -38,13 +38,14 @@ _DEFAULTS = {
         "zmq_addr":  "tcp://127.0.0.1:52002",
         "frequency": "437.25 MHz",
         "delay_ms":  500,
+        "uplink_mode": "AX.25",
     },
     "rx": {
         "zmq_port": 52001,
         "zmq_addr": "tcp://127.0.0.1:52001",
     },
     "general": {
-        "version":      "2.3.7",
+        "version":      "3.3.0",
         "log_dir":      "logs",
         "command_defs": "maveric_commands.yml",
         "decoder_yml":  "maveric_decoder.yml",
@@ -101,7 +102,8 @@ def save_gss_config(cfg, path="maveric_gss.yml"):
         yaml.dump(cfg, f, default_flow_style=False, sort_keys=False)
 
 
-def update_cfg_from_state(cfg, csp, ax25, freq=None, zmq_addr=None, tx_delay_ms=None):
+def update_cfg_from_state(cfg, csp, ax25, freq=None, zmq_addr=None, tx_delay_ms=None,
+                          uplink_mode=None):
     """Sync runtime state back into the config dict for saving."""
     cfg["ax25"]["src_call"]  = ax25.src_call
     cfg["ax25"]["src_ssid"]  = ax25.src_ssid
@@ -119,6 +121,8 @@ def update_cfg_from_state(cfg, csp, ax25, freq=None, zmq_addr=None, tx_delay_ms=
         cfg["tx"]["zmq_addr"] = zmq_addr
     if tx_delay_ms is not None:
         cfg["tx"]["delay_ms"] = tx_delay_ms
+    if uplink_mode is not None:
+        cfg["tx"]["uplink_mode"] = uplink_mode
 
 
 def ax25_handle_msg(ax25, args):

@@ -42,14 +42,13 @@ commands:
 
   ping:
     args:
-    - name: type
+    - name: Type
       type: str
       important: true
-    suggestions: ["ping"]
 
   # -- Telemetry Beacon -------------------------------------------------------
   # From captured packet: args = "1 1767230528021 0 0"
-  #   arg 0: sequence counter or beacon ID
+  #   arg 0: Beacon Type (1/2/3)
   #   arg 1: epoch-ms timestamp (satellite clock)
   #   arg 2: TBD (observed as 0)
   #   arg 3: TBD (observed as 0)
@@ -74,15 +73,26 @@ commands:
       - name: mode
         type: str
         important: true
-    suggestions: ["safe", "nominal", "low_power"]
 
   set_voltage:
     args:
       - name: voltage
         type: float
         important: true
-    suggestions: ["3.3", "5.0"]
 
+# -- MTQ --------------------------------------------------------------------
+  mtq_read_1:
+    args:
+      - name: table
+        type: float
+      - name: register
+        type: float
+  mtq_get_1:
+    args:
+      - name: table
+        type: float
+      - name: register
+        type: float
   # -- Examples showing epoch_ms and variadic usage ---------------------------
   #
   # Uncomment and edit these as real commands are defined.

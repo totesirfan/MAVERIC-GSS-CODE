@@ -27,3 +27,10 @@ transmitters:
     framing: AX100 ASM+Golay
     data:
       - *tlm
+  9k6 FSK AX100 ASM+Golay downlink:
+    frequency: 437.250e+6
+    modulation: FSK
+    baudrate: 9600
+    framing: AX100 ASM+Golay
+    data:
+      - *tlm

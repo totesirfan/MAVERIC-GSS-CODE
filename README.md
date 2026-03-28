@@ -4,11 +4,15 @@ Ground station suite for the MAVERIC CubeSat mission (USC ISI SERC). Provides si
 
 ```mermaid
 graph LR
-    TX["MAV_TX\nUplink Dashboard"] -- "ZMQ PUB\ncommand PDUs" --> GR["GNU Radio\nMAV_DUPLEX"]
+    TX["MAV_TX\nUplink Dashboard"] -- "ZMQ PUB\ncommand PDUs" --> GR["GNU Radio\nMAV_DUPLEX / MAV_GOLAY"]
     GR -- "ZMQ PUB\ndecoded frames" --> RX["MAV_RX\nDownlink Monitor"]
     GR -- "437.25 MHz\nGFSK" --> SAT["MAVERIC\nCubeSat"]
     SAT -- "437.25 MHz\nGFSK" --> GR
 ```
+
+Supports two uplink modes:
+- **AX.25 HDLC** (Mode 6) — HDLC framing, G3RUH scrambler, NRZI encoding (GNU Radio)
+- **ASM+Golay** (Mode 5) — Reed-Solomon FEC, CCSDS scrambler, Golay-coded length (Python encoder)
 
 ## Quick Start
 
@@ -36,6 +40,7 @@ mav_gss_lib/
     config.py             YAML config loader/saver, AX.25/CSP command handlers
     parsing.py            RX packet processing pipeline (RxPipeline)
     logging.py            Session logging — JSONL + formatted text, background writer thread
+    golay.py              ASM+Golay encoder: Golay(24,12), RS FEC, CCSDS scrambler, frame assembly
     tui_common.py         Shared Textual UI: ConfigScreen modal, HelpPanel, SplashScreen, styles
     tui_rx.py             RX widgets: header, packet list, packet detail
     tui_tx.py             TX widgets: header, queue, sent history, config fields
@@ -56,8 +61,9 @@ graph TD
     A["Operator Command\n[SRC] DEST ECHO TYPE CMD [ARGS]"] --> B
     B["Command Wire Format\n[src][dest][echo][ptype][id_len][args_len]\n[cmd_id][0x00][args][0x00][CRC-16 LE]"] --> C
     C["CSP v1 Wrap\n[4B header][command][4B CRC-32C BE]"] --> D
-    D["AX.25 Wrap\n[16B header][CSP packet]"] --> E
-    E["HDLC Framing\n(GNU Radio: flags + bit stuffing + FCS)"]
+    D{Uplink Mode?}
+    D -- "AX.25" --> E["AX.25 Wrap\n[16B header][CSP packet]\n→ GNU Radio HDLC + G3RUH + NRZI"]
+    D -- "ASM+Golay" --> F["ASM+Golay Encode\nRS FEC + CCSDS scrambler + Golay header\n→ GNU Radio GFSK only"]
 ```
 
 ### CSP v1 Header (32-bit big-endian)
@@ -152,9 +158,10 @@ EPS 2 3 1 set_voltage 3.3
 
 **Keys**: Ctrl+S (send queue), Ctrl+Z (undo last), Ctrl+X (clear queue), Up/Down (history recall), Ctrl+C/Esc (abort send or quit)
 
-**Commands**: `send`, `undo`/`pop`, `clear`, `hclear`, `cfg`, `help`, `nodes`, `csp`, `ax25`, `raw <hex>`, `q`
+**Commands**: `send`, `undo`/`pop`, `clear`, `hclear`, `cfg`, `help`, `nodes`, `csp`, `ax25`, `mode [AX.25|ASM+Golay]`, `raw <hex>`, `q`
 
 **Features**:
+- **Dual uplink mode**: AX.25 HDLC (Mode 6) or ASM+Golay (Mode 5), switchable via `mode` command or cfg panel toggle
 - Queue persisted to `.pending_queue.jsonl`, restored on startup
 - Async send with abort support (Ctrl+C/Esc during send)
 - Config changes saved to `maveric_gss.yml` on exit
@@ -166,8 +173,8 @@ EPS 2 3 1 set_voltage 3.3
 
 Both apps open a config editor via the `cfg` command. The config screen is a modal overlay with keyboard navigation:
 
-- **↑↓** select field, **Enter** edit (text) or toggle (on/off), **Esc** close and save
-- TX config: AX.25 callsigns/SSIDs, CSP parameters, frequency, ZMQ address, TX delay
+- **↑↓** select field, **Enter** edit (text), toggle (on/off), or cycle (mode), **Esc** close and save
+- TX config: Uplink Mode (AX.25/ASM+Golay cycle toggle), AX.25 callsigns/SSIDs, CSP parameters, frequency, ZMQ address, TX delay
 - RX config: hex display toggle, logging toggle
 
 ### maveric_gss.yml
@@ -193,6 +200,7 @@ tx:
   zmq_addr: tcp://127.0.0.1:52002
   frequency: 437.25 MHz
   delay_ms: 2000            # Inter-packet delay for queue sends
+  uplink_mode: AX.25        # or "ASM+Golay"
 
 rx:
   zmq_addr: tcp://127.0.0.1:52001
@@ -220,11 +228,12 @@ All file I/O runs on a background thread so the UI never blocks on disk writes. 
 
 ## Decoder
 
-`maveric_decoder.yml` configures gr-satellites with three transmitter modes on 437.250 MHz:
+`maveric_decoder.yml` configures gr-satellites with transmitter modes on 437.250 MHz:
 
 - 19k2 FSK AX.25 G3RUH
 - 4k8 FSK AX.25 G3RUH
 - 4k8 FSK AX100 ASM+Golay
+- 9k6 FSK AX100 ASM+Golay
 
 ## Dependencies
 

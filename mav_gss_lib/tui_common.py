@@ -170,7 +170,8 @@ class HelpPanel(Widget):
 class ConfigScreen(ModalScreen):
     """Modal config screen — owns all keyboard input until dismissed.
 
-    fields: (label, key, editable) tuples — True=text, "toggle"=on/off, False=readonly.
+    fields: (label, key, editable) tuples — True=text, "toggle"=on/off,
+    ("cycle", [...])=cycle through list on Enter, False=readonly.
     Dismisses with the edited values dict. Inline cursor editing for text fields.
     """
     CSS = """
@@ -205,9 +206,18 @@ class ConfigScreen(ModalScreen):
                 if len(after) > 1: t.append(after[1:], style=S_VALUE)
             else:
                 val = str(self._values.get(key, ""))
-                vs = (S_SUCCESS if val == "ON" else S_DIM) if editable == "toggle" else (
-                    S_DIM if not editable else
-                    Style(color="#ffffff", bold=True, underline=True) if sel else S_VALUE)
+                is_cycle = isinstance(editable, tuple) and editable[0] == "cycle"
+                if editable == "toggle":
+                    vs = S_SUCCESS if val == "ON" else S_DIM
+                elif is_cycle:
+                    styles = editable[2] if len(editable) > 2 else {}
+                    vs = styles.get(val, S_VALUE)
+                elif not editable:
+                    vs = S_DIM
+                elif sel:
+                    vs = Style(color="#ffffff", bold=True, underline=True)
+                else:
+                    vs = S_VALUE
                 t.append(val, style=vs)
             t.append("\n")
         hint = " Enter:save  Esc:cancel" if self._editing else " ↑↓:select  Enter:edit  Esc:close & save"
@@ -235,9 +245,15 @@ class ConfigScreen(ModalScreen):
         elif k == "down": self._sel = (self._sel + 1) % len(self._fields)
         elif k == "enter":
             _, key, editable = self._fields[self._sel]
+            is_cycle = isinstance(editable, tuple) and editable[0] == "cycle"
             if editable == "toggle":
                 v = self._values.get(key, "OFF")
                 self._values[key] = "OFF" if v == "ON" else "ON"
+            elif is_cycle:
+                choices = editable[1]
+                cur = self._values.get(key, choices[0])
+                idx = choices.index(cur) if cur in choices else 0
+                self._values[key] = choices[(idx + 1) % len(choices)]
             elif editable:
                 self._editing = True
                 self._buf = str(self._values.get(key, "")); self._cur = len(self._buf)

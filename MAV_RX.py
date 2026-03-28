@@ -245,7 +245,7 @@ class MavRxApp(MavAppBase):
                   lambda msg: self.state.error_status.set(msg, 5)),
             daemon=True)
         self._rx_thread.start()
-        self.set_interval(0.1, self._tick)
+        self.set_interval(1/60, self._tick)
         self.query_one("#rx-input").focus()
 
     def _tick(self):
@@ -253,7 +253,7 @@ class MavRxApp(MavAppBase):
         _drain_rx_queue(s, self._pkt_queue)
         if time.time() - s.last_gc > GC_INTERVAL:
             gc.collect(); s.last_gc = time.time()
-        s._spin_acc += 1.0 if s.receiving else 0.25
+        s._spin_acc += 0.5 if s.receiving else 0.1
         s.spin_idx = int(s._spin_acc) % len(SPINNER)
         s.error_status.check_expiry(); s.status.check_expiry()
         s.silence_secs = time.time() - s.last_watchdog

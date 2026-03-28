@@ -33,6 +33,11 @@ from mav_gss_lib.config import (
     load_gss_config, apply_ax25, apply_csp, ax25_handle_msg, csp_handle_msg,
     save_gss_config, update_cfg_from_state,
 )
+try:
+    from mav_gss_lib.golay import build_asm_golay_frame, _GR_RS_OK
+    _GOLAY_OK = _GR_RS_OK
+except ImportError:
+    _GOLAY_OK = False
 from mav_gss_lib.tui_tx import (
     TxHeader, TxQueue, SentHistory, TxStatusBar,
     HELP_LINES, CONFIG_FIELDS, config_get_values, config_apply,
@@ -48,6 +53,7 @@ MAX_RS_PAYLOAD = 223
 CMD_DEFS_PATH = CFG["general"]["command_defs"]
 FREQUENCY     = CFG["tx"]["frequency"]
 TX_DELAY_MS   = CFG["tx"]["delay_ms"]
+UPLINK_MODE   = CFG["tx"].get("uplink_mode", "AX.25")
 MAX_HISTORY   = 500
 MAX_CMD_HISTORY = 500
 QUEUE_FILE = os.path.join(LOG_DIR, ".pending_queue.jsonl")
@@ -166,6 +172,7 @@ class TxState:
     send_lock: threading.Lock = field(default_factory=threading.Lock)
     sending: dict = field(default_factory=lambda: {"active": False, "idx": -1, "total": 0})
     status: StatusMessage = field(default_factory=StatusMessage)
+    uplink_mode: str = "AX.25"
     version: str = ""
     schema_count: int = 0
     schema_path: str = ""
@@ -180,14 +187,19 @@ def _send_worker(state, snapshot, delay_ms, sock):
         if i > 0 and delay_ms > 0:
             remaining = delay_ms / 1000.0
             while remaining > 0 and not state.send_abort.is_set():
-                time.sleep(min(0.05, remaining)); remaining -= 0.05
+                time.sleep(min(1/60, remaining)); remaining -= 1/60
             if state.send_abort.is_set(): break
-        payload = state.ax25.wrap(state.csp.wrap(raw_cmd))
+        csp_packet = state.csp.wrap(raw_cmd)
+        if state.uplink_mode == "ASM+Golay":
+            payload = build_asm_golay_frame(csp_packet)
+        else:
+            payload = state.ax25.wrap(csp_packet)
         if not send_pdu(sock, payload):
             state.status.set("ZMQ send error — aborting send", 5); break
         state.tx_count += 1; sent += 1
         state.tx_log.write_command(state.tx_count, src, dest, echo, ptype,
-                                   cmd, args, raw_cmd, payload, state.ax25, state.csp)
+                                   cmd, args, raw_cmd, payload, state.ax25, state.csp,
+                                   uplink_mode=state.uplink_mode)
         with state.send_lock:
             state.history.append({"n": state.tx_count, "ts": datetime.now().strftime("%H:%M:%S"),
                 "src": src, "dest": dest, "cmd": cmd, "args": args, "echo": echo,
@@ -245,6 +257,22 @@ def _dispatch_tx_command(state, line, sock):
         state.status.set(csp_handle_msg(state.csp, line[3:].strip() if len(line)>3 else ""), 4); return True
     if cl == 'ax25' or cl.startswith('ax25 '):
         state.status.set(ax25_handle_msg(state.ax25, line[4:].strip() if len(line)>4 else ""), 4); return True
+    if cl == 'mode' or cl.startswith('mode '):
+        arg = line[4:].strip() if len(line) > 4 else ""
+        if not arg:
+            state.status.set(f"Uplink mode: {state.uplink_mode}", 3)
+        elif arg.upper() in ("AX.25", "AX25"):
+            state.uplink_mode = "AX.25"
+            state.status.set("Uplink mode: AX.25", 3)
+        elif arg.upper() in ("ASM+GOLAY", "GOLAY", "ASM"):
+            if not _GOLAY_OK:
+                state.status.set("reedsolo not installed — cannot use ASM+Golay", 3)
+            else:
+                state.uplink_mode = "ASM+Golay"
+                state.status.set("Uplink mode: ASM+Golay", 3)
+        else:
+            state.status.set("mode [AX.25 | ASM+Golay]", 3)
+        return True
     try: parsed = parse_cmd_line(line)
     except ValueError as e: state.status.set(f"Bad command: {e}", 3); return True
     src, dest, echo, ptype, cmd, args = parsed
@@ -252,7 +280,8 @@ def _dispatch_tx_command(state, line, sock):
     if not valid and issues: state.status.set(f"Rejected: {issues[0]}", 3); return True
     if state.cmd_defs and cmd not in state.cmd_defs: state.status.set(f"Rejected: '{cmd}' not in schema", 3); return True
     raw_cmd = build_cmd_raw(dest, cmd, args, echo=echo, ptype=ptype, origin=src)
-    if len(raw_cmd) + state.csp.overhead() + state.ax25.overhead() > MAX_RS_PAYLOAD:
+    overhead = state.csp.overhead() if state.uplink_mode == "ASM+Golay" else state.csp.overhead() + state.ax25.overhead()
+    if len(raw_cmd) + overhead > MAX_RS_PAYLOAD:
         state.status.set("Command too large for RS payload", 3); return True
     entry = (src, dest, echo, ptype, cmd, args, raw_cmd)
     state.tx_queue.append(entry); _append_queue(entry)
@@ -275,7 +304,9 @@ class MavTxApp(MavAppBase):
     #bottom-bar { dock: bottom; height: 3; }
     #tx-input { height: 1; border: none; padding: 0; }
     TxQueue { border-top: solid #555555; border-left: solid black; border-right: solid black; border-bottom: solid black; }
+    TxQueue:focus { border: solid #00bfff; }
     SentHistory { border-top: solid #555555; border-left: solid black; border-right: solid black; border-bottom: solid black; }
+    SentHistory:focus { border: solid #00bfff; }
     """
     _WIDGET_QUERY = "TxHeader, TxQueue, SentHistory, TxStatusBar, HelpPanel"
     _INPUT_ID = "tx-input"
@@ -303,6 +334,7 @@ class MavTxApp(MavAppBase):
             csp=csp, ax25=ax25, cmd_defs=cmd_defs, tx_queue=tx_queue, history=[],
             tx_log=TXLog(LOG_DIR, ZMQ_ADDR, version=VERSION), session_start=time.time(),
             freq=FREQUENCY, zmq_addr_disp=ZMQ_ADDR, tx_delay_ms=TX_DELAY_MS,
+            uplink_mode=UPLINK_MODE,
             version=VERSION, schema_count=len(cmd_defs), schema_path=CMD_DEFS_PATH,
         )
         if tx_queue or q_skipped:
@@ -329,11 +361,11 @@ class MavTxApp(MavAppBase):
             ax, cs = CFG["ax25"], CFG["csp"]
             self.push_screen(SplashScreen(subtitle=f"MAVERIC TX Dashboard  v{VERSION}",
                 config_lines=[("Config", "maveric_gss.yml"), ("ZMQ PUB", ZMQ_ADDR),
-                    ("Frequency", FREQUENCY), ("TX Delay", f"{TX_DELAY_MS} ms"),
+                    ("Frequency", FREQUENCY), ("Uplink Mode", UPLINK_MODE), ("TX Delay", f"{TX_DELAY_MS} ms"),
                     ("AX.25", f"GS:{ax['src_call']}-{ax['src_ssid']} -> SAT:{ax['dest_call']}-{ax['dest_ssid']}"),
                     ("CSP", f"Prio:{cs['priority']} Src:{cs['source']} Dest:{cs['destination']}"),
                     ("Commands", CMD_DEFS_PATH), ("Log", f"{LOG_DIR}/text")]))
-        self.set_interval(0.1, self._tick)
+        self.set_interval(1/60, self._tick)
         self.query_one("#tx-input").focus()
 
     def _tick(self):
@@ -414,7 +446,7 @@ class MavTxApp(MavAppBase):
 
     def _open_config(self):
         s = self.state
-        vals = config_get_values(s.csp, s.ax25, s.freq, s.zmq_addr_disp, s.tx_delay_ms)
+        vals = config_get_values(s.csp, s.ax25, s.freq, s.zmq_addr_disp, s.tx_delay_ms, s.uplink_mode)
         self.push_screen(ConfigScreen(CONFIG_FIELDS, vals), self._on_config_done)
 
     def _handle_result(self, result):
@@ -430,7 +462,7 @@ class MavTxApp(MavAppBase):
     def _on_config_done(self, values):
         s = self.state
         try:
-            s.freq, s.zmq_addr_disp, s.tx_delay_ms = config_apply(values, s.csp, s.ax25)
+            s.freq, s.zmq_addr_disp, s.tx_delay_ms, s.uplink_mode = config_apply(values, s.csp, s.ax25)
             s.status.set("Config saved", 2)
         except (ValueError, KeyError):
             s.status.set("Invalid config value — reverted", 3)
@@ -455,7 +487,8 @@ class MavTxApp(MavAppBase):
         try: s.tx_log.write_summary(s.tx_count, s.session_start); s.tx_log.close()
         except Exception: pass
         try:
-            update_cfg_from_state(CFG, s.csp, s.ax25, s.freq, s.zmq_addr_disp, s.tx_delay_ms)
+            update_cfg_from_state(CFG, s.csp, s.ax25, s.freq, s.zmq_addr_disp, s.tx_delay_ms,
+                                 uplink_mode=s.uplink_mode)
             save_gss_config(CFG)
         except Exception: pass
         zmq_cleanup(self._zmq_monitor, PUB_STATUS, s.zmq_status, self._sock, self._zmq_ctx)

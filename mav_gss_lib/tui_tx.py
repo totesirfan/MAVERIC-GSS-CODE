@@ -33,6 +33,9 @@ class TxHeader(Widget):
         row1.append(f"[{s.zmq_status}]", style=S_SUCCESS if s.zmq_status == "LIVE" else S_VALUE)
         row1.append(f"  Freq:", style=S_LABEL)
         row1.append(f"{s.freq}", style=S_WARNING)
+        row1.append(f"  Mode:", style=S_LABEL)
+        mode_style = S_SUCCESS if s.uplink_mode == "ASM+Golay" else S_WARNING
+        row1.append(f"{s.uplink_mode}", style=mode_style)
         row2 = Text()
         row2.append(" LOG:", style=S_LABEL)
         row2.append("ON", style=S_SUCCESS)
@@ -248,10 +251,12 @@ HELP_LINES = [
     ("Ctrl+W / Ctrl+U", "Del word / clear input"),
     ("COMMANDS", None), ("send", "Send all queued"), ("undo / pop", "Remove last queued"),
     ("clear / hclear", "Clear queue / history"), ("cfg / help / nodes", "Panels & info"),
+    ("mode [AX.25|ASM+Golay]", "Switch uplink encoding"),
     ("imp [file]", "Import from generated_commands/"), ("raw <hex>", "Send raw bytes"), ("q", "Exit"),
 ]
 
 CONFIG_FIELDS = [
+    ("Uplink Mode", "uplink_mode", ("cycle", ["AX.25", "ASM+Golay"], {"AX.25": S_WARNING, "ASM+Golay": S_SUCCESS})),
     ("AX.25 Src Call", "ax25_src_call", True), ("AX.25 Src SSID", "ax25_src_ssid", True),
     ("AX.25 Dest Call", "ax25_dest_call", True), ("AX.25 Dest SSID", "ax25_dest_ssid", True),
     ("CSP Priority", "csp_prio", True), ("CSP Source", "csp_src", True),
@@ -261,8 +266,9 @@ CONFIG_FIELDS = [
     ("TX Delay (ms)", "tx_delay_ms", True),
 ]
 
-def config_get_values(csp, ax25, freq, zmq_addr, tx_delay_ms):
+def config_get_values(csp, ax25, freq, zmq_addr, tx_delay_ms, uplink_mode="AX.25"):
     return {
+        "uplink_mode": uplink_mode,
         "ax25_src_call": ax25.src_call, "ax25_src_ssid": str(ax25.src_ssid),
         "ax25_dest_call": ax25.dest_call, "ax25_dest_ssid": str(ax25.dest_ssid),
         "csp_prio": str(csp.prio), "csp_src": str(csp.src), "csp_dest": str(csp.dest),
@@ -278,7 +284,7 @@ def config_apply(values, csp, ax25):
     csp.prio = int(values["csp_prio"], 0); csp.src = int(values["csp_src"], 0)
     csp.dest = int(values["csp_dest"], 0); csp.dport = int(values["csp_dport"], 0)
     csp.sport = int(values["csp_sport"], 0); csp.flags = int(values["csp_flags"], 0)
-    return values["freq"], values["zmq_addr"], max(0, int(values["tx_delay_ms"]))
+    return values["freq"], values["zmq_addr"], max(0, int(values["tx_delay_ms"])), values["uplink_mode"]
 
 def tx_help_info(s):
     return (s.version, s.schema_count, s.schema_path, s.tx_log.text_path)

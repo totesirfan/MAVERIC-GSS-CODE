@@ -249,11 +249,12 @@ class PacketList(Widget):
             left.append("UNKNOWN ", style=f"{b} bold #ff4444")
         else:
             ft = pkt.get("frame_type", "???")
-            left.append(f"{ft:<6} ", style=f"{b} {'#ffd700' if ft=='AX.25' else '#00ff87' if ft=='AX100' else '#ff4444'}")
+            left.append(f"{ft:<10} ", style=f"{b} {'#ffd700' if ft=='AX.25' else '#00ff87' if ft=='ASM+GOLAY' else '#ff4444'}")
             if cmd:
                 left.append(f"{node_label(cmd['src']):>{sw}} → {node_label(cmd['dest']):<{dw}}  ", style=f"{b} #00bfff")
                 left.append(f"E:{node_label(cmd['echo']):<{ew}}  ", style=f"{b} #888888")
-                ptype_color = "#00ff87" if cmd['pkt_type'] == protocol.PTYPE_IDS.get("RES") else "#00bfff"
+                pt = cmd['pkt_type']
+                ptype_color = "#00ff87" if protocol.PTYPE_NAMES.get(pt) in ("RES", "ACK") else "#888888" if protocol.PTYPE_NAMES.get(pt) == "NONE" else "#00bfff"
                 left.append(f"{protocol.PTYPE_NAMES.get(cmd['pkt_type'],'?'):<{pw}}  ", style=f"{b} {ptype_color}")
                 left.append(f"{cmd['cmd_id'][:14]} ", style=f"{b} bold #ffffff")
                 args = (" ".join(format_arg_value(ta) for ta in cmd.get("typed_args",[])
@@ -304,7 +305,15 @@ def _build_detail_lines(pkt, is_unk, show_hex, show_wrapper):
         f(tag, f"Prio:{csp['prio']}  Src:{csp['src']}  Dest:{csp['dest']}  DPort:{csp['dport']}  SPort:{csp['sport']}  Flags:0x{csp['flags']:02x}")
     cmd = pkt.get("cmd")
     if cmd:
-        f("CMD ROUTE", f"Src:{node_label(cmd['src'])}  Dest:{node_label(cmd['dest'])}  Echo:{node_label(cmd['echo'])}  Type:{ptype_label(cmd['pkt_type'])}")
+        route = Text()
+        def _node_color(nid): return "#888888" if protocol.NODE_NAMES.get(nid) == "NONE" else "#00bfff"
+        route.append("Src:", style="#ffffff"); route.append(f"{node_label(cmd['src'])}  ", style=_node_color(cmd['src']))
+        route.append("Dest:", style="#ffffff"); route.append(f"{node_label(cmd['dest'])}  ", style=_node_color(cmd['dest']))
+        route.append("Echo:", style="#ffffff"); route.append(f"{node_label(cmd['echo'])}  ", style=_node_color(cmd['echo']))
+        pt = cmd['pkt_type']
+        ptype_color = "#00ff87" if protocol.PTYPE_NAMES.get(pt) in ("RES", "ACK") else "#888888" if protocol.PTYPE_NAMES.get(pt) == "NONE" else "#00bfff"
+        route.append("Type:", style="#ffffff"); route.append(ptype_label(cmd['pkt_type']), style=ptype_color)
+        lines.append(("CMD ROUTE", route, S_VALUE))
         f("CMD ID", cmd["cmd_id"])
         if cmd.get("schema_match"):
             for ta in cmd.get("typed_args", []): f(ta["name"].upper()[:12], format_arg_value(ta))
@@ -362,7 +371,7 @@ class PacketDetail(Widget):
         else:
             title = Text(f" PACKET #{pkt.get('pkt_num',0)} DETAIL", style=S_WARNING)
         if ts_r:
-            title.append(f"  {ts_r[0].strftime('%H:%M:%S UTC')}  {ts_r[1].strftime('%H:%M:%S %Z')}", style=S_DIM)
+            title.append(f"  {ts_r[0].strftime('%Y-%m-%d %H:%M:%S UTC')}  {ts_r[1].strftime('%Y-%m-%d %H:%M:%S %Z')}", style="#ffffff")
         lines = _build_detail_lines(pkt, is_unk, s.show_hex, s.show_wrapper)
 
         # Render lines, wrapping long values with aligned continuation
@@ -374,21 +383,24 @@ class PacketDetail(Widget):
         t.append("\n")
         t.append_text(lr_line(title, Text(), w))
         for lbl, val, st in lines:
-            # Split value into chunks that fit
-            chunks = [val[i:i + val_w] for i in range(0, len(val), val_w)] if len(val) > val_w else [val]
             t.append("\n")
             row = Text()
             row.append(f" {lbl:<12}", style=S_LABEL)
-            row.append(chunks[0], style=st)
+            if isinstance(val, Text):
+                row.append_text(val)
+            else:
+                chunks = [val[i:i + val_w] for i in range(0, len(val), val_w)] if len(val) > val_w else [val]
+                row.append(chunks[0], style=st)
             t.append_text(row)
             rendered_rows += 1
-            for chunk in chunks[1:]:
-                t.append("\n")
-                cont = Text()
-                cont.append(" " * label_w, style="")
-                cont.append(chunk, style=st)
-                t.append_text(cont)
-                rendered_rows += 1
+            if not isinstance(val, Text):
+                for chunk in chunks[1:]:
+                    t.append("\n")
+                    cont = Text()
+                    cont.append(" " * label_w, style="")
+                    cont.append(chunk, style=st)
+                    t.append_text(cont)
+                    rendered_rows += 1
         rendered_rows += 1  # blank padding at bottom
         self.styles.height = rendered_rows
         return t

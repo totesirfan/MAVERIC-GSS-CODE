@@ -283,7 +283,7 @@ class TXLog(_BaseLog):
         super().__init__(log_dir, "uplink", version, "TX Dashboard", zmq_addr)
 
     def write_command(self, n, src, dest, echo, ptype, cmd, args,
-                      raw_cmd, payload, ax25, csp):
+                      raw_cmd, payload, ax25, csp, uplink_mode="AX.25"):
         """Write one TX command entry with full protocol details."""
         # -- Text entry --
         lines = []
@@ -291,12 +291,13 @@ class TXLog(_BaseLog):
         extras = self._route_line(src, dest, echo, ptype)
         lines.append(self._separator(f"#{n}", extras))
 
+        lines.append(self._field("MODE", uplink_mode))
         lines.append(self._field("CMD ID", cmd))
         if args:
             lines.append(self._field("ARGS", args))
 
-        # AX.25 state at time of send
-        if ax25.enabled:
+        # AX.25 state at time of send (skip for ASM+Golay)
+        if uplink_mode != "ASM+Golay" and ax25.enabled:
             lines.append(self._field("AX.25",
                 f"Src:{ax25.src_call}-{ax25.src_ssid}  "
                 f"Dest:{ax25.dest_call}-{ax25.dest_ssid}"))
@@ -322,9 +323,13 @@ class TXLog(_BaseLog):
         # Size breakdown
         cmd_len = len(raw_cmd)
         csp_overhead = csp.overhead()
-        ax25_overhead = ax25.overhead()
-        lines.append(self._field("SIZE",
-            f"{len(payload)}B (cmd {cmd_len}B + CSP {csp_overhead}B + AX.25 {ax25_overhead}B)"))
+        if uplink_mode == "ASM+Golay":
+            lines.append(self._field("SIZE",
+                f"{len(payload)}B (cmd {cmd_len}B + CSP {csp_overhead}B -> RS 255B + overhead 57B)"))
+        else:
+            ax25_overhead = ax25.overhead()
+            lines.append(self._field("SIZE",
+                f"{len(payload)}B (cmd {cmd_len}B + CSP {csp_overhead}B + AX.25 {ax25_overhead}B)"))
 
         # Raw command hex + full payload hex
         lines.extend(self._hex_lines(raw_cmd, "RAW CMD"))
@@ -339,6 +344,7 @@ class TXLog(_BaseLog):
         rec = {
             "n": n,
             "ts": datetime.now().astimezone().isoformat(),
+            "uplink_mode": uplink_mode,
             "src": src,
             "src_lbl": node_label(src),
             "dest": dest,

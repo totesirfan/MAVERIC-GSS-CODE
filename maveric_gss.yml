@@ -20,14 +20,15 @@ ax25:
 csp:
   priority: 2
   source: 0
-  destination: 8
+  destination: 10
   dest_port: 24
   src_port: 0
   flags: 0
 tx:
   zmq_addr: tcp://127.0.0.1:52002
   frequency: 437.25 MHz
-  delay_ms: 1000
+  delay_ms: 2000
+  uplink_mode: ASM+Golay
 rx:
   zmq_port: 52001
   zmq_addr: tcp://127.0.0.1:52001
