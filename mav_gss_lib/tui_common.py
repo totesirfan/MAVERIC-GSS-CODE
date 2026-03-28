@@ -13,7 +13,10 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.events import Key
 from textual.screen import ModalScreen
+from textual.widget import Widget
 from textual.widgets import Static
+
+import mav_gss_lib.protocol as protocol
 
 # -- Styles -------------------------------------------------------------------
 
@@ -27,9 +30,59 @@ S_SEP     = Style(color="#555555")               # Mid grey — separators/rules
 S_USC_CARDINAL = Style(color="#990000", bold=True)
 S_USC_GOLD     = Style(color="#FFCC00", bold=True)
 
-# -- Shared layout helpers ----------------------------------------------------
+# -- Status duration constants ------------------------------------------------
 
-from textual.widget import Widget
+STATUS_BRIEF   = 2   # quick toggles, confirmations
+STATUS_NORMAL  = 3   # general status messages
+STATUS_INFO    = 4   # protocol query results
+STATUS_LONG    = 5   # errors, warnings, restored state
+STATUS_STARTUP = 10  # schema warnings at startup
+
+# -- Datetime format constants ------------------------------------------------
+
+TS_FULL      = "%Y-%m-%d %H:%M:%S %Z"   # Full timestamp with timezone
+TS_SHORT     = "%H:%M:%S"               # Time only (for compact display)
+TS_UTC_LABEL = "%Y-%m-%d %H:%M:%S UTC"  # UTC timestamp for detail panels
+
+# -- Color helpers ------------------------------------------------------------
+
+_FRAME_COLORS = {"AX.25": "#ffd700", "ASM+GOLAY": "#00ff87"}
+_FRAME_DEFAULT = "#ff4444"
+
+_PTYPE_COLORS = {"RES": "#00ff87", "ACK": "#00ff87", "NONE": "#888888"}
+_PTYPE_DEFAULT = "#00bfff"
+
+def frame_color(frame_type):
+    """Return color string for a frame type label."""
+    return _FRAME_COLORS.get(frame_type, _FRAME_DEFAULT)
+
+def ptype_color(ptype_id):
+    """Return color string for a packet type ID."""
+    name = protocol.PTYPE_NAMES.get(ptype_id, "")
+    return _PTYPE_COLORS.get(name, _PTYPE_DEFAULT)
+
+def node_color(node_id):
+    """Return color string for a node — dim if NONE, blue otherwise."""
+    return "#888888" if protocol.NODE_NAMES.get(node_id) == "NONE" else "#00bfff"
+
+# -- Column width helper ------------------------------------------------------
+
+def compute_col_widths(rows, extractors, defaults=None):
+    """Compute dynamic column widths from visible rows.
+
+    extractors: dict of {col_name: callable(row) -> iterable_of_strings}
+    defaults:   dict of {col_name: int} for minimum widths
+    Returns:    dict of {col_name: int}
+    """
+    defaults = defaults or {}
+    collected = {k: set() for k in extractors}
+    for row in rows:
+        for k, fn in extractors.items():
+            collected[k].update(fn(row))
+    return {k: max((len(s) for s in vals), default=defaults.get(k, 1))
+            for k, vals in collected.items()}
+
+# -- Shared layout helpers ----------------------------------------------------
 
 def lr_line(left, right, w, fill_style=""):
     """Build a single Text line: left + right, right-aligned, exactly w chars wide.

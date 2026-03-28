@@ -13,6 +13,7 @@ from mav_gss_lib.protocol import node_label, ptype_label, format_arg_value
 from mav_gss_lib.tui_common import (
     S_LABEL, S_VALUE, S_SUCCESS, S_WARNING, S_ERROR, S_DIM, S_SEP, lr_line,
     scrollbar_styles, append_wrapped_args,
+    TS_SHORT, frame_color, ptype_color, node_color, compute_col_widths,
 )
 
 class RxHeader(Widget):
@@ -24,8 +25,8 @@ class RxHeader(Widget):
 
     def render(self):
         s, w = self.s, self.content_size.width
-        utc = datetime.now(timezone.utc).strftime("%H:%M:%S")
-        local = datetime.now().strftime("%H:%M:%S")
+        utc = datetime.now(timezone.utc).strftime(TS_SHORT)
+        local = datetime.now().strftime(TS_SHORT)
         zmq = Text()
         zmq.append(" ZMQ ", style=S_LABEL)
         zmq.append(f"{s.zmq_addr} ", style=S_VALUE)
@@ -191,27 +192,26 @@ class PacketList(Widget):
         t.append_text(self._spinner_line(s, w))
         return t
 
-    def _compute_col_widths(self, visible):
+    @staticmethod
+    def _compute_col_widths(visible):
         """Pre-scan visible packets to compute dynamic column widths."""
-        nums, srcs, dests, echos, ptypes = set(), set(), set(), set(), set()
-        for pkt in visible:
-            if pkt.get("is_unknown") and pkt.get("unknown_num") is not None:
-                nums.add(f"U-{pkt['unknown_num']}")
-            else:
-                nums.add(f"#{pkt.get('pkt_num',0)}")
-            cmd = pkt.get("cmd")
-            if cmd:
-                srcs.add(node_label(cmd['src']))
-                dests.add(node_label(cmd['dest']))
-                echos.add(node_label(cmd['echo']))
-                ptypes.add(protocol.PTYPE_NAMES.get(cmd['pkt_type'], '?'))
-        return {
-            "num": max((len(s) for s in nums), default=2),
-            "src": max((len(s) for s in srcs), default=1),
-            "dest": max((len(s) for s in dests), default=1),
-            "echo": max((len(s) for s in echos), default=1),
-            "ptype": max((len(s) for s in ptypes), default=1),
-        }
+        def _num(p):
+            if p.get("is_unknown") and p.get("unknown_num") is not None:
+                return [f"U-{p['unknown_num']}"]
+            return [f"#{p.get('pkt_num', 0)}"]
+        def _cmd_field(p, key):
+            cmd = p.get("cmd")
+            return [node_label(cmd[key])] if cmd else []
+        def _ptype(p):
+            cmd = p.get("cmd")
+            return [protocol.PTYPE_NAMES.get(cmd['pkt_type'], '?')] if cmd else []
+        return compute_col_widths(visible, {
+            "num": _num,
+            "src": lambda p: _cmd_field(p, 'src'),
+            "dest": lambda p: _cmd_field(p, 'dest'),
+            "echo": lambda p: _cmd_field(p, 'echo'),
+            "ptype": _ptype,
+        }, defaults={"num": 2})
 
     def _spinner_line(self, s, w):
         t = Text(no_wrap=True, overflow="crop")
@@ -249,13 +249,12 @@ class PacketList(Widget):
             left.append("UNKNOWN ", style=f"{b} bold #ff4444")
         else:
             ft = pkt.get("frame_type", "???")
-            left.append(f"{ft:<10} ", style=f"{b} {'#ffd700' if ft=='AX.25' else '#00ff87' if ft=='ASM+GOLAY' else '#ff4444'}")
+            left.append(f"{ft:<10} ", style=f"{b} {frame_color(ft)}")
             if cmd:
                 left.append(f"{node_label(cmd['src']):>{sw}} → {node_label(cmd['dest']):<{dw}}  ", style=f"{b} #00bfff")
                 left.append(f"E:{node_label(cmd['echo']):<{ew}}  ", style=f"{b} #888888")
                 pt = cmd['pkt_type']
-                ptype_color = "#00ff87" if protocol.PTYPE_NAMES.get(pt) in ("RES", "ACK") else "#888888" if protocol.PTYPE_NAMES.get(pt) == "NONE" else "#00bfff"
-                left.append(f"{protocol.PTYPE_NAMES.get(cmd['pkt_type'],'?'):<{pw}}  ", style=f"{b} {ptype_color}")
+                left.append(f"{protocol.PTYPE_NAMES.get(cmd['pkt_type'],'?'):<{pw}}  ", style=f"{b} {ptype_color(pt)}")
                 left.append(f"{cmd['cmd_id'][:14]} ", style=f"{b} bold #ffffff")
                 args = (" ".join(format_arg_value(ta) for ta in cmd.get("typed_args",[])
                                  if ta.get("important"))
@@ -306,13 +305,11 @@ def _build_detail_lines(pkt, is_unk, show_hex, show_wrapper):
     cmd = pkt.get("cmd")
     if cmd:
         route = Text()
-        def _node_color(nid): return "#888888" if protocol.NODE_NAMES.get(nid) == "NONE" else "#00bfff"
-        route.append("Src:", style="#ffffff"); route.append(f"{node_label(cmd['src'])}  ", style=_node_color(cmd['src']))
-        route.append("Dest:", style="#ffffff"); route.append(f"{node_label(cmd['dest'])}  ", style=_node_color(cmd['dest']))
-        route.append("Echo:", style="#ffffff"); route.append(f"{node_label(cmd['echo'])}  ", style=_node_color(cmd['echo']))
+        route.append("Src:", style="#ffffff"); route.append(f"{node_label(cmd['src'])}  ", style=node_color(cmd['src']))
+        route.append("Dest:", style="#ffffff"); route.append(f"{node_label(cmd['dest'])}  ", style=node_color(cmd['dest']))
+        route.append("Echo:", style="#ffffff"); route.append(f"{node_label(cmd['echo'])}  ", style=node_color(cmd['echo']))
         pt = cmd['pkt_type']
-        ptype_color = "#00ff87" if protocol.PTYPE_NAMES.get(pt) in ("RES", "ACK") else "#888888" if protocol.PTYPE_NAMES.get(pt) == "NONE" else "#00bfff"
-        route.append("Type:", style="#ffffff"); route.append(ptype_label(cmd['pkt_type']), style=ptype_color)
+        route.append("Type:", style="#ffffff"); route.append(ptype_label(cmd['pkt_type']), style=ptype_color(pt))
         lines.append(("CMD ROUTE", route, S_VALUE))
         f("CMD ID", cmd["cmd_id"])
         if cmd.get("schema_match"):

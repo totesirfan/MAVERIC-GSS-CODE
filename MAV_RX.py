@@ -25,8 +25,10 @@ from mav_gss_lib.parsing import RxPipeline, build_rx_log_record
 from mav_gss_lib.logging import SessionLog
 from mav_gss_lib.tui_common import (StatusMessage, SplashScreen,
                                     Hints, HelpPanel, ConfigScreen, MavAppBase,
-                                    dispatch_common)
+                                    dispatch_common,
+                                    STATUS_BRIEF, STATUS_NORMAL, STATUS_LONG, STATUS_STARTUP)
 from mav_gss_lib.config import load_gss_config
+from mav_gss_lib.tui_common import TS_FULL
 from mav_gss_lib.tui_rx import (
     RxHeader, PacketList, PacketDetail,
     RX_HELP_LINES, RX_CONFIG_FIELDS, rx_config_get_values, rx_help_info,
@@ -120,21 +122,21 @@ def _drain_rx_queue(state, pkt_queue):
             break
         state.last_watchdog = time.time()
         if state.first_pkt_ts is None:
-            state.first_pkt_ts = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+            state.first_pkt_ts = datetime.now().astimezone().strftime(TS_FULL)
         try:
             pkt_record = state.pipeline.process(meta, raw)
         except Exception as e:
-            state.error_status.set(f"Packet error: {e}", 5)
+            state.error_status.set(f"Packet error: {e}", STATUS_LONG)
             continue
         if state.pipeline.frequency is not None:
             state.frequency = state.pipeline.frequency
-        state.last_pkt_ts = pkt_record["gs_ts"]
+        state.last_pkt_ts = pkt_record.gs_ts
         if state.logging_enabled and state.log:
             try:
                 state.log.write_jsonl(build_rx_log_record(pkt_record, VERSION, meta))
                 state.log.write_packet(pkt_record)
             except Exception as e:
-                state.error_status.set(f"Log error: {e}", 5)
+                state.error_status.set(f"Log error: {e}", STATUS_LONG)
         state.packets.append(pkt_record)
         if len(state.packets) > MAX_PACKETS:
             del state.packets[:len(state.packets) - MAX_PACKETS]
@@ -149,22 +151,22 @@ def _dispatch_rx_command(state, line):
     if common is not None: return common
     if cmd == 'hex':
         state.show_hex = not state.show_hex
-        state.status.set(f"HEX {'ON' if state.show_hex else 'OFF'}", 2)
+        state.status.set(f"HEX {'ON' if state.show_hex else 'OFF'}", STATUS_BRIEF)
     elif cmd == 'ul':
         state.hide_uplink = not state.hide_uplink
-        state.status.set(f"Hide Uplink {'ON' if state.hide_uplink else 'OFF'}", 2)
+        state.status.set(f"Hide Uplink {'ON' if state.hide_uplink else 'OFF'}", STATUS_BRIEF)
     elif cmd == 'wrapper':
         state.show_wrapper = not state.show_wrapper
-        state.status.set(f"Wrapper {'ON' if state.show_wrapper else 'OFF'}", 2)
+        state.status.set(f"Wrapper {'ON' if state.show_wrapper else 'OFF'}", STATUS_BRIEF)
     elif cmd == 'detail':
         state.detail_open = not state.detail_open
     elif cmd == 'hclear':
         if state.packets:
-            state.status.set(f"Cleared {len(state.packets)} packets", 2)
+            state.status.set(f"Cleared {len(state.packets)} packets", STATUS_BRIEF)
             state.packets.clear(); state.selected_idx = -1; state.scroll_offset = 0
-        else: state.status.set("History already empty", 2)
+        else: state.status.set("History already empty", STATUS_BRIEF)
     elif cmd == 'live': state.selected_idx = -1
-    else: state.status.set(f"Unknown command: {line}", 3)
+    else: state.status.set(f"Unknown command: {line}", STATUS_NORMAL)
     return True
 
 
@@ -210,7 +212,7 @@ class MavRxApp(MavAppBase):
             frequency=next(iter(self._tx_freq_map.values()), "N/A"),
         )
         if self._schema_warning:
-            self.state.error_status.set(f"SCHEMA: {self._schema_warning}", 10)
+            self.state.error_status.set(f"SCHEMA: {self._schema_warning}", STATUS_STARTUP)
         self._zmq_ctx, self._sock, self._zmq_monitor = init_zmq_sub(ZMQ_ADDR, ZMQ_RECV_TIMEOUT_MS)
         self._pkt_queue = queue.Queue()
         self._stop_event = threading.Event()
@@ -242,7 +244,7 @@ class MavRxApp(MavAppBase):
             target=_receiver_thread,
             args=(self._sock, self._pkt_queue, self._stop_event,
                   self._zmq_monitor, self._zmq_status,
-                  lambda msg: self.state.error_status.set(msg, 5)),
+                  lambda msg: self.state.error_status.set(msg, STATUS_LONG)),
             daemon=True)
         self._rx_thread.start()
         self.set_interval(1/60, self._tick)
@@ -353,11 +355,11 @@ class MavRxApp(MavAppBase):
         new_wrap = (values.get("show_wrapper", "OFF").upper() == "ON")
         new_ul = (values.get("hide_uplink", "OFF").upper() == "ON")
         if new_hex != s.show_hex:
-            s.show_hex = new_hex; s.status.set(f"HEX {'ON' if s.show_hex else 'OFF'}", 2)
+            s.show_hex = new_hex; s.status.set(f"HEX {'ON' if s.show_hex else 'OFF'}", STATUS_BRIEF)
         if new_wrap != s.show_wrapper:
-            s.show_wrapper = new_wrap; s.status.set(f"Wrapper {'ON' if s.show_wrapper else 'OFF'}", 2)
+            s.show_wrapper = new_wrap; s.status.set(f"Wrapper {'ON' if s.show_wrapper else 'OFF'}", STATUS_BRIEF)
         if new_ul != s.hide_uplink:
-            s.hide_uplink = new_ul; s.status.set(f"Hide Uplink {'ON' if s.hide_uplink else 'OFF'}", 2)
+            s.hide_uplink = new_ul; s.status.set(f"Hide Uplink {'ON' if s.hide_uplink else 'OFF'}", STATUS_BRIEF)
         self._act()
 
     # -- Cleanup --------------------------------------------------------------

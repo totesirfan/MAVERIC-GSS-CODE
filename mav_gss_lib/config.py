@@ -76,45 +76,65 @@ def load_gss_config(path="maveric_gss.yml"):
     return _deep_merge(_DEFAULTS, {})
 
 
-def apply_ax25(cfg, ax25):
-    """Apply config dict values to an AX25Config object."""
-    a = cfg["ax25"]
-    ax25.src_call  = a["src_call"]
-    ax25.src_ssid  = int(a["src_ssid"])
-    ax25.dest_call = a["dest_call"]
-    ax25.dest_ssid = int(a["dest_ssid"])
-
-
-def apply_csp(cfg, csp):
-    """Apply config dict values to a CSPConfig object."""
-    c = cfg["csp"]
-    csp.prio  = int(c["priority"])
-    csp.src   = int(c["source"])
-    csp.dest  = int(c["destination"])
-    csp.dport = int(c["dest_port"])
-    csp.sport = int(c["src_port"])
-    csp.flags = int(c["flags"])
-
-
 def save_gss_config(cfg, path="maveric_gss.yml"):
     """Write current config back to YAML, preserving runtime changes."""
     with open(path, "w") as f:
         yaml.dump(cfg, f, default_flow_style=False, sort_keys=False)
 
 
+# -- Bidirectional config mapping ---------------------------------------------
+#
+# Each entry maps:  (cfg_section, cfg_key) <-> (object_attr)
+# apply_*() reads cfg -> object;  update_cfg_from_state() writes object -> cfg.
+
+_AX25_MAP = [
+    ("src_call",  "src_call"),
+    ("src_ssid",  "src_ssid",  int),
+    ("dest_call", "dest_call"),
+    ("dest_ssid", "dest_ssid", int),
+]
+
+_CSP_MAP = [
+    ("priority",    "prio",  int),
+    ("source",      "src",   int),
+    ("destination", "dest",  int),
+    ("dest_port",   "dport", int),
+    ("src_port",    "sport", int),
+    ("flags",       "flags", int),
+]
+
+
+def _apply_map(cfg_section, obj, mapping):
+    """Apply config dict values to an object using a mapping list."""
+    for entry in mapping:
+        cfg_key, attr = entry[0], entry[1]
+        conv = entry[2] if len(entry) > 2 else None
+        val = cfg_section[cfg_key]
+        setattr(obj, attr, conv(val) if conv else val)
+
+
+def _sync_to_cfg(cfg_section, obj, mapping):
+    """Sync object values back into a config dict section."""
+    for entry in mapping:
+        cfg_key, attr = entry[0], entry[1]
+        cfg_section[cfg_key] = getattr(obj, attr)
+
+
+def apply_ax25(cfg, ax25):
+    """Apply config dict values to an AX25Config object."""
+    _apply_map(cfg["ax25"], ax25, _AX25_MAP)
+
+
+def apply_csp(cfg, csp):
+    """Apply config dict values to a CSPConfig object."""
+    _apply_map(cfg["csp"], csp, _CSP_MAP)
+
+
 def update_cfg_from_state(cfg, csp, ax25, freq=None, zmq_addr=None, tx_delay_ms=None,
                           uplink_mode=None):
     """Sync runtime state back into the config dict for saving."""
-    cfg["ax25"]["src_call"]  = ax25.src_call
-    cfg["ax25"]["src_ssid"]  = ax25.src_ssid
-    cfg["ax25"]["dest_call"] = ax25.dest_call
-    cfg["ax25"]["dest_ssid"] = ax25.dest_ssid
-    cfg["csp"]["priority"]    = csp.prio
-    cfg["csp"]["source"]      = csp.src
-    cfg["csp"]["destination"] = csp.dest
-    cfg["csp"]["dest_port"]   = csp.dport
-    cfg["csp"]["src_port"]    = csp.sport
-    cfg["csp"]["flags"]       = csp.flags
+    _sync_to_cfg(cfg["ax25"], ax25, _AX25_MAP)
+    _sync_to_cfg(cfg["csp"], csp, _CSP_MAP)
     if freq is not None:
         cfg["tx"]["frequency"] = freq
     if zmq_addr is not None:

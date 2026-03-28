@@ -16,6 +16,7 @@ import time
 from datetime import datetime
 
 from mav_gss_lib.protocol import node_label, ptype_label, clean_text, format_arg_value, crc16, crc32c
+from mav_gss_lib.tui_common import TS_FULL
 
 # Line width for text logs
 LOG_LINE_WIDTH = 80
@@ -49,7 +50,7 @@ class _BaseLog:
         self._jsonl_f = open(self.jsonl_path, "a")
 
         # Session header (written directly — thread not started yet)
-        session_ts = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+        session_ts = datetime.now().astimezone().strftime(TS_FULL)
         self._text_f.write(
             f"{HEADER_CHAR * LOG_LINE_WIDTH}\n"
             f"  MAVERIC Ground Station Log  v{version}\n"
@@ -89,7 +90,7 @@ class _BaseLog:
 
     def _separator(self, label, extras=""):
         """Build thin separator: ──── #1  timestamp  extras ────────"""
-        ts = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+        ts = datetime.now().astimezone().strftime(TS_FULL)
         content = f"{SEP_CHAR * 4} {label}  {ts}  {extras}".rstrip()
         pad = max(0, LOG_LINE_WIDTH - len(content) - 1)
         return content + " " + SEP_CHAR * pad
@@ -166,19 +167,19 @@ class SessionLog(_BaseLog):
         super().__init__(log_dir, "downlink", version, "RX Monitor", zmq_addr)
 
     def write_packet(self, pkt):
-        """Write one RX packet entry. Takes a pkt_record dict."""
+        """Write one RX packet entry. Takes a Packet instance."""
         lines = []
 
         # Separator line
-        pkt_num = pkt.get("pkt_num", 0)
-        is_unknown = pkt.get("is_unknown", False)
-        unknown_num = pkt.get("unknown_num")
-        frame_type = pkt.get("frame_type", "???")
-        raw = pkt.get("raw", b"")
-        inner = pkt.get("inner_payload", b"")
-        delta_t = pkt.get("delta_t")
-        is_dup = pkt.get("is_dup", False)
-        is_uplink_echo = pkt.get("is_uplink_echo", False)
+        pkt_num = pkt.pkt_num
+        is_unknown = pkt.is_unknown
+        unknown_num = pkt.unknown_num
+        frame_type = pkt.frame_type
+        raw = pkt.raw
+        inner = pkt.inner_payload
+        delta_t = pkt.delta_t
+        is_dup = pkt.is_dup
+        is_uplink_echo = pkt.is_uplink_echo
 
         if is_unknown and unknown_num is not None:
             label = f"U-{unknown_num}"
@@ -198,24 +199,23 @@ class SessionLog(_BaseLog):
             lines.append(banner)
 
         # Warnings
-        for w in pkt.get("warnings", []):
+        for w in pkt.warnings:
             lines.append(self._field("\u26a0 WARNING", w))
 
         # AX.25 header
-        stripped_hdr = pkt.get("stripped_hdr")
-        if stripped_hdr:
-            lines.append(self._field("AX.25 HDR", stripped_hdr))
+        if pkt.stripped_hdr:
+            lines.append(self._field("AX.25 HDR", pkt.stripped_hdr))
 
         # CSP header
-        csp = pkt.get("csp")
+        csp = pkt.csp
         if csp:
-            tag = "CSP V1" if pkt.get("csp_plausible") else "CSP V1 [?]"
+            tag = "CSP V1" if pkt.csp_plausible else "CSP V1 [?]"
             lines.append(self._field(tag,
                 self._format_csp(csp['prio'], csp['src'], csp['dest'],
                                  csp['dport'], csp['sport'], csp['flags'])))
 
         # SAT TIME (only when present)
-        ts_result = pkt.get("ts_result")
+        ts_result = pkt.ts_result
         if ts_result:
             dt_utc, dt_local, raw_ms = ts_result
             lines.append(self._field("SAT TIME",
@@ -223,7 +223,7 @@ class SessionLog(_BaseLog):
                 f"{dt_local.strftime('%Y-%m-%d %H:%M:%S %Z')}  ({raw_ms})"))
 
         # Command
-        cmd = pkt.get("cmd")
+        cmd = pkt.cmd
         if cmd:
             lines.append(self._field("CMD",
                 self._route_line(cmd["src"], cmd["dest"], cmd["echo"], cmd["pkt_type"])))
@@ -245,14 +245,14 @@ class SessionLog(_BaseLog):
         if cmd and cmd.get("crc") is not None:
             tag = "OK" if cmd.get("crc_valid") else "FAIL"
             lines.append(self._field("CRC-16", f"0x{cmd['crc']:04x} [{tag}]"))
-        crc_status = pkt.get("crc_status", {})
+        crc_status = pkt.crc_status
         if crc_status.get("csp_crc32_valid") is not None:
             tag = "OK" if crc_status["csp_crc32_valid"] else "FAIL"
             lines.append(self._field("CRC-32C", f"0x{crc_status['csp_crc32_rx']:08x} [{tag}]"))
 
         # HEX + ASCII
         lines.extend(self._hex_lines(raw, "HEX"))
-        text = pkt.get("text", "")
+        text = pkt.text
         if text:
             lines.append(self._field("ASCII", text))
 

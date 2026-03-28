@@ -12,8 +12,31 @@ import mav_gss_lib.protocol as protocol
 from mav_gss_lib.protocol import node_label
 from mav_gss_lib.tui_common import (
     S_LABEL, S_VALUE, S_SUCCESS, S_WARNING, S_ERROR, S_DIM, S_SEP, lr_line,
-    scrollbar_styles, append_wrapped_args,
+    scrollbar_styles, append_wrapped_args, TS_SHORT, ptype_color, compute_col_widths,
 )
+
+
+def _tx_col_widths(visible, scroll_offset):
+    """Compute column widths for TX queue visible rows."""
+    # Pre-compute num labels since they need index
+    nums = {id(row): str(scroll_offset + i + 1) for i, row in enumerate(visible)}
+    return compute_col_widths(visible, {
+        "num": lambda row: [nums[id(row)]],
+        "src": lambda row: [node_label(row[0])],
+        "dest": lambda row: [node_label(row[1])],
+        "echo": lambda row: [node_label(row[2])],
+        "ptype": lambda row: [protocol.PTYPE_NAMES.get(row[3], str(row[3]))],
+    })
+
+def _hist_col_widths(visible):
+    """Compute column widths for sent history visible rows."""
+    return compute_col_widths(visible, {
+        "num": lambda rec: [str(rec['n'])],
+        "src": lambda rec: [node_label(rec.get('src', protocol.GS_NODE))],
+        "dest": lambda rec: [node_label(rec['dest'])],
+        "echo": lambda rec: [node_label(rec['echo'])],
+        "ptype": lambda rec: [protocol.PTYPE_NAMES.get(rec['ptype'], '?')],
+    })
 
 
 class TxHeader(Widget):
@@ -25,8 +48,8 @@ class TxHeader(Widget):
 
     def render(self):
         s, w = self.s, self.content_size.width
-        utc = datetime.now(timezone.utc).strftime("%H:%M:%S")
-        local = datetime.now().strftime("%H:%M:%S")
+        utc = datetime.now(timezone.utc).strftime(TS_SHORT)
+        local = datetime.now().strftime(TS_SHORT)
         row1 = Text()
         row1.append(" ZMQ:", style=S_LABEL)
         row1.append(f"{s.zmq_addr_disp} ", style=S_VALUE)
@@ -90,17 +113,8 @@ class TxQueue(ScrollableWidget):
         # Scrollbar
         sb = scrollbar_styles(count, data_rows, s.queue_scroll, data_rows) if count > data_rows else []
         row_w = w - 1 if sb else w
-        srcs, dests, echos = set(), set(), set()
-        ptypes, nums = set(), []
-        for idx, (src, dest, echo, ptype, cmd, args, raw_cmd) in enumerate(visible):
-            srcs.add(src); dests.add(dest); echos.add(echo)
-            ptypes.add(ptype)
-            nums.append(s.queue_scroll + idx + 1)
-        nw = max((len(str(n)) for n in nums), default=1)
-        sw = max((len(node_label(n)) for n in srcs), default=1)
-        dw = max((len(node_label(n)) for n in dests), default=1)
-        ew = max((len(node_label(n)) for n in echos), default=1)
-        pw = max((len(protocol.PTYPE_NAMES.get(p, str(p))) for p in ptypes), default=1)
+        col_w = _tx_col_widths(visible, s.queue_scroll)
+        nw, sw, dw, ew, pw = col_w["num"], col_w["src"], col_w["dest"], col_w["echo"], col_w["ptype"]
         has_non_gs_src = any(src != protocol.GS_NODE for src, *_ in visible)
         # Blank padding line between title and data
         t.append("\n")
@@ -119,8 +133,7 @@ class TxQueue(ScrollableWidget):
             left.append(f"{node_label(dest):<{dw}}  ", style=f"{base} #00bfff" if not base else base)
             left.append(f"E:{node_label(echo):<{ew}}  ", style=f"{base} #888888")
             pt = protocol.PTYPE_NAMES.get(ptype, str(ptype))
-            ptype_color = "#00ff87" if ptype == protocol.PTYPE_IDS.get("RES") else "#00bfff"
-            left.append(f"{pt:<{pw}}  ", style=f"{base} {ptype_color}" if not base else base)
+            left.append(f"{pt:<{pw}}  ", style=f"{base} {ptype_color(ptype)}" if not base else base)
             left.append(f"{cmd} ", style=f"{base} bold #ffffff" if not base else base)
             args_indent = left.cell_len
             args_style = f"{base} #888888"
@@ -177,18 +190,8 @@ class SentHistory(ScrollableWidget):
         # Scrollbar
         sb = scrollbar_styles(count, data_rows, start, data_rows) if count > data_rows else []
         row_w = w - 1 if sb else w
-        srcs, dests, echos = set(), set(), set()
-        ptypes, nums = set(), []
-        for rec in visible:
-            srcs.add(rec.get('src', protocol.GS_NODE))
-            dests.add(rec['dest']); echos.add(rec['echo'])
-            ptypes.add(rec['ptype'])
-            nums.append(rec['n'])
-        nw = max((len(str(n)) for n in nums), default=1)
-        sw = max((len(node_label(n)) for n in srcs), default=1)
-        dw = max((len(node_label(n)) for n in dests), default=1)
-        ew = max((len(node_label(n)) for n in echos), default=1)
-        pw = max((len(protocol.PTYPE_NAMES.get(p, '?')) for p in ptypes), default=1)
+        col_w = _hist_col_widths(visible)
+        nw, sw, dw, ew, pw = col_w["num"], col_w["src"], col_w["dest"], col_w["echo"], col_w["ptype"]
         has_non_gs_src = any(rec.get('src', protocol.GS_NODE) != protocol.GS_NODE for rec in visible)
         for i, rec in enumerate(visible):
             src = rec.get('src', protocol.GS_NODE)
@@ -200,8 +203,7 @@ class SentHistory(ScrollableWidget):
             left.append(f"{node_label(rec['dest']):<{dw}}  ", style="#00bfff")
             left.append(f"E:{node_label(rec['echo']):<{ew}}  ", style=S_DIM)
             pt = protocol.PTYPE_NAMES.get(rec['ptype'], '?')
-            left.append(f"{pt:<{pw}}  ",
-                        style=S_SUCCESS if rec['ptype'] == protocol.PTYPE_IDS.get("RES") else S_LABEL)
+            left.append(f"{pt:<{pw}}  ", style=ptype_color(rec['ptype']))
             left.append(f"{rec['cmd']} ", style=S_VALUE)
             args_indent = left.cell_len
             pending_args = None

@@ -17,7 +17,7 @@ display raw args with a warning.
 Author:  Irfan Annuar - USC ISI SERC
 """
 
-import sys
+import warnings
 from datetime import datetime, timezone
 
 try:
@@ -36,6 +36,7 @@ NODE_IDS   = {}   # str → int
 PTYPE_NAMES = {}  # int → str, populated by init_nodes()
 PTYPE_IDS   = {}  # str → int
 GS_NODE     = 6   # default, updated by init_nodes()
+_initialized = False
 
 
 def init_nodes(cfg):
@@ -43,7 +44,7 @@ def init_nodes(cfg):
 
     Must be called once at startup after load_gss_config().
     """
-    global NODE_NAMES, NODE_IDS, PTYPE_NAMES, PTYPE_IDS, GS_NODE
+    global NODE_NAMES, NODE_IDS, PTYPE_NAMES, PTYPE_IDS, GS_NODE, _initialized
 
     NODE_NAMES = {int(k): v for k, v in cfg["nodes"].items()}
     NODE_IDS   = {v: k for k, v in NODE_NAMES.items()}
@@ -53,54 +54,36 @@ def init_nodes(cfg):
 
     gs_name = cfg.get("general", {}).get("gs_node", "GS")
     GS_NODE = NODE_IDS.get(gs_name, 6)
+    _initialized = True
 
 
-def node_name(node_id):
-    """Short node name: 'EPS' or '99' if unknown."""
-    return NODE_NAMES.get(node_id, str(node_id))
+def _lookup_name(id_val, names):
+    """Short name from ID: 'EPS' or '99' if unknown."""
+    return names.get(id_val, str(id_val))
 
+def _format_label(id_val, names):
+    """Format ID for display: '2 (EPS)' or '99' if unknown."""
+    name = names.get(id_val)
+    return f"{id_val} ({name})" if name else str(id_val)
 
-def ptype_name(ptype_id):
-    """Short packet type name: 'REQ' or '99' if unknown."""
-    return PTYPE_NAMES.get(ptype_id, str(ptype_id))
-
-
-def node_label(node_id):
-    """Format node ID for display: '2 (EPS)' or '99' if unknown."""
-    name = NODE_NAMES.get(node_id)
-    return f"{node_id} ({name})" if name else str(node_id)
-
-
-def ptype_label(ptype_id):
-    """Format packet type for display: '1 (REQ)' or '99' if unknown."""
-    name = PTYPE_NAMES.get(ptype_id)
-    return f"{ptype_id} ({name})" if name else str(ptype_id)
-
-
-def resolve_node(s):
-    """Resolve a node name ('EPS') or numeric string ('2') to an int.
-    Returns int node ID or None if unrecognized."""
+def _resolve_id(s, name_to_id, id_to_name):
+    """Resolve a name ('EPS') or numeric string ('2') to an int ID.
+    Returns int ID or None if unrecognized."""
     upper = s.upper()
-    if upper in NODE_IDS:
-        return NODE_IDS[upper]
+    if upper in name_to_id:
+        return name_to_id[upper]
     if s.isdigit():
-        nid = int(s)
-        if nid in NODE_NAMES:
-            return nid
+        val = int(s)
+        if val in id_to_name:
+            return val
     return None
 
-
-def resolve_ptype(s):
-    """Resolve a packet type name ('REQ') or numeric string ('1') to an int.
-    Returns int ptype ID or None if unrecognized."""
-    upper = s.upper()
-    if upper in PTYPE_IDS:
-        return PTYPE_IDS[upper]
-    if s.isdigit():
-        pid = int(s)
-        if pid in PTYPE_NAMES:
-            return pid
-    return None
+def node_name(node_id):    return _lookup_name(node_id, NODE_NAMES)
+def ptype_name(ptype_id):  return _lookup_name(ptype_id, PTYPE_NAMES)
+def node_label(node_id):   return _format_label(node_id, NODE_NAMES)
+def ptype_label(ptype_id): return _format_label(ptype_id, PTYPE_NAMES)
+def resolve_node(s):       return _resolve_id(s, NODE_IDS, NODE_NAMES)
+def resolve_ptype(s):      return _resolve_id(s, PTYPE_IDS, PTYPE_NAMES)
 
 
 # =============================================================================
@@ -150,19 +133,21 @@ from crc import Calculator, Crc16
 
 _crc16_calc = Calculator(Crc16.XMODEM)
 
+CRC32C_INIT = 0xFFFFFFFF
+CRC32C_POLY = 0x82F63B78  # reflected Castagnoli polynomial
+
 def crc16(data):
     """CRC-16 XMODEM checksum."""
     return _crc16_calc.checksum(data)
 
 def crc32c(data):
     """CRC-32C (Castagnoli) checksum for CSP v1 packet integrity."""
-    crc = 0xFFFFFFFF
-    poly = 0x82F63B78  # reflected polynomial
+    crc = CRC32C_INIT
     for b in data:
         crc ^= b
         for _ in range(8):
-            crc = ((crc >> 1) ^ poly) if crc & 1 else (crc >> 1)
-    return crc ^ 0xFFFFFFFF
+            crc = ((crc >> 1) ^ CRC32C_POLY) if crc & 1 else (crc >> 1)
+    return crc ^ CRC32C_INIT
 
 
 def verify_csp_crc32(inner_payload):
@@ -189,7 +174,99 @@ def verify_csp_crc32(inner_payload):
 #
 #  Full CSP packet on the wire:
 #    [CSP v1 header 4B][command + CRC-16][CRC-32C 4B BE]
+#
+#  CommandFrame is the single source of truth for this layout --
+#  both build_cmd_raw() and try_parse_command() delegate to it.
 # =============================================================================
+
+# Header offsets (shared between encode and decode)
+_CMD_HDR_LEN = 6  # origin, dest, echo, ptype, id_len, args_len
+
+class CommandFrame:
+    """Symmetric encode/decode for the MAVERIC command wire format."""
+    __slots__ = ("src", "dest", "echo", "pkt_type", "cmd_id", "args_str",
+                 "crc", "crc_valid", "csp_crc32")
+
+    def __init__(self, src, dest, echo, pkt_type, cmd_id, args_str="",
+                 crc=None, crc_valid=None, csp_crc32=None):
+        self.src = src
+        self.dest = dest
+        self.echo = echo
+        self.pkt_type = pkt_type
+        self.cmd_id = cmd_id
+        self.args_str = args_str
+        self.crc = crc
+        self.crc_valid = crc_valid
+        self.csp_crc32 = csp_crc32
+
+    def to_bytes(self):
+        """Encode to raw wire bytes including CRC-16."""
+        header = bytes([self.src & 0xFF, self.dest & 0xFF,
+                        self.echo & 0xFF, self.pkt_type & 0xFF,
+                        len(self.cmd_id) & 0xFF, len(self.args_str) & 0xFF])
+        packet = bytearray(header)
+        packet.extend(self.cmd_id.encode('ascii'))
+        packet.append(0x00)
+        packet.extend(self.args_str.encode('ascii'))
+        packet.append(0x00)
+        crc_val = crc16(packet)
+        packet.extend(crc_val.to_bytes(2, byteorder='little'))
+        return packet
+
+    @classmethod
+    def from_bytes(cls, payload):
+        """Decode wire bytes into (CommandFrame, tail) or (None, None)."""
+        if len(payload) < _CMD_HDR_LEN:
+            return None, None
+
+        src, dest, echo, pkt_type = payload[0], payload[1], payload[2], payload[3]
+        id_len, args_len = payload[4], payload[5]
+
+        if _CMD_HDR_LEN + id_len + 1 + args_len + 1 > len(payload):
+            return None, None
+
+        id_start = _CMD_HDR_LEN
+        cmd_id = payload[id_start:id_start + id_len].decode("ascii", errors="replace").lower()
+
+        null_pos = id_start + id_len
+        if null_pos < len(payload) and payload[null_pos] == 0x00:
+            null_pos += 1
+
+        args_end = null_pos + args_len
+        args_str = payload[null_pos:args_end].decode("ascii", errors="replace").strip()
+
+        tail_start = args_end
+        if tail_start < len(payload) and payload[tail_start] == 0x00:
+            tail_start += 1
+
+        # CRC-16 XMODEM (command integrity)
+        crc_val = None
+        crc_valid = None
+        if tail_start + 2 <= len(payload):
+            crc_val = payload[tail_start] | (payload[tail_start + 1] << 8)
+            crc_valid = crc_val == crc16(payload[:tail_start])
+            tail_start += 2
+
+        # CRC-32C (CSP packet integrity) — consume if exactly 4 bytes remain
+        csp_crc32 = None
+        tail = payload[tail_start:]
+        if len(tail) == 4:
+            csp_crc32 = int.from_bytes(tail, 'big')
+            tail = b""
+
+        frame = cls(src, dest, echo, pkt_type, cmd_id, args_str,
+                    crc_val, crc_valid, csp_crc32)
+        return frame, tail
+
+    def to_dict(self):
+        """Convert to dict (backward-compatible with old try_parse_command output)."""
+        return {
+            "src": self.src, "dest": self.dest, "echo": self.echo,
+            "pkt_type": self.pkt_type, "cmd_id": self.cmd_id,
+            "args": self.args_str.split(), "crc": self.crc,
+            "crc_valid": self.crc_valid, "csp_crc32": self.csp_crc32,
+        }
+
 
 def build_cmd_raw(dest, cmd, args="", echo=0, ptype=1, origin=None):
     """Build raw MAVERIC command payload with CRC-16.
@@ -197,16 +274,7 @@ def build_cmd_raw(dest, cmd, args="", echo=0, ptype=1, origin=None):
     Ready for CSP wrapping via CSPConfig.wrap()."""
     if origin is None:
         origin = GS_NODE
-    header = bytes([origin & 0xFF, dest & 0xFF, echo & 0xFF, ptype & 0xFF,
-                    len(cmd) & 0xFF, len(args) & 0xFF])
-    packet = bytearray(header)
-    packet.extend(cmd.encode('ascii'))
-    packet.append(0x00)
-    packet.extend(args.encode('ascii'))
-    packet.append(0x00)
-    crc = crc16(packet)
-    packet.extend(crc.to_bytes(2, byteorder='little'))
-    return packet
+    return CommandFrame(origin, dest, echo, ptype, cmd, args).to_bytes()
 
 
 def build_kiss_cmd(dest, cmd, args="", echo=0, ptype=1, origin=None):
@@ -218,68 +286,13 @@ def build_kiss_cmd(dest, cmd, args="", echo=0, ptype=1, origin=None):
 
 def try_parse_command(payload):
     """Attempt to parse a byte payload as a MAVERIC command structure.
-    Expects the payload AFTER the CSP header (bytes 4+), but INCLUDING
-    the trailing CRC-32C if present.
 
     Returns (parsed_dict, remaining_bytes) or (None, None) on failure.
-
-    The parsed dict includes:
-        src, dest, echo, pkt_type, cmd_id, args, crc (CRC-16),
-        csp_crc32 (raw value if 4 trailing bytes present, else None)
-
-    CRC-16 is verified here. CRC-32C verification requires the CSP header,
-    so use verify_csp_crc32(inner_payload) at the call site."""
-    if len(payload) < 6:
+    Uses CommandFrame.from_bytes() internally."""
+    frame, tail = CommandFrame.from_bytes(payload)
+    if frame is None:
         return None, None
-
-    src       = payload[0]
-    dest      = payload[1]
-    echo      = payload[2]
-    pkt_type  = payload[3]
-    id_len    = payload[4]
-    args_len  = payload[5]
-
-    if 6 + id_len + 1 + args_len + 1 > len(payload):
-        return None, None
-
-    id_start = 6
-    id_end   = id_start + id_len
-    cmd_id   = payload[id_start:id_end].decode("ascii", errors="replace").lower()
-
-    null_pos = id_end
-    if null_pos < len(payload) and payload[null_pos] == 0x00:
-        null_pos += 1
-
-    args_start = null_pos
-    args_end   = args_start + args_len
-    args_str   = payload[args_start:args_end].decode("ascii", errors="replace").strip()
-
-    tail_start = args_end
-    if tail_start < len(payload) and payload[tail_start] == 0x00:
-        tail_start += 1
-
-    # CRC-16 XMODEM (command integrity)
-    crc = None
-    crc_valid = None
-    if tail_start + 2 <= len(payload):
-        crc = payload[tail_start] | (payload[tail_start + 1] << 8)
-        cmd_body = payload[:tail_start]
-        crc_valid = crc == crc16(cmd_body)
-        tail_start += 2
-
-    # CRC-32C (CSP packet integrity) — consume if exactly 4 bytes remain
-    csp_crc32 = None
-    tail = payload[tail_start:]
-    if len(tail) == 4:
-        csp_crc32 = int.from_bytes(tail, 'big')
-        tail = b""
-
-    cmd = {
-        "src": src, "dest": dest, "echo": echo, "pkt_type": pkt_type,
-        "cmd_id": cmd_id, "args": args_str.split(), "crc": crc,
-        "crc_valid": crc_valid, "csp_crc32": csp_crc32,
-    }
-    return cmd, tail
+    return frame.to_dict(), tail
 
 
 # =============================================================================
@@ -483,7 +496,7 @@ def load_command_defs(path="maveric_commands.yml"):
     if not _YAML_OK:
         msg = ("PyYAML not installed -- command schema unavailable. "
                "Install with: pip install pyyaml")
-        print("WARNING: " + msg, file=sys.stderr)
+        warnings.warn(msg, stacklevel=2)
         return {}, msg
     try:
         with open(path) as f:
@@ -508,7 +521,7 @@ def load_command_defs(path="maveric_commands.yml"):
         return defs, None
     except (OSError, yaml.YAMLError):
         msg = f"Could not load {path} -- all commands will be unrecognized"
-        print("WARNING: " + msg, file=sys.stderr)
+        warnings.warn(msg, stacklevel=2)
         return {}, msg
 
 

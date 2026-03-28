@@ -28,7 +28,8 @@ from mav_gss_lib.transport import (init_zmq_pub, send_pdu,
 from mav_gss_lib.logging import TXLog
 from mav_gss_lib.tui_common import (StatusMessage, SplashScreen,
                                     Hints, HelpPanel, ConfigScreen, ImportScreen, MavAppBase,
-                                    dispatch_common)
+                                    dispatch_common, TS_SHORT,
+                                    STATUS_BRIEF, STATUS_NORMAL, STATUS_LONG, STATUS_STARTUP)
 from mav_gss_lib.config import (
     load_gss_config, apply_ax25, apply_csp, ax25_handle_msg, csp_handle_msg,
     save_gss_config, update_cfg_from_state,
@@ -195,13 +196,13 @@ def _send_worker(state, snapshot, delay_ms, sock):
         else:
             payload = state.ax25.wrap(csp_packet)
         if not send_pdu(sock, payload):
-            state.status.set("ZMQ send error — aborting send", 5); break
+            state.status.set("ZMQ send error — aborting send", STATUS_LONG); break
         state.tx_count += 1; sent += 1
         state.tx_log.write_command(state.tx_count, src, dest, echo, ptype,
                                    cmd, args, raw_cmd, payload, state.ax25, state.csp,
                                    uplink_mode=state.uplink_mode)
         with state.send_lock:
-            state.history.append({"n": state.tx_count, "ts": datetime.now().strftime("%H:%M:%S"),
+            state.history.append({"n": state.tx_count, "ts": datetime.now().strftime(TS_SHORT),
                 "src": src, "dest": dest, "cmd": cmd, "args": args, "echo": echo,
                 "ptype": ptype, "payload_len": len(payload), "csp_enabled": state.csp.enabled})
             state.hist_scroll = len(state.history) - 1
@@ -211,15 +212,15 @@ def _send_worker(state, snapshot, delay_ms, sock):
         state.hist_scroll = max(0, len(state.history) - 1)
         total = state.sending["total"]
     if state.send_abort.is_set():
-        state.status.set(f"Aborted: sent {sent}/{total}, {total-sent} remain", 5)
+        state.status.set(f"Aborted: sent {sent}/{total}, {total-sent} remain", STATUS_LONG)
     else:
         state.status.set(f"Sent {sent} command{'s' if sent != 1 else ''}")
     with state.send_lock: state.sending["active"] = False; state.sending["idx"] = -1
 
 def _start_send(state, sock):
     with state.send_lock:
-        if state.sending["active"]: state.status.set("Send already in progress", 2); return
-        if not state.tx_queue: state.status.set("Nothing queued", 2); return
+        if state.sending["active"]: state.status.set("Send already in progress", STATUS_BRIEF); return
+        if not state.tx_queue: state.status.set("Nothing queued", STATUS_BRIEF); return
         state.send_abort.clear()
         snapshot = list(state.tx_queue)
         state.sending.update(active=True, total=len(snapshot), idx=0)
@@ -228,67 +229,113 @@ def _start_send(state, sock):
 
 # -- Command dispatch ---------------------------------------------------------
 
-def _dispatch_tx_command(state, line, sock):
-    cl = line.lower()
-    common = dispatch_common(state, cl)
-    if common is not None: return common
-    if cl == 'send': _start_send(state, sock); return True
-    if cl == 'clear':
-        if state.tx_queue:
-            state.status.set(f"Cleared {len(state.tx_queue)} commands", 2)
-            state.tx_queue.clear(); _save_queue(state.tx_queue); state.queue_scroll = 0
-        else: state.status.set("Nothing to clear", 2)
-        return True
-    if cl in ('undo', 'pop'):
-        if state.tx_queue:
-            r = state.tx_queue.pop(); _save_queue(state.tx_queue)
-            state.status.set(f"Removed: {r[4]} ({len(state.tx_queue)} left)", 2)
-        else: state.status.set("Queue is empty", 2)
-        return True
-    if cl == 'hclear':
-        if state.history: state.status.set(f"Cleared {len(state.history)} entries", 2); state.history.clear(); state.hist_scroll = 0
-        else: state.status.set("History already empty", 2)
-        return True
-    if cl == 'imp':
-        return "open_import"
-    if cl == 'nodes':
-        state.status.set("Nodes: " + ", ".join(f"{n}={protocol.NODE_NAMES[n]}" for n in sorted(protocol.NODE_NAMES)), 5); return True
-    if cl == 'csp' or cl.startswith('csp '):
-        state.status.set(csp_handle_msg(state.csp, line[3:].strip() if len(line)>3 else ""), 4); return True
-    if cl == 'ax25' or cl.startswith('ax25 '):
-        state.status.set(ax25_handle_msg(state.ax25, line[4:].strip() if len(line)>4 else ""), 4); return True
-    if cl == 'mode' or cl.startswith('mode '):
-        arg = line[4:].strip() if len(line) > 4 else ""
-        if not arg:
-            state.status.set(f"Uplink mode: {state.uplink_mode}", 3)
-        elif arg.upper() in ("AX.25", "AX25"):
-            state.uplink_mode = "AX.25"
-            state.status.set("Uplink mode: AX.25", 3)
-        elif arg.upper() in ("ASM+GOLAY", "GOLAY", "ASM"):
-            if not _GOLAY_OK:
-                state.status.set("reedsolo not installed — cannot use ASM+Golay", 3)
-            else:
-                state.uplink_mode = "ASM+Golay"
-                state.status.set("Uplink mode: ASM+Golay", 3)
+def _cmd_send(state, line, sock):
+    _start_send(state, sock)
+
+def _cmd_clear(state, line, sock):
+    if state.tx_queue:
+        state.status.set(f"Cleared {len(state.tx_queue)} commands", STATUS_BRIEF)
+        state.tx_queue.clear(); _save_queue(state.tx_queue); state.queue_scroll = 0
+    else:
+        state.status.set("Nothing to clear", STATUS_BRIEF)
+
+def _cmd_undo(state, line, sock):
+    if state.tx_queue:
+        r = state.tx_queue.pop(); _save_queue(state.tx_queue)
+        state.status.set(f"Removed: {r[4]} ({len(state.tx_queue)} left)", STATUS_BRIEF)
+    else:
+        state.status.set("Queue is empty", STATUS_BRIEF)
+
+def _cmd_hclear(state, line, sock):
+    if state.history:
+        state.status.set(f"Cleared {len(state.history)} entries", STATUS_BRIEF)
+        state.history.clear(); state.hist_scroll = 0
+    else:
+        state.status.set("History already empty", STATUS_BRIEF)
+
+def _cmd_imp(state, line, sock):
+    return "open_import"
+
+def _cmd_nodes(state, line, sock):
+    state.status.set("Nodes: " + ", ".join(
+        f"{n}={protocol.NODE_NAMES[n]}" for n in sorted(protocol.NODE_NAMES)), STATUS_LONG)
+
+def _cmd_csp(state, line, sock):
+    state.status.set(csp_handle_msg(state.csp, line[3:].strip() if len(line) > 3 else ""), STATUS_NORMAL)
+
+def _cmd_ax25(state, line, sock):
+    state.status.set(ax25_handle_msg(state.ax25, line[4:].strip() if len(line) > 4 else ""), STATUS_NORMAL)
+
+def _cmd_mode(state, line, sock):
+    arg = line[4:].strip() if len(line) > 4 else ""
+    if not arg:
+        state.status.set(f"Uplink mode: {state.uplink_mode}", STATUS_NORMAL)
+    elif arg.upper() in ("AX.25", "AX25"):
+        state.uplink_mode = "AX.25"
+        state.status.set("Uplink mode: AX.25", STATUS_NORMAL)
+    elif arg.upper() in ("ASM+GOLAY", "GOLAY", "ASM"):
+        if not _GOLAY_OK:
+            state.status.set("reedsolo not installed — cannot use ASM+Golay", STATUS_NORMAL)
         else:
-            state.status.set("mode [AX.25 | ASM+Golay]", 3)
-        return True
-    try: parsed = parse_cmd_line(line)
-    except ValueError as e: state.status.set(f"Bad command: {e}", 3); return True
+            state.uplink_mode = "ASM+Golay"
+            state.status.set("Uplink mode: ASM+Golay", STATUS_NORMAL)
+    else:
+        state.status.set("mode [AX.25 | ASM+Golay]", STATUS_NORMAL)
+
+# Handler registry: command -> handler function
+_TX_HANDLERS = {
+    "send": _cmd_send, "clear": _cmd_clear,
+    "undo": _cmd_undo, "pop": _cmd_undo,
+    "hclear": _cmd_hclear, "imp": _cmd_imp, "nodes": _cmd_nodes,
+}
+
+# Prefix handlers: checked with startswith
+_TX_PREFIX_HANDLERS = [
+    ("csp",  _cmd_csp),
+    ("ax25", _cmd_ax25),
+    ("mode", _cmd_mode),
+]
+
+def _queue_command(state, line):
+    """Parse a command line and add to the TX queue."""
+    try:
+        parsed = parse_cmd_line(line)
+    except ValueError as e:
+        state.status.set(f"Bad command: {e}", STATUS_NORMAL); return True
     src, dest, echo, ptype, cmd, args = parsed
     valid, issues = validate_args(cmd, args, state.cmd_defs)
-    if not valid and issues: state.status.set(f"Rejected: {issues[0]}", 3); return True
-    if state.cmd_defs and cmd not in state.cmd_defs: state.status.set(f"Rejected: '{cmd}' not in schema", 3); return True
+    if not valid and issues:
+        state.status.set(f"Rejected: {issues[0]}", STATUS_NORMAL); return True
+    if state.cmd_defs and cmd not in state.cmd_defs:
+        state.status.set(f"Rejected: '{cmd}' not in schema", STATUS_NORMAL); return True
     raw_cmd = build_cmd_raw(dest, cmd, args, echo=echo, ptype=ptype, origin=src)
     overhead = state.csp.overhead() if state.uplink_mode == "ASM+Golay" else state.csp.overhead() + state.ax25.overhead()
     if len(raw_cmd) + overhead > MAX_RS_PAYLOAD:
-        state.status.set("Command too large for RS payload", 3); return True
+        state.status.set("Command too large for RS payload", STATUS_NORMAL); return True
     entry = (src, dest, echo, ptype, cmd, args, raw_cmd)
     state.tx_queue.append(entry); _append_queue(entry)
     src_tag = f"{node_label(src)}→" if src != protocol.GS_NODE else ""
     state.status.set(f"Queued: {src_tag}{node_label(dest)} E:{echo} "
-                     f"{protocol.PTYPE_NAMES.get(ptype,'?')} {cmd} {args} ({len(raw_cmd)}B)", 2)
+                     f"{protocol.PTYPE_NAMES.get(ptype,'?')} {cmd} {args} ({len(raw_cmd)}B)", STATUS_BRIEF)
     return True
+
+def _dispatch_tx_command(state, line, sock):
+    cl = line.lower()
+    common = dispatch_common(state, cl)
+    if common is not None:
+        return common
+    # Exact match
+    handler = _TX_HANDLERS.get(cl)
+    if handler:
+        result = handler(state, line, sock)
+        return result if result else True
+    # Prefix match (e.g. "csp prio 2", "mode AX.25")
+    for prefix, handler in _TX_PREFIX_HANDLERS:
+        if cl == prefix or cl.startswith(prefix + " "):
+            result = handler(state, line, sock)
+            return result if result else True
+    # Fall through: parse as a command to queue
+    return _queue_command(state, line)
 
 # =============================================================================
 #  APP
@@ -340,8 +387,8 @@ class MavTxApp(MavAppBase):
         if tx_queue or q_skipped:
             parts = [f"Restored {len(tx_queue)} queued command{'s' if len(tx_queue)!=1 else ''}"]
             if q_skipped: parts.append(f" ({q_skipped} skipped — corrupt)")
-            self.state.status.set("".join(parts), 5)
-        if self._schema_warning: self.state.status.set(f"SCHEMA: {self._schema_warning}", 10)
+            self.state.status.set("".join(parts), STATUS_LONG)
+        if self._schema_warning: self.state.status.set(f"SCHEMA: {self._schema_warning}", STATUS_STARTUP)
 
     def compose(self) -> ComposeResult:
         s = self.state
@@ -378,13 +425,13 @@ class MavTxApp(MavAppBase):
 
     def action_quit_or_close(self):
         s = self.state
-        if s.sending["active"]: s.send_abort.set(); s.status.set("Aborting send...", 2); self._act(); return
+        if s.sending["active"]: s.send_abort.set(); s.status.set("Aborting send...", STATUS_BRIEF); self._act(); return
         if s.help_open: s.help_open = False; self._act(); return
         self._cleanup(); self.exit()
 
     def action_close_or_cancel(self):
         s = self.state
-        if s.sending["active"]: s.send_abort.set(); s.status.set("Aborting send...", 2)
+        if s.sending["active"]: s.send_abort.set(); s.status.set("Aborting send...", STATUS_BRIEF)
         elif s.help_open: s.help_open = False
         self._act()
 
@@ -394,14 +441,14 @@ class MavTxApp(MavAppBase):
         s = self.state
         if s.tx_queue:
             r = s.tx_queue.pop(); _save_queue(s.tx_queue)
-            s.status.set(f"Removed: {r[4]} ({len(s.tx_queue)} left)", 2)
-        else: s.status.set("Queue is empty", 2)
+            s.status.set(f"Removed: {r[4]} ({len(s.tx_queue)} left)", STATUS_BRIEF)
+        else: s.status.set("Queue is empty", STATUS_BRIEF)
         self._act()
 
     def action_clear_queue(self):
         s = self.state
         if s.tx_queue:
-            s.status.set(f"Cleared {len(s.tx_queue)} command{'s' if len(s.tx_queue)!=1 else ''}", 2)
+            s.status.set(f"Cleared {len(s.tx_queue)} command{'s' if len(s.tx_queue)!=1 else ''}", STATUS_BRIEF)
             s.tx_queue.clear(); _save_queue(s.tx_queue); s.queue_scroll = 0
         self._act()
 
@@ -453,7 +500,7 @@ class MavTxApp(MavAppBase):
         if result == "open_import":
             files = _list_import_files()
             if not files:
-                self.state.status.set("No .jsonl files in generated_commands/", 3)
+                self.state.status.set("No .jsonl files in generated_commands/", STATUS_NORMAL)
             else:
                 self.push_screen(ImportScreen(files), self._on_import_done)
             self._act(); return True
@@ -463,9 +510,9 @@ class MavTxApp(MavAppBase):
         s = self.state
         try:
             s.freq, s.zmq_addr_disp, s.tx_delay_ms, s.uplink_mode = config_apply(values, s.csp, s.ax25)
-            s.status.set("Config saved", 2)
+            s.status.set("Config saved", STATUS_BRIEF)
         except (ValueError, KeyError):
-            s.status.set("Invalid config value — reverted", 3)
+            s.status.set("Invalid config value — reverted", STATUS_NORMAL)
         self._act()
 
     def _on_import_done(self, filename):
@@ -475,11 +522,11 @@ class MavTxApp(MavAppBase):
             loaded, skipped = _import_file(s, filename)
             msg = f"Loaded {loaded} command{'s' if loaded != 1 else ''} from {filename}"
             if skipped: msg += f" ({skipped} skipped)"
-            s.status.set(msg, 5)
+            s.status.set(msg, STATUS_LONG)
         except FileNotFoundError:
-            s.status.set(f"Not found: {filename}", 3)
+            s.status.set(f"Not found: {filename}", STATUS_NORMAL)
         except Exception as e:
-            s.status.set(f"Import error: {e}", 5)
+            s.status.set(f"Import error: {e}", STATUS_LONG)
         self._act()
 
     def _cleanup(self):
