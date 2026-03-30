@@ -367,6 +367,8 @@ class StatusMessage:
     def check_expiry(self):
         if self._text and time.time() >= self._expire:
             self._text = ""
+            return True
+        return False
     @property
     def text(self):
         return self._text

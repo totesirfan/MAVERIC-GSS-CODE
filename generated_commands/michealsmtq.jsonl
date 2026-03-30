@@ -1,0 +1,26 @@
+// FSS_TMP
+["GS", "LPPM", "NONE", "REQ", "mtq_read_1", "0 153"]
+["GS", "LPPM", "NONE", "REQ", "mtq_get_1", "0 153"]
+// SV
+["GS", "LPPM", "NONE", "REQ", "mtq_read_1", "0 156"]
+["GS", "LPPM", "NONE", "REQ", "mtq_get_1", "0 156"]
+// MAG_STAT
+["GS", "LPPM", "NONE", "REQ", "mtq_read_1", "1 12"]
+["GS", "LPPM", "NONE", "REQ", "mtq_get_1", "1 12"]
+// MAGx_S
+["GS", "LPPM", "NONE", "REQ", "mtq_read_1", "1 13"]
+["GS", "LPPM", "NONE", "REQ", "mtq_get_1", "1 13"]
+["GS", "LPPM", "NONE", "REQ", "mtq_read_1", "1 16"]
+["GS", "LPPM", "NONE", "REQ", "mtq_get_1", "1 16"]
+// FSS_STAT
+["GS", "LPPM", "NONE", "REQ", "mtq_read_1", "1 31"]
+["GS", "LPPM", "NONE", "REQ", "mtq_get_1", "1 31"]
+// FSS0_SV
+["GS", "LPPM", "NONE", "REQ", "mtq_read_1", "1 32"]
+["GS", "LPPM", "NONE", "REQ", "mtq_get_1", "1 32"]
+// FSS0_PDSUM
+["GS", "LPPM", "NONE", "REQ", "mtq_read_1", "1 33"]
+["GS", "LPPM", "NONE", "REQ", "mtq_get_1", "1 33"]
+// CSS
+["GS", "LPPM", "NONE", "REQ", "mtq_read_1", "1 66"]
+["GS", "LPPM", "NONE", "REQ", "mtq_get_1", "1 66"]

@@ -111,10 +111,15 @@ class RxPipeline:
         self._update_rate(now, is_uplink_echo)
         self.last_arrival = now
 
+        # Manual f-string formatting — avoids strftime C locale overhead
+        tz = now_dt.tzname() or ""
+        gs_ts = f"{now_dt.year:04d}-{now_dt.month:02d}-{now_dt.day:02d} {now_dt.hour:02d}:{now_dt.minute:02d}:{now_dt.second:02d} {tz}"
+        gs_ts_short = f"{now_dt.hour:02d}:{now_dt.minute:02d}:{now_dt.second:02d}"
+
         return Packet(
             pkt_num=self.packet_count,
-            gs_ts=now_dt.strftime(TS_FULL),
-            gs_ts_short=now_dt.strftime(TS_SHORT),
+            gs_ts=gs_ts,
+            gs_ts_short=gs_ts_short,
             frame_type=frame_type,
             raw=raw,
             inner_payload=inner_payload,
@@ -242,7 +247,7 @@ def build_rx_log_record(pkt, version, meta):
         if cmd.get("schema_match"):
             typed_log = {}
             for ta in cmd["typed_args"]:
-                if ta["type"] == "epoch_ms" and isinstance(ta["value"], dict):
+                if ta["type"] == "epoch_ms" and "ms" in ta["value"]:
                     typed_log[ta["name"]] = ta["value"]["ms"]
                 else:
                     typed_log[ta["name"]] = ta["value"]

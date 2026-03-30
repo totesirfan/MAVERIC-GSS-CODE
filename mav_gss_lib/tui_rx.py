@@ -52,6 +52,26 @@ class RxHeader(Widget):
         return t
 
 
+class _FilteredCache:
+    """Caches the filtered packet list; invalidates on packet count or toggle change."""
+    __slots__ = ("_cache", "_last_len", "_last_hide")
+    def __init__(self):
+        self._cache = []
+        self._last_len = -1
+        self._last_hide = None
+    def get(self, packets, hide_uplink):
+        pkt_len = len(packets)
+        if pkt_len == self._last_len and hide_uplink == self._last_hide:
+            return self._cache
+        if hide_uplink:
+            self._cache = [(i, p) for i, p in enumerate(packets) if not p.get("is_uplink_echo")]
+        else:
+            self._cache = list(enumerate(packets))
+        self._last_len = pkt_len
+        self._last_hide = hide_uplink
+        return self._cache
+
+
 class PacketList(Widget):
     """Scrollable list of received packets with selection, auto-scroll,
     inline spinner, scrollbar, uplink echo hiding, and duplicate tagging."""
@@ -61,6 +81,7 @@ class PacketList(Widget):
     def __init__(self, state, **kw):
         super().__init__(**kw)
         self.s = state
+        self._filter_cache = _FilteredCache()
 
     # -- Mouse wheel -----------------------------------------------------------
 
@@ -122,11 +143,8 @@ class PacketList(Widget):
 
     def render(self):
         s, w, h = self.s, self.content_size.width, self.content_size.height
-        # Build filtered view: list of (original_idx, pkt)
-        if s.hide_uplink:
-            filtered = [(i, p) for i, p in enumerate(s.packets) if not p.get("is_uplink_echo")]
-        else:
-            filtered = list(enumerate(s.packets))
+        # Build filtered view: list of (original_idx, pkt) — cached
+        filtered = self._filter_cache.get(s.packets, s.hide_uplink)
         count = len(filtered)
         auto = (s.selected_idx == -1)
         t = Text()

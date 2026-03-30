@@ -102,19 +102,10 @@ TFESC = 0xDD
 def kiss_wrap(raw_cmd):
     """KISS-wrap a raw command payload.
     Output: C0 00 [kiss-escaped data] C0
-    Identical to Commands.py create_cmd() KISS section."""
-    escaped = bytearray()
-    for b in raw_cmd:
-        if b == FEND:
-            escaped.extend(bytes([FESC, TFEND]))
-        elif b == FESC:
-            escaped.extend(bytes([FESC, TFESC]))
-        else:
-            escaped.append(b)
-    frame = bytearray([FEND, 0x00])
-    frame.extend(escaped)
-    frame.append(FEND)
-    return bytes(frame)
+    Identical to Commands.py create_cmd() KISS section.
+    DB must be escaped before C0 to avoid double-escaping."""
+    escaped = raw_cmd.replace(b'\xDB', b'\xDB\xDD').replace(b'\xC0', b'\xDB\xDC')
+    return b'\xC0\x00' + escaped + b'\xC0'
 
 
 # =============================================================================
@@ -129,25 +120,20 @@ def kiss_wrap(raw_cmd):
 #    Packet 2 (AX100):  CRC-32C = 0xB23EFBC3  ✓
 # =============================================================================
 
-from crc import Calculator, Crc16
+import crcmod.predefined as _crcmod
 
-_crc16_calc = Calculator(Crc16.XMODEM)
+_crc16_fn = _crcmod.mkCrcFun('xmodem')
+_crc32c_fn = _crcmod.mkCrcFun('crc-32c')
 
-CRC32C_INIT = 0xFFFFFFFF
-CRC32C_POLY = 0x82F63B78  # reflected Castagnoli polynomial
 
 def crc16(data):
-    """CRC-16 XMODEM checksum."""
-    return _crc16_calc.checksum(data)
+    """CRC-16 XMODEM checksum (C-accelerated via crcmod)."""
+    return _crc16_fn(data)
+
 
 def crc32c(data):
-    """CRC-32C (Castagnoli) checksum for CSP v1 packet integrity."""
-    crc = CRC32C_INIT
-    for b in data:
-        crc ^= b
-        for _ in range(8):
-            crc = ((crc >> 1) ^ CRC32C_POLY) if crc & 1 else (crc >> 1)
-    return crc ^ CRC32C_INIT
+    """CRC-32C (Castagnoli) checksum for CSP v1 packet integrity (C-accelerated via crcmod)."""
+    return _crc32c_fn(data)
 
 
 def verify_csp_crc32(inner_payload):
@@ -458,20 +444,49 @@ class CSPConfig:
 TS_MIN_MS = 1_704_067_200_000  # ~2024-01-01
 TS_MAX_MS = 1_830_297_600_000  # ~2028-01-01
 
-def _parse_epoch_ms(value_str):
-    """Convert string to fully resolved timestamp.
+class _LazyEpochMs:
+    """Lazy epoch-ms timestamp — stores raw ms, resolves to datetime on access.
 
-    Returns {"ms": int, "utc": datetime, "local": datetime} if plausible.
+    Behaves like a dict with keys "ms", "utc", "local" for backward
+    compatibility with code that does isinstance(value, dict) checks
+    or value["ms"] access.  The datetime objects are only created when
+    first accessed, and cached thereafter."""
+    __slots__ = ('ms', '_resolved')
+
+    def __init__(self, ms):
+        self.ms = ms
+        self._resolved = None
+
+    def _ensure(self):
+        if self._resolved is None:
+            dt_utc = datetime.fromtimestamp(self.ms / 1000.0, tz=timezone.utc)
+            self._resolved = {"ms": self.ms, "utc": dt_utc, "local": dt_utc.astimezone()}
+        return self._resolved
+
+    def __contains__(self, key):
+        return key in ("ms", "utc", "local")
+
+    def __getitem__(self, key):
+        return self._ensure()[key]
+
+    def get(self, key, default=None):
+        return self._ensure().get(key, default)
+
+
+def _parse_epoch_ms(value_str):
+    """Convert string to a lazy timestamp wrapper.
+
+    Returns a _LazyEpochMs (dict-like with "ms", "utc", "local") if plausible.
     Returns original string if not a valid epoch-ms value.
 
     This is the only timestamp resolution path -- called by apply_schema()
-    for epoch_ms typed args."""
+    for epoch_ms typed args.  The datetime objects inside the wrapper are
+    created lazily on first access, avoiding the cost for packets whose
+    detail panel is never opened."""
     try:
         ms = int(value_str)
         if TS_MIN_MS <= ms <= TS_MAX_MS:
-            dt_utc = datetime.fromtimestamp(ms / 1000.0, tz=timezone.utc)
-            dt_local = dt_utc.astimezone()
-            return {"ms": ms, "utc": dt_utc, "local": dt_local}
+            return _LazyEpochMs(ms)
     except (ValueError, TypeError, OSError):
         pass
     return value_str
@@ -571,7 +586,7 @@ def apply_schema(cmd, cmd_defs):
                 ta["important"] = True
             typed.append(ta)
             # Surface the first resolved timestamp for SAT TIME display
-            if arg_def["type"] == "epoch_ms" and isinstance(value, dict) and sat_time is None:
+            if arg_def["type"] == "epoch_ms" and "ms" in value and sat_time is None:
                 sat_time = (value["utc"], value["local"], value["ms"])
 
     extra = raw_args[len(schema_args):]
@@ -705,13 +720,19 @@ def format_arg_value(typed_arg):
 
     For epoch_ms args with resolved dicts, returns the ms string.
     For all other args, returns str(value)."""
-    if typed_arg["type"] == "epoch_ms" and isinstance(typed_arg["value"], dict):
+    if typed_arg["type"] == "epoch_ms" and "ms" in typed_arg["value"]:
         return str(typed_arg["value"]["ms"])
     return str(typed_arg["value"])
 
 
+_CLEAN_TABLE = bytearray(0xB7 for _ in range(256))  # middle dot (·) in latin-1
+for _b in range(32, 127):
+    _CLEAN_TABLE[_b] = _b
+_CLEAN_TABLE = bytes(_CLEAN_TABLE)
+
+
 def clean_text(data: bytes) -> str:
     """Printable ASCII representation with non-printable bytes as middle dot."""
-    return "".join(chr(b) if 32 <= b < 127 else "\u00b7" for b in data)
+    return data.translate(_CLEAN_TABLE).decode('latin-1')
 
 

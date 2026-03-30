@@ -10,6 +10,7 @@ import queue
 import sys
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -74,7 +75,7 @@ class RxState:
     raw PDUs into a queue; the UI drains and processes them via RxPipeline.
     Widgets read this dataclass directly via a shared reference.
     """
-    packets: list
+    packets: deque
     pipeline: RxPipeline
     log: SessionLog | None
     cmd_defs: dict
@@ -123,13 +124,17 @@ def _receiver_thread(sock, pkt_queue, stop_event, monitor, status_holder,
 
 
 def _drain_rx_queue(state, pkt_queue):
-    """Drain all pending packets from the queue into state, processing each via RxPipeline."""
+    """Drain all pending packets from the queue into state, processing each via RxPipeline.
+
+    Returns True if any packets were drained (dirty flag for rendering).
+    """
+    dirty = False
     while True:
         try:
             meta, raw = pkt_queue.get_nowait()
         except queue.Empty:
             break
-        state.last_watchdog = time.time()
+        dirty = True
         if state.first_pkt_ts is None:
             state.first_pkt_ts = datetime.now().astimezone().strftime(TS_FULL)
         try:
@@ -137,6 +142,8 @@ def _drain_rx_queue(state, pkt_queue):
         except Exception as e:
             state.error_status.set(f"Packet error: {e}", STATUS_LONG)
             continue
+        if not pkt_record.is_uplink_echo:
+            state.last_watchdog = time.time()
         if state.pipeline.frequency is not None:
             state.frequency = state.pipeline.frequency
         state.last_pkt_ts = pkt_record.gs_ts
@@ -146,12 +153,12 @@ def _drain_rx_queue(state, pkt_queue):
                 state.log.write_packet(pkt_record)
             except Exception as e:
                 state.error_status.set(f"Log error: {e}", STATUS_LONG)
+        was_full = len(state.packets) >= state.packets.maxlen
         state.packets.append(pkt_record)
-        if len(state.packets) > MAX_PACKETS:
-            del state.packets[:len(state.packets) - MAX_PACKETS]
-        if state.selected_idx != -1 and state.selected_idx >= len(state.packets) - 1:
-            state.selected_idx = len(state.packets) - 1
+        if was_full and state.selected_idx != -1:
+            state.selected_idx = max(-1, state.selected_idx - 1)
     state.receiving = (time.time() - state.last_watchdog) < RECEIVING_TIMEOUT
+    return dirty
 
 
 def _dispatch_rx_command(state, line):
@@ -221,9 +228,9 @@ class MavRxApp(MavAppBase):
         now = time.time()
         cmd_defs, self._schema_warning = load_command_defs(CMD_DEFS_PATH)
         self.state = RxState(
-            packets=[], pipeline=RxPipeline(cmd_defs, self._tx_freq_map, MAX_SEEN_FPS),
+            packets=deque(maxlen=MAX_PACKETS), pipeline=RxPipeline(cmd_defs, self._tx_freq_map, MAX_SEEN_FPS),
             log=SessionLog(LOG_DIR, ZMQ_ADDR, version=VERSION), cmd_defs=cmd_defs,
-            session_start=now, last_watchdog=now, last_gc=now,
+            session_start=now, last_watchdog=now - RECEIVING_TIMEOUT, last_gc=now,
             zmq_addr=ZMQ_ADDR, version=VERSION, schema_count=len(cmd_defs),
             schema_path=CMD_DEFS_PATH, spinner=SPINNER,
             frequency=next(iter(self._tx_freq_map.values()), "N/A"),
@@ -265,28 +272,37 @@ class MavRxApp(MavAppBase):
             daemon=True)
         self._rx_thread.start()
         self.set_interval(1/60, self._tick)
+        self._last_header_sec = -1
         self.query_one("#rx-input").focus()
 
     def _tick(self):
         s = self.state
-        _drain_rx_queue(s, self._pkt_queue)
+        pkt_dirty = _drain_rx_queue(s, self._pkt_queue)
         if time.time() - s.last_gc > GC_INTERVAL:
             gc.collect(); s.last_gc = time.time()
-        s._spin_acc += 0.5 if s.receiving else 0.1
+        old_spin = s.spin_idx
+        s._spin_acc += 0.5 if s.receiving else 0.05
         s.spin_idx = int(s._spin_acc) % len(SPINNER)
-        s.error_status.check_expiry(); s.status.check_expiry()
+        spin_dirty = (s.spin_idx != old_spin)
+        status_dirty = s.error_status.check_expiry() or s.status.check_expiry()
         s.silence_secs = time.time() - s.last_watchdog
         s.pkt_count = s.pipeline.packet_count
-        now = time.time()
-        while s.pipeline.pkt_times and s.pipeline.pkt_times[0] <= now - 60.0:
-            s.pipeline.pkt_times.popleft()
         s.rate_per_min = len(s.pipeline.pkt_times)
         if s.selected_idx == -1:
             s.scroll_offset = 0
         self.query_one("#packet-detail").display = s.detail_open
         self.query_one("#help-panel").display = s.help_open
-        for w in self.query("RxHeader, PacketList, PacketDetail, HelpPanel"):
-            w.refresh()
+        # Selective refresh: only redraw widgets whose data actually changed
+        if pkt_dirty or spin_dirty or status_dirty:
+            self.query_one("#packet-list").refresh()
+        if pkt_dirty:
+            self.query_one("#packet-detail").refresh()
+        now_sec = int(time.time())
+        if now_sec != self._last_header_sec:
+            self._last_header_sec = now_sec
+            self.query_one("#rx-header").refresh()
+        if pkt_dirty and s.help_open:
+            self.query_one("#help-panel").refresh()
 
     def action_quit_or_close(self):
         s = self.state

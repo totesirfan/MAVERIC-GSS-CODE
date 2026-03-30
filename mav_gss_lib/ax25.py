@@ -16,8 +16,21 @@ FCS: CRC-16-CCITT (init=0xFFFF, reflected poly=0x8408, final invert)
 Bit order: LSB first per byte
 Encoding: G3RUH scrambled, NRZI encoded
 
+Zero external imports — hand-rolled for auditability in flight-path code.
+
 Author:  Irfan Annuar - USC ISI SERC
 """
+
+# -- Tunables ----------------------------------------------------------------
+
+PREAMBLE_FLAGS  = 20       # Number of 0x7E flag bytes before frame
+POSTAMBLE_FLAGS = 20       # Number of 0x7E flag bytes after frame
+
+G3RUH_MASK      = 0x21    # Feedback tap mask (x^17 + x^12 + 1 → taps at 0, 5)
+G3RUH_REG_LEN   = 16      # Shift register length (17 effective bits: 0–16)
+G3RUH_SEED      = 0x00000 # Initial register state
+
+NRZI_INIT       = 0       # NRZI encoder initial output state
 
 
 # -- CRC-16-CCITT (HDLC FCS) -------------------------------------------------
@@ -68,84 +81,20 @@ def _bit_stuff(bits):
     return out
 
 
-def hdlc_frame(payload, preamble_bytes=20, postamble_bytes=20):
+def _hdlc_frame(payload):
     """HDLC-frame a payload, matching gr-satellites hdlc_framer.
 
     Returns a list of bits (0/1 ints): preamble flags + bit-stuffed
-    (payload + FCS) + postamble flags.
-
-    Parameters match the GNU Radio block: preamble_bytes=20, postamble_bytes=20."""
-    # Compute FCS over raw payload bytes
+    (payload + FCS) + postamble flags."""
     fcs = _crc_ccitt(payload)
     frame_data = payload + fcs.to_bytes(2, 'little')
 
-    # Convert to bits (LSB first) and bit-stuff
     data_bits = _bytes_to_bits_lsb(frame_data)
     stuffed = _bit_stuff(data_bits)
 
-    # Assemble: preamble flags + stuffed data + postamble flags
-    preamble = _FLAG_BITS * preamble_bytes
-    postamble = _FLAG_BITS * postamble_bytes
+    preamble = _FLAG_BITS * PREAMBLE_FLAGS
+    postamble = _FLAG_BITS * POSTAMBLE_FLAGS
     return preamble + stuffed + postamble
-
-
-# -- G3RUH Scrambler ----------------------------------------------------------
-
-def g3ruh_scramble(bits):
-    """Multiplicative scrambler matching digital.scrambler_bb(0x21, 0x0, 16).
-
-    Implements the G3RUH polynomial x^17 + x^12 + 1 using GNU Radio's
-    Fibonacci LFSR (see gnuradio/digital/lfsr.h next_bit_scramble):
-        output  = register LSB
-        new_bit = parity(register & mask) XOR input
-        register shifts right, new_bit enters at bit reg_len (bit 16)
-
-    The effective register is 17 bits (0–16), with mask 0x21 giving
-    feedback taps at bits 0 and 5 (delays 17 and 12 from input)."""
-    reg = 0x00000  # seed (17 effective bits)
-    mask = 0x21
-    reg_len = 16
-    out = []
-    for b in bits:
-        output = reg & 1
-        newbit = (bin(reg & mask).count('1') % 2) ^ (b & 1)
-        reg = (reg >> 1) | (newbit << reg_len)
-        out.append(output)
-    return out
-
-
-# -- NRZI Encoder --------------------------------------------------------------
-
-def nrzi_encode(bits):
-    """NRZI encoder matching gr-satellites nrzi_encode.
-
-    Data 0 → toggle output state.
-    Data 1 → keep output state.
-    Initial state: 0."""
-    state = 0
-    out = []
-    for b in bits:
-        if b == 0:
-            state ^= 1
-        out.append(state)
-    return out
-
-
-# -- Bit Packing ---------------------------------------------------------------
-
-def _pack_bits(bits):
-    """Pack a bit list into bytes (MSB first, matching pack_k_bits + do_unpack).
-
-    GFSK mod with do_unpack=True unpacks bytes MSB first, so we pack MSB first
-    to preserve bit order.  Trailing bits that don't fill a full byte are
-    discarded, matching GNU Radio's pack_k_bits_bb(8) behaviour."""
-    out = bytearray()
-    for i in range(0, len(bits) - 7, 8):
-        byte = 0
-        for j in range(8):
-            byte = (byte << 1) | bits[i + j]
-        out.append(byte)
-    return bytes(out)
 
 
 # -- Top-Level Builder ---------------------------------------------------------
@@ -153,12 +102,33 @@ def _pack_bits(bits):
 def build_ax25_gfsk_frame(ax25_packet):
     """Build complete AX.25 over-the-air frame from an AX.25-wrapped CSP packet.
 
-    Replicates the GNU Radio AX.25 TX chain:
-        HDLC framer → G3RUH scrambler → NRZI encoder → pack bits
+    Replicates the GNU Radio AX.25 TX chain in a single fused pass:
+        HDLC framer → G3RUH scrambler → NRZI encoder → MSB bit packing
+
+    G3RUH scrambler: polynomial x^17 + x^12 + 1 (GNU Radio Fibonacci LFSR).
+    NRZI encoder: 0 → toggle, 1 → hold.
+    Bit packing: MSB first, 8 bits per byte (matches pack_k_bits_bb(8)).
 
     Input:  AX.25 packet (header + CSP payload) from AX25Config.wrap().
     Output: Frame bytes ready for GFSK mod with do_unpack=True."""
-    bits = hdlc_frame(ax25_packet)
-    bits = g3ruh_scramble(bits)
-    bits = nrzi_encode(bits)
-    return _pack_bits(bits)
+    bits = _hdlc_frame(ax25_packet)
+
+    reg = G3RUH_SEED; mask = G3RUH_MASK; reg_len = G3RUH_REG_LEN
+    nrzi_state = NRZI_INIT
+    out = bytearray(); byte_acc = 0; bit_count = 0
+
+    for b in bits:
+        # G3RUH scrambler
+        output = reg & 1
+        newbit = ((reg & mask).bit_count() & 1) ^ (b & 1)
+        reg = (reg >> 1) | (newbit << reg_len)
+        # NRZI encoder
+        if output == 0:
+            nrzi_state ^= 1
+        # MSB-first bit packing
+        byte_acc = (byte_acc << 1) | nrzi_state
+        bit_count += 1
+        if bit_count == 8:
+            out.append(byte_acc); byte_acc = 0; bit_count = 0
+
+    return bytes(out)

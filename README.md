@@ -16,7 +16,7 @@ Supports two uplink modes:
 
 ## Quick Start
 
-Requires the **radioconda** conda environment with GNU Radio 3.10+, gr-satellites, PyZMQ, pmt, crc, pyyaml, and textual.
+Requires the **radioconda** conda environment with GNU Radio 3.10+, gr-satellites, PyZMQ, pmt, crcmod, pyyaml, and textual.
 
 ```bash
 conda activate gnuradio
@@ -35,19 +35,26 @@ MAV_RX.py                 Downlink packet monitor (Textual app)
 MAV_TX.py                 Uplink command dashboard (Textual app)
 
 mav_gss_lib/
-    protocol.py           Nodes, CSP v1, AX.25, KISS, CRC-16/CRC-32C, command wire format
+    protocol.py           Nodes, CSP v1, AX.25, KISS, CRC-16/CRC-32C (crcmod), command wire format
     transport.py          ZMQ PUB/SUB, PMT PDU send/receive, socket monitoring
     config.py             YAML config loader/saver, AX.25/CSP command handlers
     parsing.py            RX packet processing pipeline (RxPipeline)
     logging.py            Session logging — JSONL + formatted text, background writer thread
-    golay.py              ASM+Golay encoder: Golay(24,12), RS FEC, CCSDS scrambler, frame assembly
+    golay.py              ASM+Golay encoder: Golay(24,12), RS FEC (cached), CCSDS scrambler, frame assembly
+    ax25.py               AX.25 HDLC encoder: fused HDLC+G3RUH+NRZI+pack single-pass pipeline
     tui_common.py         Shared Textual UI: ConfigScreen modal, HelpPanel, SplashScreen, styles
-    tui_rx.py             RX widgets: header, packet list, packet detail
+    tui_rx.py             RX widgets: header, packet list (cached filter), packet detail
     tui_tx.py             TX widgets: header, queue, sent history, config fields
 
 maveric_gss.yml           Shared config (nodes, AX.25, CSP, ZMQ, frequency)
 maveric_commands.yml      Command schema (arg names, types, validation)
 maveric_decoder.yml       gr-satellites satellite definition
+generated_commands/       Importable .jsonl command files (MAV_TX imp command)
+
+start_rx_macos.command    macOS launcher for MAV_RX
+start_tx_macos.command    macOS launcher for MAV_TX
+start_rx_linux.sh         Linux launcher for MAV_RX
+start_tx_linux.sh         Linux launcher for MAV_TX
 
 logs/
     text/                 Human-readable logs (downlink_*.txt, uplink_*.txt)
@@ -199,7 +206,7 @@ csp:
 tx:
   zmq_addr: tcp://127.0.0.1:52002
   frequency: 437.25 MHz
-  delay_ms: 2000            # Inter-packet delay for queue sends
+  delay_ms: 3000            # Inter-packet delay for queue sends
   uplink_mode: AX.25        # or "ASM+Golay"
 
 rx:
@@ -239,5 +246,5 @@ All file I/O runs on a background thread so the UI never blocks on disk writes. 
 
 - [radioconda](https://github.com/ryanvolz/radioconda) (GNU Radio 3.10+, gr-satellites, PyZMQ, pmt)
 - [Textual](https://textual.textualize.io/) (`pip install textual`)
-- `crc` (`pip install crc`)
+- `crcmod` (`pip install crcmod`) — C-accelerated CRC-16/CRC-32C
 - `pyyaml` (`pip install pyyaml`)
