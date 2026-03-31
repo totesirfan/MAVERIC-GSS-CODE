@@ -4,21 +4,25 @@ mav_gss_lib.tui_rx -- RX Monitor Widgets (Textual)
 Author:  Irfan Annuar - USC ISI SERC
 """
 
-from datetime import datetime, timezone
+import time
+
+from rich.style import Style
 from rich.text import Text
 from mav_gss_lib.tui_common import Widget
 
 import mav_gss_lib.protocol as protocol
 from mav_gss_lib.protocol import node_label, ptype_label, format_arg_value
+from rich.text import Text as RichText
 from mav_gss_lib.tui_common import (
     S_LABEL, S_VALUE, S_SUCCESS, S_WARNING, S_ERROR, S_DIM, S_SEP, lr_line,
-    scrollbar_styles, append_wrapped_args,
+    scrollbar_styles, append_wrapped_args, build_header,
     TS_SHORT, frame_color, ptype_color, node_color, compute_col_widths,
 )
 
 class RxHeader(Widget):
-    """Header bar showing ZMQ status, frequency, toggle states, queue depth, and clocks."""
-    DEFAULT_CSS = "RxHeader { height: 4; width: 100%; dock: top; }"
+    """Header bar showing ZMQ status, frequency, toggle states, queue depth, and clocks.
+    Wraps info items to next row when terminal is too narrow."""
+    DEFAULT_CSS = "RxHeader { height: auto; width: 100%; dock: top; }"
 
     def __init__(self, state, zmq_status_ref, queue_ref, **kw):
         super().__init__(**kw)
@@ -26,29 +30,28 @@ class RxHeader(Widget):
 
     def render(self):
         s, w = self.s, self.content_size.width
-        utc = datetime.now(timezone.utc).strftime(TS_SHORT)
-        local = datetime.now().strftime(TS_SHORT)
-        zmq = Text()
-        zmq.append(" ZMQ ", style=S_LABEL)
-        zmq.append(f"{s.zmq_addr} ", style=S_VALUE)
         st = self._zmq[0]
-        zmq.append(f"[{st}]", style=S_SUCCESS if st == "LIVE" else (S_ERROR if st == "DOWN" else S_VALUE))
-        zmq.append(f"  Freq: {s.frequency}", style=S_WARNING)
-        tog = Text()
-        tog.append("HEX:", style=S_LABEL)
-        tog.append("ON" if s.show_hex else "OFF", style=S_SUCCESS if s.show_hex else S_DIM)
-        tog.append("  UL:", style=S_LABEL)
-        tog.append("HIDE" if s.hide_uplink else "SHOW", style=S_WARNING if s.hide_uplink else S_DIM)
-        t = Text()
-        t.append_text(lr_line(Text(f" MAVERIC RX MONITOR", style=S_SUCCESS),
-                               Text(f"UTC {utc}  Local {local} ", style=S_VALUE), w))
-        t.append("\n" + "─" * w + "\n", style=S_SEP)
-        t.append_text(lr_line(zmq, tog, w))
-        q_line = Text()
-        q_line.append(" ZMQ Thread Queue: ", style=S_LABEL)
-        q_line.append(str(self._q.qsize()), style=S_VALUE)
-        t.append("\n")
-        t.append_text(q_line)
+        zmq_style = S_SUCCESS if st == "LIVE" else (S_ERROR if st == "DOWN" else S_VALUE)
+        zmq_val = RichText()
+        zmq_val.append(s.zmq_addr, style=S_VALUE)
+        zmq_val.append(f" [{st}]", style=zmq_style)
+        qdepth = self._q.qsize()
+        hex_s = S_SUCCESS if s.show_hex else S_DIM
+        ul_s = S_DIM if s.hide_uplink else S_WARNING
+        q_s = S_VALUE if qdepth else S_DIM
+        hex_lbl = S_LABEL if s.show_hex else S_DIM
+        ul_lbl = S_DIM if s.hide_uplink else S_LABEL
+        q_lbl = S_LABEL if qdepth else S_DIM
+        hex_t = RichText(); hex_t.append("HEX:", style=hex_lbl); hex_t.append("ON" if s.show_hex else "OFF", style=hex_s)
+        ul_t = RichText(); ul_t.append("UL:", style=ul_lbl); ul_t.append("HIDE" if s.hide_uplink else "SHOW", style=ul_s)
+        q_t = RichText(); q_t.append("Queue:", style=q_lbl); q_t.append(str(qdepth), style=q_s)
+        items = [
+            ("ZMQ", zmq_val, None),
+            ("", hex_t, None),
+            ("", ul_t, None),
+            ("", q_t, None),
+        ]
+        t, _ = build_header("MAVERIC DOWNLINK", S_LABEL, items, w)
         return t
 
 
@@ -147,50 +150,66 @@ class PacketList(Widget):
         filtered = self._filter_cache.get(s.packets, s.hide_uplink)
         count = len(filtered)
         auto = (s.selected_idx == -1)
-        t = Text()
-        total_label = f"{count}" if count == len(s.packets) else f"{count}/{len(s.packets)}"
-        title = Text(f" PACKETS ({total_label})", style=S_SUCCESS)
-        title.append("  Auto Scroll:", style=S_LABEL)
-        title.append("ON" if auto else "OFF", style=S_SUCCESS if auto else S_DIM)
-        data_rows = h - 4  # title + padding + separator + spinner
+        t = Text(no_wrap=True, overflow="crop")
+        title = Text()
+        title.append(f" PACKETS ({count}) ", style="reverse bold #ffffff")
+        title.append("  Auto Scroll:", style=S_DIM if auto else S_LABEL)
+        title.append("ON" if auto else "OFF", style=S_DIM if auto else S_WARNING)
+        if not auto:
+            title.append("  Shift+↓: live", style=S_DIM)
+        data_rows = h - 4  # title + col header + separator + spinner
+        # Compute visible slice first so header and data share same col widths
+        if data_rows >= 1 and count > 0:
+            if auto:
+                end, start = count, max(0, count - data_rows)
+            else:
+                filt_sel = next((fi for fi, (oi, _) in enumerate(filtered) if oi == s.selected_idx), count - 1)
+                start, end = s.scroll_offset, min(count, s.scroll_offset + data_rows)
+                if filt_sel < start: start = filt_sel
+                elif filt_sel >= end: start = filt_sel - data_rows + 1
+                start = max(0, start)
+                end = min(count, start + data_rows)
+                s.scroll_offset = start
+            vis_slice = filtered[start:end]
+            col_w = self._compute_col_widths([p for _, p in vis_slice])
+            sb = scrollbar_styles(count, data_rows, start, data_rows) if count > data_rows else []
+        else:
+            vis_slice, start, end = [], 0, 0
+            col_w = self._compute_col_widths([])
+            sb = []
+        nw, fw, sw, dw, ew, pw = (col_w["num"], col_w["frame"], col_w["src"],
+                                    col_w["dest"], col_w["echo"], col_w["ptype"])
+        row_w = w - 1 if sb else w
+        # Title line
+        ind = Text(f"[{start+1}-{end}/{count}] ", style=S_DIM) if count > data_rows else Text()
+        t.append_text(lr_line(title, ind, w))
+        # Sticky column header row — always visible, aligned with data
+        hdr = Text()
+        hdr.append(f" {'#':<{nw}} ", style=S_SEP)
+        hdr.append(f" {'TIME':8} ", style=S_SEP)
+        hdr.append(f" {'FRAME':<{fw}} ", style=S_SEP)
+        hdr.append(f" {'SRC':>{sw}} {'→':^1} {'DEST':<{dw}} ", style=S_SEP)
+        hdr.append(f" E:{'ECHO':<{ew}} ", style=S_SEP)
+        hdr.append(f" {'TYPE':<{pw}} ", style=S_SEP)
+        hdr.append(" CMD/ARGS", style=S_SEP)
+        hdr_right = Text("FLAGS  SIZE ", style=S_SEP)
+        t.append("\n")
+        t.append_text(lr_line(hdr, hdr_right, row_w))
         if data_rows < 1 or count == 0:
-            t.append_text(title)
             if count == 0:
                 t.append("\n  (waiting for packets...)", style=S_DIM)
-            # Pad to pin spinner at bottom
             used = 2 if count == 0 else 1
-            for _ in range(max(0, data_rows - used)):
+            for _ in range(max(0, data_rows - used + 1)):
                 t.append("\n")
             t.append("\n")
             t.append("─" * w, style=S_SEP)
             t.append("\n")
             t.append_text(self._spinner_line(s, w))
             return t
-        if auto:
-            end, start = count, max(0, count - data_rows)
-        else:
-            # Map selected_idx to filtered position
-            filt_sel = next((fi for fi, (oi, _) in enumerate(filtered) if oi == s.selected_idx), count - 1)
-            start, end = s.scroll_offset, min(count, s.scroll_offset + data_rows)
-            # Ensure selected is visible
-            if filt_sel < start: start = filt_sel
-            elif filt_sel >= end: start = filt_sel - data_rows + 1
-            start = max(0, start)
-            end = min(count, start + data_rows)
-            s.scroll_offset = start
-        ind = Text(f"[{start+1}-{end}/{count}] ", style=S_DIM) if count > data_rows else Text()
-        t.append_text(lr_line(title, ind, w))
-        t.append("\n")
         actual = len(s.packets) - 1 if auto else s.selected_idx
-        # Scrollbar
-        sb = scrollbar_styles(count, data_rows, start, data_rows) if count > data_rows else []
-        # Dynamic column alignment over visible packets
-        vis_slice = filtered[start:end]
-        col_w = self._compute_col_widths([p for _, p in vis_slice])
         sb_idx = 0
         for i, (orig_idx, pkt) in enumerate(vis_slice):
             t.append("\n")
-            row_w = w - 1 if sb else w  # reserve 1 char for scrollbar gutter
             line = self._pkt_line(pkt, orig_idx == actual, row_w, col_w)
             if sb and sb_idx < len(sb):
                 line.append(" ", style=sb[sb_idx])
@@ -229,13 +248,17 @@ class PacketList(Widget):
         def _ptype(p):
             cmd = p.get("cmd")
             return [protocol.PTYPE_NAMES.get(cmd['pkt_type'], '?')] if cmd else []
+        def _frame(p):
+            if p.get("is_unknown"): return ["UNKNOWN"]
+            return [p.get("frame_type", "???")]
         return compute_col_widths(visible, {
             "num": _num,
+            "frame": _frame,
             "src": lambda p: _cmd_field(p, 'src'),
             "dest": lambda p: _cmd_field(p, 'dest'),
             "echo": lambda p: _cmd_field(p, 'echo'),
             "ptype": _ptype,
-        }, defaults={"num": 2})
+        }, defaults={"num": 2, "frame": 5, "src": 3, "dest": 4, "echo": 4, "ptype": 4})
 
     def _spinner_line(self, s, w):
         """Build the bottom spinner/status line showing receive state and packet rate."""
@@ -247,47 +270,58 @@ class PacketList(Widget):
         else:
             spin_char = s.spinner[s.spin_idx] if s.spinner else "▸"
             if s.receiving:
-                t.append(f" {spin_char:<5}", style=S_SUCCESS)
-                t.append("  Receiving", style=S_SUCCESS)
+                flash = int(time.time() * 1000 / 500) % 2 == 0
+                if flash:
+                    rs, fill = "reverse bold #00ff87", "reverse #00ff87"
+                else:
+                    rs, fill = "on #003300 bold #00ff87", "on #003300"
+                t.append(f" {spin_char:<5}", style=rs)
+                t.append("  Received", style=rs)
+                remaining = w - t.cell_len
+                if remaining > 0:
+                    t.append(" " * remaining, style=fill)
+                return t
             else:
-                t.append(f" {spin_char:<5}", style=S_LABEL)
+                cycle = int(s._spin_acc) % 8
+                pos = cycle if cycle < 5 else 8 - cycle
+                bar = " " * pos + "•" + " " * (4 - pos)
+                t.append(f" {bar}", style=S_DIM)
                 secs = s.silence_secs
-                t.append(f"  Waiting... {secs:05.1f}s", style=S_LABEL)
-            t.append(f"  {s.pkt_count} pkts", style=S_DIM)
+                t.append(f"  Waiting... {secs:05.1f}s", style=S_DIM)
             if s.rate_per_min > 0:
                 t.append(f"  {s.rate_per_min:.0f} pkt/min", style=S_DIM)
         return t
 
     def _pkt_line(self, pkt, is_sel, w, col_w):
         """Render one packet as a single-line Text with dynamic column alignment."""
-        b = "reverse" if is_sel else ""
+        b = "reverse bold" if is_sel else ""
         cmd = pkt.get("cmd")
-        nw, sw, dw, ew, pw = (col_w["num"], col_w["src"], col_w["dest"],
-                               col_w["echo"], col_w["ptype"])
+        nw, fw, sw, dw, ew, pw = (col_w["num"], col_w["frame"], col_w["src"],
+                                    col_w["dest"], col_w["echo"], col_w["ptype"])
         left = Text(style=b)
         if pkt.get("is_unknown") and pkt.get("unknown_num") is not None:
             left.append(f" {'U-' + str(pkt['unknown_num']):<{nw}} ", style=f"{b} #ff4444")
         else:
-            left.append(f" {'#' + str(pkt.get('pkt_num',0)):<{nw}} ", style=f"{b} #888888")
-        left.append(f"{pkt.get('gs_ts_short','??:??:??')} ", style=f"{b} #ffffff")
+            left.append(f" {'#' + str(pkt.get('pkt_num',0)):<{nw}} ", style=f"{b} #ffffff")
+        left.append(f" {pkt.get('gs_ts_short','??:??:??')} ", style=f"{b} #ffffff")
         self._pending_args = None
         if pkt.get("is_unknown"):
-            left.append("UNKNOWN ", style=f"{b} bold #ff4444")
+            left.append(f" {'UNKNOWN':<{fw}} ", style=f"{b} bold #ff4444")
         else:
             ft = pkt.get("frame_type", "???")
-            left.append(f"{ft:<10} ", style=f"{b} {frame_color(ft)}")
+            left.append(f" {ft:<{fw}} ", style=f"{b} {frame_color(ft)}")
             if cmd:
-                left.append(f"{node_label(cmd['src']):>{sw}} → {node_label(cmd['dest']):<{dw}}  ", style=f"{b} #00bfff")
-                left.append(f"E:{node_label(cmd['echo']):<{ew}}  ", style=f"{b} #888888")
+                left.append(f" {node_label(cmd['src']):>{sw}} → {node_label(cmd['dest']):<{dw}} ", style=f"{b} #00bfff")
+                left.append(f" E:{node_label(cmd['echo']):<{ew}} ", style=f"{b} {node_color(cmd['echo'])}")
                 pt = cmd['pkt_type']
-                left.append(f"{protocol.PTYPE_NAMES.get(cmd['pkt_type'],'?'):<{pw}}  ", style=f"{b} {ptype_color(pt)}")
-                left.append(f"{cmd['cmd_id'][:14]} ", style=f"{b} bold #ffffff")
+                left.append(f" {protocol.PTYPE_NAMES.get(cmd['pkt_type'],'?'):<{pw}} ", style=f"{b} {ptype_color(pt)}")
+                left.append(f" {cmd['cmd_id'][:14]} ", style=f"{b} bold #ffffff")
                 args = (" ".join(format_arg_value(ta) for ta in cmd.get("typed_args",[])
                                  if ta.get("important"))
                         if cmd.get("schema_match")
                         else " ".join(str(a) for a in cmd.get("args",[])))
                 if args:
-                    self._pending_args = (args, left.cell_len, f"{b} #888888")
+                    self._pending_args = (" " + args + " ", left.cell_len, f"{b} #ffffff")
         right = Text(style=b)
         crc_v = pkt.get("crc_status",{}).get("csp_crc32_valid")
         if crc_v is None and cmd:
@@ -298,7 +332,7 @@ class PacketList(Widget):
             right.append("UL  ", style=f"{b} bold #ffd700")
         if pkt.get("is_dup"):
             right.append("DUP  ", style=f"{b} bold #ff4444")
-        right.append(f"{len(pkt.get('inner_payload',b''))}B ", style=f"{b} #888888")
+        right.append(f"{len(pkt.get('inner_payload',b''))}B ", style=f"{b} #999999")
         # Check if args fit on first line
         if self._pending_args:
             args_text, indent, args_style = self._pending_args
@@ -323,7 +357,9 @@ def _build_detail_lines(pkt, is_unk, show_hex, show_wrapper):
         return lines
     for wm in pkt.get("warnings", []): lines.append(("⚠", wm, S_ERROR))
     if pkt.get("is_uplink_echo"): f("UL ECHO", "Uplink echo — dest/echo not addressed to GS", S_WARNING)
-    if show_wrapper and pkt.get("stripped_hdr"): f("AX.25 HDR", pkt["stripped_hdr"], S_DIM)
+    if show_wrapper and pkt.get("stripped_hdr"):
+        ft = pkt.get("frame_type", "")
+        f("AX.25 HDR", pkt["stripped_hdr"], Style(color=frame_color(ft)))
     csp = pkt.get("csp")
     if show_wrapper and csp:
         tag = "CSP V1" if pkt.get("csp_plausible") else "CSP V1 [?]"
@@ -362,7 +398,7 @@ def _build_detail_lines(pkt, is_unk, show_hex, show_wrapper):
 class PacketDetail(Widget):
     """Expanded detail view for the selected packet — CSP header fields,
     command routing, CRC verification, hex/ASCII dump, and parsed args."""
-    DEFAULT_CSS = "PacketDetail { max-height: 50%; width: 100%; border-left: solid black; border-right: solid black; }"
+    DEFAULT_CSS = "PacketDetail { max-height: 50%; width: 100%; border-top: solid #555555; border-left: solid black; border-right: solid black; }"
 
     def __init__(self, state, **kw):
         super().__init__(**kw)
@@ -385,32 +421,30 @@ class PacketDetail(Widget):
         # Skip uplink echoes in detail
         if pkt and s.hide_uplink and pkt.get("is_uplink_echo"):
             pkt = None
-        sep = Text("─" * w, style=S_SEP)
         if not pkt:
-            self.styles.height = 1
-            return sep
+            self.styles.height = 10
+            return Text()
         is_unk = pkt.get("is_unknown", False)
         ts_r = pkt.get("ts_result")
+        title = Text()
         if is_unk and pkt.get("unknown_num") is not None:
-            title = Text(f" UNKNOWN U-{pkt['unknown_num']}", style=S_ERROR)
+            title.append(f" UNKNOWN U-{pkt['unknown_num']} ", style=S_ERROR)
         else:
-            title = Text(f" PACKET #{pkt.get('pkt_num',0)} DETAIL", style=S_WARNING)
+            title.append(f" PACKET #{pkt.get('pkt_num',0)} DETAIL ", style="reverse bold #ffffff")
         if ts_r:
-            title.append(f"  {ts_r[0].strftime('%Y-%m-%d %H:%M:%S UTC')}  {ts_r[1].strftime('%Y-%m-%d %H:%M:%S %Z')}", style="#ffffff")
+            title.append(f" {ts_r[0].strftime('%Y-%m-%d %H:%M:%S')} UTC  {ts_r[1].strftime('%Y-%m-%d %H:%M:%S %Z')}", style="#ffffff")
         lines = _build_detail_lines(pkt, is_unk, s.show_hex, s.show_wrapper)
 
         # Render lines, wrapping long values with aligned continuation
         label_w = 13  # " " + 12-char label
         val_w = max(1, w - label_w)
-        rendered_rows = 2  # sep + title
+        rendered_rows = 1  # title
         t = Text()
-        t.append_text(sep)
-        t.append("\n")
         t.append_text(lr_line(title, Text(), w))
         for lbl, val, st in lines:
             t.append("\n")
             row = Text()
-            row.append(f" {lbl:<12}", style=S_LABEL)
+            row.append(f" {lbl:<12}", style="#00bfff")
             if isinstance(val, Text):
                 row.append_text(val)
             else:
@@ -427,7 +461,7 @@ class PacketDetail(Widget):
                     t.append_text(cont)
                     rendered_rows += 1
         rendered_rows += 1  # blank padding at bottom
-        self.styles.height = rendered_rows
+        self.styles.height = max(10, rendered_rows + 1)  # +1 for top border, min 10
         return t
 
 

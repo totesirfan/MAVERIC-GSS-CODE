@@ -39,13 +39,14 @@ _DEFAULTS = {
         "frequency": "437.25 MHz",
         "delay_ms":  500,
         "uplink_mode": "AX.25",
+        "asm_hw": True,
     },
     "rx": {
         "zmq_port": 52001,
         "zmq_addr": "tcp://127.0.0.1:52001",
     },
     "general": {
-        "version":      "3.3.0",
+        "version":      "4.1.0",
         "log_dir":      "logs",
         "command_defs": "maveric_commands.yml",
         "decoder_yml":  "maveric_decoder.yml",
@@ -131,7 +132,7 @@ def apply_csp(cfg, csp):
 
 
 def update_cfg_from_state(cfg, csp, ax25, freq=None, zmq_addr=None, tx_delay_ms=None,
-                          uplink_mode=None):
+                          uplink_mode=None, asm_hw=None):
     """Sync runtime state back into the config dict for saving."""
     _sync_to_cfg(cfg["ax25"], ax25, _AX25_MAP)
     _sync_to_cfg(cfg["csp"], csp, _CSP_MAP)
@@ -143,6 +144,8 @@ def update_cfg_from_state(cfg, csp, ax25, freq=None, zmq_addr=None, tx_delay_ms=
         cfg["tx"]["delay_ms"] = tx_delay_ms
     if uplink_mode is not None:
         cfg["tx"]["uplink_mode"] = uplink_mode
+    if asm_hw is not None:
+        cfg["tx"]["asm_hw"] = asm_hw
 
 
 def ax25_handle_msg(ax25, args):

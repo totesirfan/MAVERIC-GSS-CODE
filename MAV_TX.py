@@ -28,8 +28,8 @@ from mav_gss_lib.transport import (init_zmq_pub, send_pdu,
                                    poll_monitor, PUB_STATUS, zmq_cleanup)
 from mav_gss_lib.logging import TXLog
 from mav_gss_lib.tui_common import (StatusMessage, SplashScreen,
-                                    Hints, HelpPanel, ConfigScreen, ImportScreen, MavAppBase,
-                                    dispatch_common, TS_SHORT,
+                                    Hints, HelpPanel, ConfigScreen, ImportScreen, ConfirmScreen,
+                                    MavAppBase, dispatch_common, TS_SHORT,
                                     STATUS_BRIEF, STATUS_NORMAL, STATUS_LONG, STATUS_STARTUP)
 from mav_gss_lib.config import (
     load_gss_config, apply_ax25, apply_csp, ax25_handle_msg, csp_handle_msg,
@@ -57,6 +57,7 @@ CMD_DEFS_PATH = CFG["general"]["command_defs"]
 FREQUENCY     = CFG["tx"]["frequency"]
 TX_DELAY_MS   = CFG["tx"]["delay_ms"]
 UPLINK_MODE   = CFG["tx"].get("uplink_mode", "AX.25")
+ASM_HW        = CFG["tx"].get("asm_hw", True)
 MAX_HISTORY   = 500
 MAX_CMD_HISTORY = 500
 QUEUE_FILE = os.path.join(LOG_DIR, ".pending_queue.jsonl")
@@ -189,6 +190,7 @@ class TxState:
     sending: dict = field(default_factory=lambda: {"active": False, "idx": -1, "total": 0})
     status: StatusMessage = field(default_factory=StatusMessage)
     uplink_mode: str = "AX.25"
+    asm_hw: bool = True
     version: str = ""
     schema_count: int = 0
     schema_path: str = ""
@@ -203,11 +205,9 @@ def _send_worker(state, snapshot, delay_ms, sock):
     for i, (src, dest, echo, ptype, cmd, args, raw_cmd) in enumerate(snapshot):
         if state.send_abort.is_set(): break
         with state.send_lock: state.sending["idx"] = i
-        if i > 0 and delay_ms > 0:
-            if state.send_abort.wait(timeout=delay_ms / 1000.0): break
         csp_packet = state.csp.wrap(raw_cmd)
         if state.uplink_mode == "ASM+Golay":
-            payload = build_asm_golay_frame(csp_packet)
+            payload = build_asm_golay_frame(csp_packet, asm_hw=state.asm_hw)
         else:
             ax25_frame = state.ax25.wrap(csp_packet)
             payload = build_ax25_gfsk_frame(ax25_frame)
@@ -222,11 +222,17 @@ def _send_worker(state, snapshot, delay_ms, sock):
                 "src": src, "dest": dest, "cmd": cmd, "args": args, "echo": echo,
                 "ptype": ptype, "payload_len": len(payload), "csp_enabled": state.csp.enabled})
             state.hist_scroll = len(state.history) - 1
+        if i < len(snapshot) - 1 and delay_ms > 0:
+            if state.send_abort.wait(timeout=delay_ms / 1000.0): break
     with state.send_lock:
-        del state.tx_queue[:sent]; _save_queue(state.tx_queue)
         if len(state.history) > MAX_HISTORY: del state.history[:len(state.history) - MAX_HISTORY]
         state.hist_scroll = max(0, len(state.history) - 1)
         total = state.sending["total"]
+        state.sending["idx"] = sent - 1  # keep on last sent item so it blinks
+    # Hold briefly so UI can render the final blink
+    import time as _t; _t.sleep(1.5)
+    with state.send_lock:
+        del state.tx_queue[:sent]; _save_queue(state.tx_queue)
     if state.send_abort.is_set():
         state.status.set(f"Aborted: sent {sent}/{total}, {total-sent} remain", STATUS_LONG)
     else:
@@ -247,16 +253,12 @@ def _start_send(state, sock):
 # -- Command dispatch ---------------------------------------------------------
 
 def _cmd_send(state, line, sock):
-    """Handler for 'send' command — start sending the queue."""
-    _start_send(state, sock)
+    """Handler for 'send' command — returns signal for app to show confirmation."""
+    return "confirm_send"
 
 def _cmd_clear(state, line, sock):
-    """Handler for 'clear' command — clear the TX queue."""
-    if state.tx_queue:
-        state.status.set(f"Cleared {len(state.tx_queue)} commands", STATUS_BRIEF)
-        state.tx_queue.clear(); _save_queue(state.tx_queue); state.queue_scroll = 0; state._queue_dirty = True
-    else:
-        state.status.set("Nothing to clear", STATUS_BRIEF)
+    """Handler for 'clear' command — returns signal for app to show confirmation."""
+    return "confirm_clear"
 
 def _cmd_undo(state, line, sock):
     """Handler for 'undo'/'pop' command — remove last queued command."""
@@ -301,12 +303,12 @@ def _cmd_mode(state, line, sock):
         state.status.set("Uplink mode: AX.25", STATUS_NORMAL)
     elif arg.upper() in ("ASM+GOLAY", "GOLAY", "ASM"):
         if not _GOLAY_OK:
-            state.status.set("libfec not found — cannot use ASM+Golay", STATUS_NORMAL)
+            state.status.set("libfec not found — cannot use ASM+GOLAY", STATUS_NORMAL)
         else:
             state.uplink_mode = "ASM+Golay"
-            state.status.set("Uplink mode: ASM+Golay", STATUS_NORMAL)
+            state.status.set("Uplink mode: ASM+GOLAY", STATUS_NORMAL)
     else:
-        state.status.set("mode [AX.25 | ASM+Golay]", STATUS_NORMAL)
+        state.status.set("mode [AX.25 | ASM+GOLAY]", STATUS_NORMAL)
 
 # Handler registry: command -> handler function
 _TX_HANDLERS = {
@@ -384,6 +386,7 @@ class MavTxApp(MavAppBase):
     #content-area { width: 1fr; }
     #bottom-bar { dock: bottom; height: 3; }
     #tx-input { height: 1; border: none; padding: 0; }
+    #tx-input:focus .input--cursor { background: #00bfff; color: #000000; }
     TxQueue { border-top: solid #555555; border-left: solid black; border-right: solid black; border-bottom: solid black; }
     TxQueue:focus { border: solid #00bfff; }
     SentHistory { border-top: solid #555555; border-left: solid black; border-right: solid black; border-bottom: solid black; }
@@ -415,7 +418,7 @@ class MavTxApp(MavAppBase):
             csp=csp, ax25=ax25, cmd_defs=cmd_defs, tx_queue=tx_queue, history=[],
             tx_log=TXLog(LOG_DIR, ZMQ_ADDR, version=VERSION), session_start=time.time(),
             freq=FREQUENCY, zmq_addr_disp=ZMQ_ADDR, tx_delay_ms=TX_DELAY_MS,
-            uplink_mode=UPLINK_MODE,
+            uplink_mode=UPLINK_MODE, asm_hw=ASM_HW,
             version=VERSION, schema_count=len(cmd_defs), schema_path=CMD_DEFS_PATH,
         )
         if tx_queue or q_skipped:
@@ -468,7 +471,7 @@ class MavTxApp(MavAppBase):
         if now_sec != self._last_header_sec or status_dirty:
             self._last_header_sec = now_sec
             self.query_one("#tx-header").refresh()
-        if s._queue_dirty or send_dirty:
+        if s._queue_dirty or send_dirty or send_active:
             s._queue_dirty = False
             self.query_one("#tx-queue").refresh()
         if s._hist_dirty or send_dirty:
@@ -491,7 +494,14 @@ class MavTxApp(MavAppBase):
         elif s.help_open: s.help_open = False
         self._act()
 
-    def action_send_queue(self): _start_send(self.state, self._sock); self._act()
+    def action_send_queue(self):
+        s = self.state
+        if not s.tx_queue: s.status.set("Nothing queued", STATUS_BRIEF); self._act(); return
+        if s.sending["active"]: s.status.set("Send already in progress", STATUS_BRIEF); self._act(); return
+        n = len(s.tx_queue)
+        def _on_confirm(confirmed):
+            if confirmed: _start_send(self.state, self._sock); self._act()
+        self.push_screen(ConfirmScreen(f"Send {n} command{'s' if n != 1 else ''}?", "Send"), _on_confirm)
 
     def action_undo_queue(self):
         s = self.state
@@ -503,10 +513,14 @@ class MavTxApp(MavAppBase):
 
     def action_clear_queue(self):
         s = self.state
-        if s.tx_queue:
-            s.status.set(f"Cleared {len(s.tx_queue)} command{'s' if len(s.tx_queue)!=1 else ''}", STATUS_BRIEF)
-            s.tx_queue.clear(); _save_queue(s.tx_queue); s.queue_scroll = 0; s._queue_dirty = True
-        self._act()
+        if not s.tx_queue: return
+        n = len(s.tx_queue)
+        def _on_confirm(confirmed):
+            if confirmed and s.tx_queue:
+                s.status.set(f"Cleared {len(s.tx_queue)} command{'s' if len(s.tx_queue)!=1 else ''}", STATUS_BRIEF)
+                s.tx_queue.clear(); _save_queue(s.tx_queue); s.queue_scroll = 0; s._queue_dirty = True
+                self._act()
+        self.push_screen(ConfirmScreen(f"Clear {n} command{'s' if n != 1 else ''}?", "Clear"), _on_confirm)
 
     def _cycle_focus(self, direction):
         cycle = self._FOCUS_CYCLE
@@ -548,7 +562,7 @@ class MavTxApp(MavAppBase):
 
     def _open_config(self):
         s = self.state
-        vals = config_get_values(s.csp, s.ax25, s.freq, s.zmq_addr_disp, s.tx_delay_ms, s.uplink_mode)
+        vals = config_get_values(s.csp, s.ax25, s.freq, s.zmq_addr_disp, s.tx_delay_ms, s.uplink_mode, s.asm_hw)
         self.push_screen(ConfigScreen(CONFIG_FIELDS, vals), self._on_config_done)
 
     def _handle_result(self, result):
@@ -559,12 +573,16 @@ class MavTxApp(MavAppBase):
             else:
                 self.push_screen(ImportScreen(files), self._on_import_done)
             self._act(); return True
+        if result == "confirm_send":
+            self.action_send_queue(); return True
+        if result == "confirm_clear":
+            self.action_clear_queue(); return True
         return False
 
     def _on_config_done(self, values):
         s = self.state
         try:
-            s.freq, s.zmq_addr_disp, s.tx_delay_ms, s.uplink_mode = config_apply(values, s.csp, s.ax25)
+            s.freq, s.zmq_addr_disp, s.tx_delay_ms, s.uplink_mode, s.asm_hw = config_apply(values, s.csp, s.ax25)
             s.status.set("Config saved", STATUS_BRIEF)
         except (ValueError, KeyError):
             s.status.set("Invalid config value — reverted", STATUS_NORMAL)
@@ -590,7 +608,7 @@ class MavTxApp(MavAppBase):
         except Exception: pass
         try:
             update_cfg_from_state(CFG, s.csp, s.ax25, s.freq, s.zmq_addr_disp, s.tx_delay_ms,
-                                 uplink_mode=s.uplink_mode)
+                                 uplink_mode=s.uplink_mode, asm_hw=s.asm_hw)
             save_gss_config(CFG)
         except Exception: pass
         zmq_cleanup(self._zmq_monitor, PUB_STATUS, s.zmq_status, self._sock, self._zmq_ctx)

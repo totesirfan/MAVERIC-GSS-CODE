@@ -207,6 +207,7 @@ class MavRxApp(MavAppBase):
     #content-area { width: 1fr; }
     #bottom-bar { dock: bottom; height: 2; }
     #rx-input { height: 1; border: none; padding: 0; }
+    #rx-input:focus .input--cursor { background: #00bfff; color: #000000; }
     """
     _WIDGET_QUERY = "RxHeader, PacketList, PacketDetail, HelpPanel"
     _INPUT_ID = "rx-input"
@@ -285,7 +286,9 @@ class MavRxApp(MavAppBase):
         s.spin_idx = int(s._spin_acc) % len(SPINNER)
         spin_dirty = (s.spin_idx != old_spin)
         status_dirty = s.error_status.check_expiry() or s.status.check_expiry()
+        old_silence = s.silence_secs
         s.silence_secs = time.time() - s.last_watchdog
+        silence_dirty = not s.receiving and int(s.silence_secs * 10) != int(old_silence * 10)
         s.pkt_count = s.pipeline.packet_count
         s.rate_per_min = len(s.pipeline.pkt_times)
         if s.selected_idx == -1:
@@ -293,7 +296,7 @@ class MavRxApp(MavAppBase):
         self.query_one("#packet-detail").display = s.detail_open
         self.query_one("#help-panel").display = s.help_open
         # Selective refresh: only redraw widgets whose data actually changed
-        if pkt_dirty or spin_dirty or status_dirty:
+        if pkt_dirty or spin_dirty or status_dirty or silence_dirty:
             self.query_one("#packet-list").refresh()
         if pkt_dirty:
             self.query_one("#packet-detail").refresh()

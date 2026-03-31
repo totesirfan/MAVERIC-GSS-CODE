@@ -22,8 +22,9 @@ RS with pad = 255 - frame_len.
 
 Encoding: NRZ, MSB first (Manual §10.1.5).
 Scrambler polynomial: h(x) = x^8+x^7+x^5+x^3+1 (Manual §10.2.3).
-ASM sync word: 0x930B51DE (bit-reversed form of Manual's 0xC9D08A7B,
-    matching gr-satellites ax100_deframer convention).
+ASM sync word (selectable via asm_hw flag):
+    HW:  0xC9D08A7B — Manual §10.1.2: "0xC9D08A7B MSB (Unencoded)"
+    GR:  0x930B51DE — bit-reversed per byte, gr-satellites ax100_deframer
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -95,7 +96,8 @@ else:
 # -- Constants ----------------------------------------------------------------
 
 PREAMBLE   = b'\xAA' * 50                    # Manual Table 5.4: preamb=0xAA, preamblen=50
-ASM        = bytes([0x93, 0x0B, 0x51, 0xDE]) # Manual §10.1.2: 0xC9D08A7B bit-reversed per byte
+ASM_HW     = bytes([0xC9, 0xD0, 0x8A, 0x7B]) # Manual §10.1.2: 0xC9D08A7B (AX100 hardware)
+ASM_GR     = bytes([0x93, 0x0B, 0x51, 0xDE]) # bit-reversed per byte (gr-satellites convention)
 RS_PARITY  = 32                              # Manual §10.2.2: RS(223,255), 32-byte parity
 MAX_PAYLOAD = 223                            # max RS data capacity (255 - 32)
 
@@ -190,7 +192,7 @@ def golay_encode(value_12bit):
 
 # -- Frame Assembly -----------------------------------------------------------
 
-def build_asm_golay_frame(csp_packet):
+def build_asm_golay_frame(csp_packet, asm_hw=True):
     """Build complete ASM+Golay over-the-air frame from a CSP packet.
 
     Follows AX100 Manual §10.1.5 frame layout and §10.2 FEC order,
@@ -200,7 +202,11 @@ def build_asm_golay_frame(csp_packet):
       - CCSDS scrambler on the RS codeword (§10.2.3)
       - Data field zero-padded to 255 bytes
 
-    Input:  CSP packet (max 223B).
+    Args:
+        csp_packet: CSP packet bytes (max 223B).
+        asm_hw:     True  = AX100 hardware ASM (0xC9D08A7B),
+                    False = gr-satellites ASM (0x930B51DE, bit-reversed).
+
     Output: 312-byte frame ready for GFSK modulation.
             [preamble 50B][ASM 4B][golay 3B][data field 255B]"""
     if not _GR_RS_OK:
@@ -224,4 +230,5 @@ def build_asm_golay_frame(csp_packet):
     # Pad data field to 255 bytes (Manual §10.1.5: [Sync][Golay][Data Field])
     data_field = scrambled.ljust(255, b'\x00')
 
-    return PREAMBLE + ASM + golay_field + data_field
+    asm = ASM_HW if asm_hw else ASM_GR
+    return PREAMBLE + asm + golay_field + data_field

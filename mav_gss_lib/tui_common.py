@@ -23,10 +23,10 @@ import mav_gss_lib.protocol as protocol
 S_LABEL   = Style(color="#00bfff", bold=True)    # Bright sky blue — labels
 S_VALUE   = Style(color="#ffffff", bold=True)    # Pure white — primary data
 S_SUCCESS = Style(color="#00ff87", bold=True)    # Bright green — active/ok
-S_WARNING = Style(color="#ffd700", bold=True)    # Gold — caution/frequency
+S_WARNING = Style(color="#ffd700", bold=True)    # Gold — caution/non-default
 S_ERROR   = Style(color="#ff4444", bold=True)    # Bright red — errors/failures
 S_DIM     = Style(color="#888888")               # Grey — secondary info
-S_SEP     = Style(color="#555555")               # Mid grey — separators/rules
+S_SEP     = Style(color="#707070")               # Mid grey — separators/col headers (4.1:1 contrast)
 S_USC_CARDINAL = Style(color="#990000", bold=True)
 S_USC_GOLD     = Style(color="#FFCC00", bold=True)
 
@@ -46,7 +46,7 @@ TS_UTC_LABEL = "%Y-%m-%d %H:%M:%S UTC"  # UTC timestamp for detail panels
 
 # -- Color helpers ------------------------------------------------------------
 
-_FRAME_COLORS = {"AX.25": "#ffd700", "ASM+GOLAY": "#00ff87"}
+_FRAME_COLORS = {"AX.25": "#6699cc", "ASM+GOLAY": "#55bbaa"}
 _FRAME_DEFAULT = "#ff4444"
 
 _PTYPE_COLORS = {"RES": "#00ff87", "ACK": "#00ff87", "NONE": "#888888"}
@@ -83,6 +83,115 @@ def compute_col_widths(rows, extractors, defaults=None):
             for k, vals in collected.items()}
 
 # -- Shared layout helpers ----------------------------------------------------
+
+def _build_item_text(label, value, style):
+    """Build a Text fragment for a single header item.
+    value can be a str or a pre-styled Text object (style is ignored for Text)."""
+    t = Text()
+    if label:
+        t.append(f" {label}:", style=S_LABEL)
+    else:
+        t.append(" ")
+    if isinstance(value, Text):
+        t.append_text(value)
+    else:
+        t.append(value, style=style)
+    return t
+
+def _item_len(label, value):
+    vlen = value.cell_len if isinstance(value, Text) else len(value)
+    return len(f" {label}:") + vlen if label else 1 + vlen
+
+
+def build_header(title, title_style, items, w, right_items=None):
+    """Build a wrapping header: title row with clocks, separator, then flowing info items.
+
+    items:       list of (label, value, value_style) — flowed left-to-right, wrapping as needed.
+    right_items: list of (label, value, value_style) — right-aligned on the last info row.
+    Returns (Text, row_count)."""
+    from datetime import datetime, timezone
+    utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    local = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+
+    t = Text()
+    title_text = Text()
+    title_text.append(f" {title} ", style="reverse bold #ffffff")
+    t.append_text(lr_line(title_text,
+                           Text(f"{utc} UTC  {local} ", style=S_VALUE), w))
+    t.append("\n" + "─" * w, style=S_SEP)
+    rows = 2  # title + separator
+
+    right_items = right_items or []
+    right_total = sum(_item_len(l, v) for l, v, _ in right_items)
+
+    # Measure left items
+    chunks = [(l, v, s, _item_len(l, v)) for l, v, s in items]
+
+    # Flow left items into rows, reserving space for right_items on the last row
+    item_rows = []
+    col, row_idx = 0, 0
+    for i, (label, value, style, clen) in enumerate(chunks):
+        if col > 0 and col + clen > w:
+            col, row_idx = 0, row_idx + 1
+        item_rows.append(row_idx)
+        col += clen
+    num_info_rows = row_idx + 1
+
+    # If all left items fit on 1 row but we have 2+, split across 2 rows
+    if num_info_rows == 1 and len(chunks) >= 2:
+        total = sum(c[3] for c in chunks)
+        best_split, best_diff = 1, total
+        running = 0
+        for i in range(len(chunks) - 1):
+            running += chunks[i][3]
+            diff = abs(running - (total - running))
+            if diff < best_diff:
+                best_diff, best_split = diff, i + 1
+        item_rows = [0 if i < best_split else 1 for i in range(len(chunks))]
+        num_info_rows = 2
+
+    # Render left items row by row, right-align right_items on the last row
+    last_row = max(item_rows) if item_rows else 0
+    cur_row = -1
+    for i, (label, value, style, clen) in enumerate(chunks):
+        if item_rows[i] != cur_row:
+            # Before starting a new row, finish previous row with right_items if it was the last
+            if cur_row == last_row and right_items:
+                right_items = []  # already rendered
+            if cur_row >= 0:
+                pass  # row already in t
+            t.append("\n")
+            cur_row = item_rows[i]
+            rows += 1
+        t.append_text(_build_item_text(label, value, style))
+
+    # Right-align right_items on the last info row
+    if right_items:
+        right_text = Text()
+        for l, v, s in right_items:
+            right_text.append_text(_build_item_text(l, v, s))
+        right_text.append(" ")
+        # Calculate how much left content is on the current (last) row
+        last_row_left = sum(c[3] for i, c in enumerate(chunks) if item_rows[i] == cur_row) if chunks else 0
+        pad = w - last_row_left - right_text.cell_len
+        if pad > 0:
+            t.append(" " * pad)
+        elif pad < 0:
+            # Right items don't fit on last row — put them on their own row
+            t.append("\n")
+            rows += 1
+            pad = w - right_text.cell_len
+            if pad > 0:
+                t.append(" " * pad)
+        t.append_text(right_text)
+
+    # Pad to minimum 2 info rows (4 total including title + separator)
+    while rows < 4:
+        t.append("\n")
+        rows += 1
+
+    return t, rows
+
 
 def lr_line(left, right, w, fill_style=""):
     """Build a single Text line: left + right, right-aligned, exactly w chars wide.
@@ -128,6 +237,9 @@ def scrollbar_styles(total, visible, offset, height):
 
 def append_wrapped_args(t, args, indent, style, row_w, sb=None, sb_idx=0):
     """Append args as continuation lines aligned at indent. Returns new sb_idx."""
+    # Cap indent so wrapped content gets at least 1/3 of the row width
+    max_indent = max(2, (row_w * 2) // 3)
+    indent = min(indent, max_indent)
     cont_w = max(1, row_w - indent)
     for ci in range(0, len(args), cont_w):
         t.append("\n")
@@ -241,9 +353,23 @@ class ConfigScreen(ModalScreen):
 
     def __init__(self, fields, values):
         super().__init__()
-        self._fields, self._values = fields, dict(values)
+        self._all_fields, self._values = fields, dict(values)
         self._sel, self._editing = 0, False
         self._buf, self._cur = "", 0
+        self._rebuild_visible()
+
+    def _rebuild_visible(self):
+        """Rebuild visible field list based on current values. Fields with a 4th
+        element (callable) are only shown when that callable returns True."""
+        old_key = self._fields[self._sel][1] if hasattr(self, '_fields') and self._fields else None
+        self._fields = [f for f in self._all_fields
+                        if len(f) < 4 or f[3](self._values)]
+        # Try to preserve selection by key
+        if old_key:
+            for i, f in enumerate(self._fields):
+                if f[1] == old_key:
+                    self._sel = i; return
+        self._sel = min(self._sel, max(0, len(self._fields) - 1))
 
     def compose(self) -> ComposeResult:
         yield Static(id="cfg-box")
@@ -253,10 +379,11 @@ class ConfigScreen(ModalScreen):
 
     def _refresh(self):
         t = Text()
-        t.append(" CONFIGURATION\n", style=S_WARNING)
-        for i, (label, key, editable) in enumerate(self._fields):
+        t.append(" CONFIGURATION\n", style=S_LABEL)
+        for i, field in enumerate(self._fields):
+            label, key, editable = field[0], field[1], field[2]
             sel = (i == self._sel)
-            t.append("▶ " if sel else "  ", style=S_SUCCESS if sel else S_DIM)
+            t.append("▶ " if sel else "  ", style=S_VALUE if sel else S_DIM)
             t.append(f"{label:<18}", style=S_LABEL if editable else S_DIM)
             if sel and self._editing:
                 before, after = self._buf[:self._cur], self._buf[self._cur:]
@@ -267,10 +394,12 @@ class ConfigScreen(ModalScreen):
                 val = str(self._values.get(key, ""))
                 is_cycle = isinstance(editable, tuple) and editable[0] == "cycle"
                 if editable == "toggle":
-                    vs = S_SUCCESS if val == "ON" else S_DIM
+                    vs = S_VALUE if val == "ON" else S_DIM
                 elif is_cycle:
                     styles = editable[2] if len(editable) > 2 else {}
-                    vs = styles.get(val, S_VALUE)
+                    display_labels = editable[3] if len(editable) > 3 else {}
+                    val = display_labels.get(val, val)
+                    vs = styles.get(self._values.get(key, ""), S_VALUE)
                 elif not editable:
                     vs = S_DIM
                 elif sel:
@@ -287,7 +416,7 @@ class ConfigScreen(ModalScreen):
         k, ch = event.key, event.character
         if self._editing:
             if k == "enter":
-                _, key, _ = self._fields[self._sel]
+                key = self._fields[self._sel][1]
                 self._values[key] = self._buf; self._editing = False
             elif k == "escape": self._editing = False
             elif ch and ch.isprintable():
@@ -303,7 +432,7 @@ class ConfigScreen(ModalScreen):
         elif k == "up": self._sel = (self._sel - 1) % len(self._fields)
         elif k == "down": self._sel = (self._sel + 1) % len(self._fields)
         elif k == "enter":
-            _, key, editable = self._fields[self._sel]
+            key, editable = self._fields[self._sel][1], self._fields[self._sel][2]
             is_cycle = isinstance(editable, tuple) and editable[0] == "cycle"
             if editable == "toggle":
                 v = self._values.get(key, "OFF")
@@ -313,12 +442,14 @@ class ConfigScreen(ModalScreen):
                 cur = self._values.get(key, choices[0])
                 idx = choices.index(cur) if cur in choices else 0
                 self._values[key] = choices[(idx + 1) % len(choices)]
+                self._rebuild_visible()
             elif editable:
                 self._editing = True
                 self._buf = str(self._values.get(key, "")); self._cur = len(self._buf)
         elif k == "escape":
-            self.dismiss(self._values); return
-        event.prevent_default(); self._refresh()
+            self.dismiss(self._values)
+            event.stop(); return
+        event.stop(); event.prevent_default(); self._refresh()
 
 
 class ImportScreen(ModalScreen):
@@ -336,10 +467,10 @@ class ImportScreen(ModalScreen):
     def on_mount(self): self._refresh()
     def _refresh(self):
         t = Text()
-        t.append(" IMPORT FILE\n\n", style=S_WARNING)
+        t.append(" IMPORT FILE\n\n", style=S_LABEL)
         for i, f in enumerate(self._files):
             sel = (i == self._sel)
-            t.append("▶ " if sel else "  ", style=S_SUCCESS if sel else S_DIM)
+            t.append("▶ " if sel else "  ", style=S_VALUE if sel else S_DIM)
             t.append(f + "\n", style="bold #ffffff" if sel else S_VALUE)
         t.append("\n ↑↓:select  Enter:import  Esc:cancel", style=S_DIM)
         self.query_one("#imp-box", Static).update(t)
@@ -347,9 +478,42 @@ class ImportScreen(ModalScreen):
         k = event.key
         if k == "up": self._sel = (self._sel - 1) % len(self._files)
         elif k == "down": self._sel = (self._sel + 1) % len(self._files)
-        elif k == "enter": self.dismiss(self._files[self._sel]); return
-        elif k == "escape": self.dismiss(None); return
-        event.prevent_default(); self._refresh()
+        elif k == "enter": self.dismiss(self._files[self._sel]); event.stop(); return
+        elif k == "escape": self.dismiss(None); event.stop(); return
+        event.stop(); event.prevent_default(); self._refresh()
+
+
+class ConfirmScreen(ModalScreen):
+    """Modal confirmation dialog — Enter to confirm, Escape to cancel."""
+    CSS = """
+    ConfirmScreen { align: center middle; background: black 60%; }
+    #confirm-box { width: auto; min-width: 30; height: auto; border: solid #555555;
+                   background: black; padding: 1 2; }
+    """
+
+    def __init__(self, message, action_label="Confirm"):
+        super().__init__()
+        self._message = message
+        self._action_label = action_label
+
+    def compose(self):
+        yield Static(id="confirm-box")
+
+    def on_mount(self):
+        self._refresh()
+
+    def _refresh(self):
+        t = Text()
+        t.append(f" {self._message}\n\n", style=S_WARNING)
+        t.append(f" Enter:{self._action_label}  Esc:cancel", style=S_DIM)
+        self.query_one("#confirm-box", Static).update(t)
+
+    def on_key(self, event):
+        if event.key == "enter":
+            self.dismiss(True); event.stop()
+        elif event.key == "escape":
+            self.dismiss(False); event.stop()
+        event.stop(); event.prevent_default()
 
 
 # -- Status message -----------------------------------------------------------
@@ -447,7 +611,7 @@ class SplashScreen(ModalScreen):
         self.query_one("#splash-content", Static).update(Group(*parts))
 
     def on_key(self, event):
-        event.prevent_default()
+        event.stop(); event.prevent_default()
         self.dismiss()
 
     def action_dismiss_splash(self):
@@ -460,7 +624,7 @@ def render_help_panel(help_lines, hint, version="", schema_count=0,
     """Render the help panel Rich Text from help_lines data and session info."""
     import os
     t = Text()
-    t.append(" HELP\n", style=S_WARNING)
+    t.append(" HELP\n", style=S_LABEL)
     for left, right in help_lines:
         if right is None:
             t.append(f" {left}\n", style=S_LABEL)

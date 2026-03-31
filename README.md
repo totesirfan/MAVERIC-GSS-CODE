@@ -42,7 +42,7 @@ mav_gss_lib/
     logging.py            Session logging — JSONL + formatted text, background writer thread
     golay.py              ASM+Golay encoder: Golay(24,12), RS FEC (cached), CCSDS scrambler, frame assembly
     ax25.py               AX.25 HDLC encoder: fused HDLC+G3RUH+NRZI+pack single-pass pipeline
-    tui_common.py         Shared Textual UI: ConfigScreen modal, HelpPanel, SplashScreen, styles
+    tui_common.py         Shared Textual UI: ConfigScreen, ConfirmScreen, HelpPanel, SplashScreen, styles
     tui_rx.py             RX widgets: header, packet list (cached filter), packet detail
     tui_tx.py             TX widgets: header, queue, sent history, config fields
 
@@ -95,33 +95,31 @@ Subscribes to ZMQ where GNU Radio publishes decoded PDUs. A background thread re
 
 ```
 ┌──────────────────────────────────────────────┐
-│ MAVERIC RX MONITOR              UTC   LOCAL  │
-│ ──────────────────────────────────────────── │
-│ ZMQ: tcp://...  [LIVE]  Freq: 437.25 MHz    │
-│ ZMQ Thread Queue: 0                          │
-├──────────────────────────────────────────────┤
-│ PACKETS (5)  Auto Scroll: ON                 │
-│ #1  12:00:00 AX.25 GS→EPS REQ ping     42B │
-│ #2  12:00:01 AX.25 GS→EPS REQ ping     42B │
-│ ...                                          │
-│ ░  Receiving  5 pkts  3 pkt/min              │
-├──────────────────────────────────────────────┤
-│ PACKET #2 DETAIL                             │
-│ ──────────────────────────────────────────── │
-│ CSP V1      Prio:2  Src:0  Dest:8  ...      │
-│ CMD         Src:GS  Dest:EPS  Echo:UPPM     │
-│ CMD ID      ping                             │
-│ CRC-16      0xc315 [OK]                      │
-│ ASCII       .ping.ping..                     │
-├──────────────────────────────────────────────┤
-│ > _                                          │
-│ Enter: detail | cfg | help | Ctrl+C: quit    │
-└──────────────────────────────────────────────┘
+│ MAVERIC DOWNLINK        2026-03-31 12:00:00 UTC │
+│ ─────────────────────────────────────────────── │
+│ ZMQ: tcp://... [LIVE]  HEX:OFF  UL:HIDE  Q:0   │
+├─────────────────────────────────────────────────┤
+│ PACKETS (5)   Auto Scroll: ON                   │
+│  #  TIME      FRAME  SRC → DEST  E:ECHO  TYPE  │
+│  #1 12:00:00  AX.25  GS → EPS   E:UPPM  REQ   │
+│  #2 12:00:01  AX.25  GS → EPS   E:UPPM  REQ   │
+│ ...                                             │
+│ ─────────────────────────────────────────────── │
+│ ▸▸▸  Received                                   │
+├─────────────────────────────────────────────────┤
+│ PACKET #2 DETAIL  2026-03-31 12:00:01 UTC  PDT │
+│ CMD ROUTE   Src:GS  Dest:EPS  Echo:UPPM  REQ   │
+│ CMD ID      ping                                │
+│ CRC-16      0xc315 [OK]                         │
+├─────────────────────────────────────────────────┤
+│ > _                                             │
+│ Tab: focus | ↑↓: select | Enter: detail | help  │
+└─────────────────────────────────────────────────┘
 ```
 
-**Commands**: `help`, `cfg`, `hex`, `log`, `detail`, `live`, `hclear`, `q`
+**Commands**: `help`, `cfg`, `hex`, `ul`, `wrapper`, `detail`, `live`, `hclear`, `q`
 
-**Keys**: Up/Down (select packet), PgUp/PgDn (scroll), Enter (toggle detail), Ctrl+C (quit)
+**Keys**: Up/Down (select packet), PgUp/PgDn (scroll), Shift+Down (jump to live), Enter (toggle detail), Tab (toggle focus), Ctrl+C (quit)
 
 **Features**:
 - Auto Scroll follows newest packets; selecting a packet exits auto mode
@@ -137,22 +135,24 @@ Publishes command PDUs via ZMQ to the GNU Radio flowgraph. Commands are queued, 
 
 ```
 ┌──────────────────────────────────────────────┐
-│ MAVERIC TX DASHBOARD            UTC   LOCAL  │
-│ ──────────────────────────────────────────── │
-│ ZMQ: tcp://...  [LIVE]  Freq: 437.25 MHz    │
-│ LOG: ON                                      │
-├──────────────────────────────────────────────┤
-│ TX QUEUE (2)  buf: 2000ms                    │
-│  1. GS → EPS  E:UPPM  REQ  ping        12B │
-│  2. GS → UPPM E:UPPM  REQ  set_mode    15B │
-├──────────────────────────────────────────────┤
-│ SENT HISTORY (3)                             │
-│ #1  12:00:00  GS → EPS  REQ  ping      20B │
-│ ...                                          │
-├──────────────────────────────────────────────┤
-│ > _                                          │
-│ Enter: queue | cfg | help | Ctrl+C: quit     │
-└──────────────────────────────────────────────┘
+│ MAVERIC UPLINK          2026-03-31 12:00:00 UTC │
+│ ─────────────────────────────────────────────── │
+│ ZMQ: tcp://... [LIVE]  Mode: ASM+GOLAY (HW)    │
+├─────────────────────────────────────────────────┤
+│ TX QUEUE (2)   buf: 3000ms  total: 3.0s         │
+│  ## DEST    E:ECHO  TYPE  CMD/ARGS         SIZE │
+│  #1 EPS     E:UPPM  REQ   ping              12B │
+│  #2 UPPM    E:UPPM  REQ   set_mode 5        15B │
+├─────────────────────────────────────────────────┤
+│ SENT HISTORY (3)                                │
+│  ## TIME     DEST    E:ECHO  TYPE  CMD/ARGS SIZE│
+│  #1 12:00:00 EPS     E:UPPM  REQ   ping     20B │
+│ ...                                             │
+├─────────────────────────────────────────────────┤
+│ SENT 1/2                                        │
+│ > _                                             │
+│ Tab: focus | Enter: queue | cfg | help | Ctrl+C │
+└─────────────────────────────────────────────────┘
 ```
 
 **Command format**: `[SRC] DEST ECHO TYPE CMD [ARGS]`
@@ -163,9 +163,9 @@ EPS UPPM REQ ping
 EPS 2 3 1 set_voltage 3.3
 ```
 
-**Keys**: Ctrl+S (send queue), Ctrl+Z (undo last), Ctrl+X (clear queue), Up/Down (history recall), Ctrl+C/Esc (abort send or quit)
+**Keys**: Ctrl+S (send queue — with confirmation), Ctrl+Z (undo last), Ctrl+X (clear queue — with confirmation), Up/Down (history recall), Tab (cycle focus), Ctrl+C/Esc (abort send or quit)
 
-**Commands**: `send`, `undo`/`pop`, `clear`, `hclear`, `cfg`, `help`, `nodes`, `csp`, `ax25`, `mode [AX.25|ASM+Golay]`, `raw <hex>`, `q`
+**Commands**: `send`, `undo`/`pop`, `clear`, `hclear`, `cfg`, `help`, `nodes`, `csp`, `ax25`, `mode [AX.25|ASM+GOLAY]`, `imp [file]`, `raw <hex>`, `q`
 
 **Features**:
 - **Dual uplink mode**: AX.25 HDLC (Mode 6) or ASM+Golay (Mode 5), switchable via `mode` command or cfg panel toggle

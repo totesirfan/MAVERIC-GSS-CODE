@@ -28,12 +28,13 @@ tx:
   zmq_addr: tcp://127.0.0.1:52002
   frequency: 437.25 MHz
   delay_ms: 3000
-  uplink_mode: AX.25
+  uplink_mode: ASM+Golay
+  asm_hw: true
 rx:
   zmq_port: 52001
   zmq_addr: tcp://127.0.0.1:52001
 general:
-  version: 4.0.0
+  version: 4.1.0
   log_dir: logs
   command_defs: maveric_commands.yml
   decoder_yml: maveric_decoder.yml

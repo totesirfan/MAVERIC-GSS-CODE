@@ -4,7 +4,7 @@ mav_gss_lib.tui_tx -- TX Dashboard Widgets (Textual)
 Author:  Irfan Annuar - USC ISI SERC
 """
 
-from datetime import datetime, timezone
+from rich.style import Style
 from rich.text import Text
 from mav_gss_lib.tui_common import Widget, ScrollableWidget
 
@@ -12,7 +12,8 @@ import mav_gss_lib.protocol as protocol
 from mav_gss_lib.protocol import node_label
 from mav_gss_lib.tui_common import (
     S_LABEL, S_VALUE, S_SUCCESS, S_WARNING, S_ERROR, S_DIM, S_SEP, lr_line,
-    scrollbar_styles, append_wrapped_args, TS_SHORT, ptype_color, compute_col_widths,
+    scrollbar_styles, append_wrapped_args, build_header,
+    TS_SHORT, ptype_color, node_color, compute_col_widths,
 )
 
 
@@ -26,7 +27,7 @@ def _tx_col_widths(visible, scroll_offset):
         "dest": lambda row: [node_label(row[1])],
         "echo": lambda row: [node_label(row[2])],
         "ptype": lambda row: [protocol.PTYPE_NAMES.get(row[3], str(row[3]))],
-    })
+    }, defaults={"num": 1, "src": 3, "dest": 4, "echo": 4, "ptype": 4})
 
 def _hist_col_widths(visible):
     """Compute column widths for sent history visible rows."""
@@ -36,12 +37,13 @@ def _hist_col_widths(visible):
         "dest": lambda rec: [node_label(rec['dest'])],
         "echo": lambda rec: [node_label(rec['echo'])],
         "ptype": lambda rec: [protocol.PTYPE_NAMES.get(rec['ptype'], '?')],
-    })
+    }, defaults={"num": 1, "src": 3, "dest": 4, "echo": 4, "ptype": 4})
 
 
 class TxHeader(Widget):
-    """Header bar showing ZMQ status, frequency, uplink mode, log state, and clocks."""
-    DEFAULT_CSS = "TxHeader { height: 4; width: 100%; dock: top; }"
+    """Header bar showing ZMQ status, frequency, uplink mode, log state, and clocks.
+    Wraps info items to next row when terminal is too narrow."""
+    DEFAULT_CSS = "TxHeader { height: auto; width: 100%; dock: top; }"
 
     def __init__(self, state, **kw):
         super().__init__(**kw)
@@ -49,33 +51,26 @@ class TxHeader(Widget):
 
     def render(self):
         s, w = self.s, self.content_size.width
-        utc = datetime.now(timezone.utc).strftime(TS_SHORT)
-        local = datetime.now().strftime(TS_SHORT)
-        row1 = Text()
-        row1.append(" ZMQ:", style=S_LABEL)
-        row1.append(f"{s.zmq_addr_disp} ", style=S_VALUE)
-        row1.append(f"[{s.zmq_status}]", style=S_SUCCESS if s.zmq_status == "LIVE" else S_VALUE)
-        row1.append(f"  Freq:", style=S_LABEL)
-        row1.append(f"{s.freq}", style=S_WARNING)
-        row1.append(f"  Mode:", style=S_LABEL)
-        mode_style = S_SUCCESS if s.uplink_mode == "ASM+Golay" else S_WARNING
-        row1.append(f"{s.uplink_mode}", style=mode_style)
-        row2 = Text()
-        row2.append(" LOG:", style=S_LABEL)
-        row2.append("ON", style=S_SUCCESS)
-        t = Text()
-        t.append_text(lr_line(Text(f" MAVERIC TX DASHBOARD", style=S_SUCCESS),
-                               Text(f"UTC {utc}  Local {local} ", style=S_VALUE), w))
-        t.append("\n" + "─" * w + "\n", style=S_SEP)
-        t.append_text(lr_line(row1, Text(), w))
-        t.append("\n")
-        t.append_text(lr_line(row2, Text(), w))
+        zmq_style = S_SUCCESS if s.zmq_status == "LIVE" else S_VALUE
+        mode_style = Style(color="#55bbaa", bold=True) if s.uplink_mode == "ASM+Golay" else Style(color="#6699cc", bold=True)
+        mode_label = "ASM+GOLAY" if s.uplink_mode == "ASM+Golay" else s.uplink_mode
+        if s.uplink_mode == "ASM+Golay":
+            mode_label += f" ({'HW' if s.asm_hw else 'GR'})"
+        zmq_val = Text()
+        zmq_val.append(s.zmq_addr_disp, style=S_VALUE)
+        zmq_val.append(f" [{s.zmq_status}]", style=zmq_style)
+        items = [
+            ("ZMQ", zmq_val, None),
+            ("Mode", mode_label, mode_style),
+        ]
+        right = []
+        t, _ = build_header("MAVERIC UPLINK", S_LABEL, items, w, right_items=right)
         return t
 
 
 class TxQueue(ScrollableWidget):
     """Scrollable pending command queue with send progress indicators and scrollbar."""
-    DEFAULT_CSS = "TxQueue { height: 1fr; max-height: 33%; width: 100%; } TxQueue:focus { border: solid #00bfff; }"
+    DEFAULT_CSS = "TxQueue { height: 1fr; width: 100%; } TxQueue:focus { border: solid #00bfff; }"
 
     def __init__(self, state, **kw):
         super().__init__(**kw)
@@ -84,18 +79,20 @@ class TxQueue(ScrollableWidget):
     def _scroll_by(self, delta):
         s = self.s
         count = len(s.tx_queue)
-        data_rows = max(1, self.content_size.height - 1)
+        data_rows = max(1, self.content_size.height - 3)  # title + col header + blank
         s.queue_scroll = max(0, min(count - data_rows, s.queue_scroll + delta))
         self.refresh()
 
     def render(self):
         s, w, h = self.s, self.content_size.width, self.content_size.height
         q, count = s.tx_queue, len(s.tx_queue)
-        title = Text(f" TX QUEUE ({count})  buf: {s.tx_delay_ms}ms", style=S_WARNING)
+        title = Text()
+        title.append(f" TX QUEUE ({count}) ", style="reverse bold #ffffff")
+        title.append(f"  buf: {s.tx_delay_ms}ms", style=S_DIM)
         if count > 1:
             t_ms = (count - 1) * s.tx_delay_ms
-            title.append(f"  total: {t_ms/1000:.1f}s" if t_ms >= 1000 else f"  total: {t_ms}ms", style=S_WARNING)
-        t = Text()
+            title.append(f"  total: {t_ms/1000:.1f}s" if t_ms >= 1000 else f"  total: {t_ms}ms", style=S_DIM)
+        t = Text(no_wrap=True, overflow="crop")
         data_rows = h - 1
         ind = Text(f"[{s.queue_scroll+1}-{min(s.queue_scroll+data_rows,count)}/{count}] ", style=S_DIM) if count > data_rows else Text()
         hints = Text("Ctrl+S: send | Ctrl+X: clear ", style=S_DIM)
@@ -104,44 +101,70 @@ class TxQueue(ScrollableWidget):
         right.append_text(ind)
         right.append_text(hints)
         t.append_text(lr_line(title, right, w))
-        if count == 0:
-            t.append("\n\n  (empty — type a command below)", style=S_DIM)
-            return t
-        data_rows -= 1  # account for blank line after title
-        # Clamp scroll
-        s.queue_scroll = max(0, min(s.queue_scroll, max(0, count - data_rows)))
-        sending_idx = s.sending["idx"] if s.sending["active"] else -1
-        visible = q[s.queue_scroll:s.queue_scroll + data_rows]
-        # Scrollbar
-        sb = scrollbar_styles(count, data_rows, s.queue_scroll, data_rows) if count > data_rows else []
-        row_w = w - 1 if sb else w
-        col_w = _tx_col_widths(visible, s.queue_scroll)
+        # Compute visible slice first so header and data share same col widths
+        data_rows -= 2  # account for col header + blank line after title
+        if count > 0:
+            s.queue_scroll = max(0, min(s.queue_scroll, max(0, count - data_rows)))
+            visible = q[s.queue_scroll:s.queue_scroll + data_rows]
+            col_w = _tx_col_widths(visible, s.queue_scroll)
+            has_non_gs_src = any(src != protocol.GS_NODE for src, *_ in visible)
+            sb = scrollbar_styles(count, data_rows, s.queue_scroll, data_rows) if count > data_rows else []
+        else:
+            visible = []
+            col_w = _tx_col_widths([], 0)
+            has_non_gs_src = False
+            sb = []
         nw, sw, dw, ew, pw = col_w["num"], col_w["src"], col_w["dest"], col_w["echo"], col_w["ptype"]
-        has_non_gs_src = any(src != protocol.GS_NODE for src, *_ in visible)
-        # Blank padding line between title and data
+        row_w = w - 1 if sb else w
+        # Sticky column header row — format strings match data rows exactly
+        hdr = Text()
+        hdr.append(f" #{'#':<{nw}} ", style=S_SEP)
+        if has_non_gs_src:
+            hdr.append(f" {'SRC':>{sw}} → {'DEST':<{dw}} ", style=S_SEP)
+        else:
+            hdr.append(f" {'DEST':<{dw}} ", style=S_SEP)
+        hdr.append(f" E:{'ECHO':<{ew}} ", style=S_SEP)
+        hdr.append(f" {'TYPE':<{pw}} ", style=S_SEP)
+        hdr.append(" CMD/ARGS", style=S_SEP)
+        hdr_right = Text("SIZE ", style=S_SEP)
         t.append("\n")
+        t.append_text(lr_line(hdr, hdr_right, row_w))
+        if count == 0:
+            t.append("\n  (empty — type a command below)", style=S_DIM)
+            return t
+        sending_idx = s.sending["idx"] if s.sending["active"] else -1
         for i, (src, dest, echo, ptype, cmd, args, raw_cmd) in enumerate(visible):
             ai = s.queue_scroll + i
             if sending_idx >= 0 and ai < sending_idx:
-                base, tag, ts = "#888888", " SENT", "#44bb66"
+                base, tag, ts = "#888888", " SENT", "#888888"
             elif sending_idx >= 0 and ai == sending_idx:
-                base, tag, ts = "bold #00ff87", " SENDING", "bold #00ff87"
+                import time as _time
+                flash = int(_time.time() * 1000 / 500) % 2 == 0
+                if flash:
+                    base, tag, ts = "reverse bold #00ff87", " SENT", "reverse bold #00ff87"
+                else:
+                    base, tag, ts = "on #003300 bold #00ff87", " SENT", "on #003300 bold #00ff87"
+            elif sending_idx >= 0 and ai == sending_idx + 1:
+                base, tag, ts = "", " NEXT", "bold #888888"
             else:
                 base, tag, ts = "", "", ""
+            uniform = "reverse" in base  # just-sent row: all fields use base only
             left = Text(style=base)
-            left.append(f" #{ai+1:<{nw}} ", style=f"{base} #ffd700" if not base else base)
+            left.append(f" #{ai+1:<{nw}} ", style=base if uniform else (f"{base} #ffffff" if not base else base))
             if has_non_gs_src:
-                left.append(f"{node_label(src):>{sw}} → ", style=f"{base} #00bfff" if not base else base)
-            left.append(f"{node_label(dest):<{dw}}  ", style=f"{base} #00bfff" if not base else base)
-            left.append(f"E:{node_label(echo):<{ew}}  ", style=f"{base} #888888")
+                left.append(f" {node_label(src):>{sw}} → {node_label(dest):<{dw}} ", style=base if uniform else (f"{base} #00bfff" if not base else base))
+            else:
+                left.append(f" {node_label(dest):<{dw}} ", style=base if uniform else (f"{base} #00bfff" if not base else base))
+            left.append(f" E:{node_label(echo):<{ew}} ", style=base if uniform else f"{base} {node_color(echo)}")
             pt = protocol.PTYPE_NAMES.get(ptype, str(ptype))
-            left.append(f"{pt:<{pw}}  ", style=f"{base} {ptype_color(ptype)}" if not base else base)
-            left.append(f"{cmd} ", style=f"{base} bold #ffffff" if not base else base)
+            left.append(f" {pt:<{pw}} ", style=base if uniform else (f"{base} {ptype_color(ptype)}" if not base else base))
+            left.append(f" {cmd} ", style=base if uniform else (f"{base} bold #ffffff" if not base else base))
             args_indent = left.cell_len
-            args_style = f"{base} #888888"
+            args_style = base if (uniform or base == "#888888") else f"{base} #ffffff"
             pending_args = None
             rs = f"{tag}  {len(raw_cmd)}B" if tag else f"{len(raw_cmd)}B"
-            right = Text(rs + " ", style=ts if tag else "#888888")
+            size_style = ts if tag else f"{base} #999999" if base else "#999999"
+            right = Text(rs + " ", style=size_style)
             if args:
                 avail = row_w - left.cell_len - right.cell_len
                 if avail >= len(args):
@@ -149,7 +172,7 @@ class TxQueue(ScrollableWidget):
                 else:
                     pending_args = args
             t.append("\n")
-            line = lr_line(left, right, row_w)
+            line = lr_line(left, right, row_w, fill_style=base)
             if sb:
                 line.append(" ", style=sb[i])
             t.append_text(line)
@@ -169,61 +192,86 @@ class SentHistory(ScrollableWidget):
     def _scroll_by(self, delta):
         s = self.s
         count = len(s.history)
-        data_rows = max(1, self.content_size.height - 1)
+        data_rows = max(1, self.content_size.height - 3)  # title + col header + blank
         s.hist_scroll = max(min(data_rows - 1, count - 1), min(count - 1, s.hist_scroll + delta))
         self.refresh()
 
     def render(self):
         s, w, h = self.s, self.content_size.width, self.content_size.height
         hist, count = s.history, len(s.history)
-        t = Text()
-        title = Text(f" SENT HISTORY ({count})", style=S_SUCCESS)
+        t = Text(no_wrap=True, overflow="crop")
+        title = Text()
+        title.append(f" SENT HISTORY ({count}) ", style="reverse bold #ffffff")
         data_rows = h - 1
-        if count == 0:
-            t.append_text(title)
-            t.append("\n\n  (no commands sent yet)", style=S_DIM)
-            return t
-        data_rows -= 1  # blank line between title and data
-        end = min(s.hist_scroll + 1, count)
-        start = max(0, end - data_rows)
+        # Compute visible slice first so header and data share same col widths
+        data_rows -= 2  # col header + blank line between title and data
+        if count > 0:
+            end = min(s.hist_scroll + 1, count)
+            start = max(0, end - data_rows)
+            visible = hist[start:end]
+            col_w = _hist_col_widths(visible)
+            has_non_gs_src = any(rec.get('src', protocol.GS_NODE) != protocol.GS_NODE for rec in visible)
+            sb = scrollbar_styles(count, data_rows, start, data_rows) if count > data_rows else []
+        else:
+            visible, start, end = [], 0, 0
+            col_w = _hist_col_widths([])
+            has_non_gs_src = False
+            sb = []
+        nw, sw, dw, ew, pw = col_w["num"], col_w["src"], col_w["dest"], col_w["echo"], col_w["ptype"]
+        row_w = w - 1 if sb else w
+        # Title line
         ind = Text(f"[{start+1}-{end}/{count}] ", style=S_DIM) if count > data_rows else Text()
         t.append_text(lr_line(title, ind, w))
-        t.append("\n\n")
-        visible = hist[start:end]
-        # Scrollbar
-        sb = scrollbar_styles(count, data_rows, start, data_rows) if count > data_rows else []
-        row_w = w - 1 if sb else w
-        col_w = _hist_col_widths(visible)
-        nw, sw, dw, ew, pw = col_w["num"], col_w["src"], col_w["dest"], col_w["echo"], col_w["ptype"]
-        has_non_gs_src = any(rec.get('src', protocol.GS_NODE) != protocol.GS_NODE for rec in visible)
+        # Sticky column header row — format strings match data rows exactly
+        hdr = Text()
+        hdr.append(f" #{'#':<{nw}} ", style=S_SEP)
+        hdr.append(f" {'TIME':8} ", style=S_SEP)
+        if has_non_gs_src:
+            hdr.append(f" {'SRC':>{sw}} → {'DEST':<{dw}} ", style=S_SEP)
+        else:
+            hdr.append(f" {'DEST':<{dw}} ", style=S_SEP)
+        hdr.append(f" E:{'ECHO':<{ew}} ", style=S_SEP)
+        hdr.append(f" {'TYPE':<{pw}} ", style=S_SEP)
+        hdr.append(" CMD/ARGS", style=S_SEP)
+        hdr_right = Text("SIZE ", style=S_SEP)
+        t.append("\n")
+        t.append_text(lr_line(hdr, hdr_right, row_w))
+        if count == 0:
+            t.append("\n  (no commands sent yet)", style=S_DIM)
+            return t
+        t.append("\n")
         for i, rec in enumerate(visible):
             src = rec.get('src', protocol.GS_NODE)
             left = Text()
-            left.append(f" #{rec['n']:<{nw}} ", style=S_SUCCESS)
-            left.append(f"{rec['ts']} ", style="#ffffff")
+            h_node = "#778899"  # cool slate for historical protocol data
+            h_val  = "#8899aa"  # slate for historical values
+            left.append(f" #{rec['n']:<{nw}} ", style=h_val)
+            left.append(f" {rec['ts']} ", style=h_val)
             if has_non_gs_src:
-                left.append(f"{node_label(src):>{sw}} → ", style="#00bfff")
-            left.append(f"{node_label(rec['dest']):<{dw}}  ", style="#00bfff")
-            left.append(f"E:{node_label(rec['echo']):<{ew}}  ", style=S_DIM)
+                left.append(f" {node_label(src):>{sw}} → {node_label(rec['dest']):<{dw}} ", style=h_node)
+            else:
+                left.append(f" {node_label(rec['dest']):<{dw}} ", style=h_node)
+            echo_c = "#888888" if protocol.NODE_NAMES.get(rec['echo']) == "NONE" else h_node
+            left.append(f" E:{node_label(rec['echo']):<{ew}} ", style=echo_c)
             pt = protocol.PTYPE_NAMES.get(rec['ptype'], '?')
-            left.append(f"{pt:<{pw}}  ", style=ptype_color(rec['ptype']))
-            left.append(f"{rec['cmd']} ", style=S_VALUE)
+            left.append(f" {pt:<{pw}} ", style=h_node)
+            left.append(f" {rec['cmd']} ", style=f"{h_val} bold")
             args_indent = left.cell_len
             pending_args = None
             if rec["args"]:
-                right = Text(f"{rec['payload_len']}B ", style=S_DIM)
+                right = Text(f"{rec['payload_len']}B ", style="#999999")
                 avail = row_w - left.cell_len - right.cell_len
                 if avail >= len(rec["args"]):
-                    left.append(rec["args"], style=S_DIM)
+                    left.append(rec["args"], style=h_val)
                 else:
                     pending_args = rec["args"]
-            line = lr_line(left, Text(f"{rec['payload_len']}B ", style=S_DIM), row_w)
+            line = lr_line(left, Text(f"{rec['payload_len']}B ", style="#999999"), row_w)
             if sb:
                 line.append(" ", style=sb[i])
             t.append_text(line)
             t.append("\n")
             if pending_args:
-                append_wrapped_args(t, pending_args, args_indent, S_DIM, row_w)
+                append_wrapped_args(t, pending_args, args_indent, h_val, row_w)
                 t.append("\n")
         return t
 
@@ -235,9 +283,14 @@ class TxStatusBar(Widget):
         super().__init__(**kw)
         self.s = state
     def render(self):
+        s = self.s
         t = Text(no_wrap=True, overflow="crop")
-        if self.s.status.text:
-            t.append(f" {self.s.status.text}", style=S_WARNING)
+        if s.sending.get("active"):
+            idx = s.sending.get("idx", 0)
+            total = s.sending.get("total", len(s.tx_queue))
+            t.append(f" SENT {idx + 1}/{total}", style=S_SUCCESS)
+        elif s.status.text:
+            t.append(f" {s.status.text}", style=S_WARNING)
         t.truncate(self.content_size.width)
         return t
 
@@ -257,14 +310,23 @@ HELP_LINES = [
     ("Ctrl+W / Ctrl+U", "Del word / clear input"),
     ("COMMANDS", None), ("send", "Send all queued"), ("undo / pop", "Remove last queued"),
     ("clear / hclear", "Clear queue / history"), ("cfg / help / nodes", "Panels & info"),
-    ("mode [AX.25|ASM+Golay]", "Switch uplink encoding"),
+    ("mode [AX.25|ASM+GOLAY]", "Switch uplink encoding"),
     ("imp [file]", "Import from generated_commands/"), ("raw <hex>", "Send raw bytes"), ("q", "Exit"),
 ]
 
+def _is_golay(v): return v.get("uplink_mode") == "ASM+Golay"
+def _is_ax25(v): return v.get("uplink_mode") == "AX.25"
+
 CONFIG_FIELDS = [
-    ("Uplink Mode", "uplink_mode", ("cycle", ["AX.25", "ASM+Golay"], {"AX.25": S_WARNING, "ASM+Golay": S_SUCCESS})),
-    ("AX.25 Src Call", "ax25_src_call", True), ("AX.25 Src SSID", "ax25_src_ssid", True),
-    ("AX.25 Dest Call", "ax25_dest_call", True), ("AX.25 Dest SSID", "ax25_dest_ssid", True),
+    ("Uplink Mode", "uplink_mode", ("cycle", ["AX.25", "ASM+Golay"], {"AX.25": Style(color="#6699cc", bold=True), "ASM+Golay": Style(color="#55bbaa", bold=True)}, {"ASM+Golay": "ASM+GOLAY"})),
+    # ASM+Golay fields
+    ("ASM Sync Word", "asm_hw", ("cycle", ["HW (AX100)", "GR (gr-sat)"], {"HW (AX100)": Style(color="#55bbaa", bold=True), "GR (gr-sat)": Style(color="#6699cc", bold=True)}), _is_golay),
+    # AX.25 fields
+    ("AX.25 Src Call", "ax25_src_call", True, _is_ax25),
+    ("AX.25 Src SSID", "ax25_src_ssid", True, _is_ax25),
+    ("AX.25 Dest Call", "ax25_dest_call", True, _is_ax25),
+    ("AX.25 Dest SSID", "ax25_dest_ssid", True, _is_ax25),
+    # Common fields (always visible)
     ("CSP Priority", "csp_prio", True), ("CSP Source", "csp_src", True),
     ("CSP Destination", "csp_dest", True), ("CSP Dest Port", "csp_dport", True),
     ("CSP Src Port", "csp_sport", True), ("CSP Flags", "csp_flags", True),
@@ -272,10 +334,11 @@ CONFIG_FIELDS = [
     ("TX Delay (ms)", "tx_delay_ms", True),
 ]
 
-def config_get_values(csp, ax25, freq, zmq_addr, tx_delay_ms, uplink_mode="AX.25"):
+def config_get_values(csp, ax25, freq, zmq_addr, tx_delay_ms, uplink_mode="AX.25", asm_hw=True):
     """Extract current TX config values for the config modal."""
     return {
         "uplink_mode": uplink_mode,
+        "asm_hw": "HW (AX100)" if asm_hw else "GR (gr-sat)",
         "ax25_src_call": ax25.src_call, "ax25_src_ssid": str(ax25.src_ssid),
         "ax25_dest_call": ax25.dest_call, "ax25_dest_ssid": str(ax25.dest_ssid),
         "csp_prio": str(csp.prio), "csp_src": str(csp.src), "csp_dest": str(csp.dest),
@@ -292,7 +355,8 @@ def config_apply(values, csp, ax25):
     csp.prio = int(values["csp_prio"], 0); csp.src = int(values["csp_src"], 0)
     csp.dest = int(values["csp_dest"], 0); csp.dport = int(values["csp_dport"], 0)
     csp.sport = int(values["csp_sport"], 0); csp.flags = int(values["csp_flags"], 0)
-    return values["freq"], values["zmq_addr"], max(0, int(values["tx_delay_ms"])), values["uplink_mode"]
+    asm_hw = values["asm_hw"] == "HW (AX100)"
+    return values["freq"], values["zmq_addr"], max(0, int(values["tx_delay_ms"])), values["uplink_mode"], asm_hw
 
 def tx_help_info(s):
     """Return (version, schema_count, schema_path, log_path) for the help panel."""
