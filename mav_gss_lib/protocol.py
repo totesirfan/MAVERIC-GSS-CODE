@@ -120,7 +120,13 @@ def kiss_wrap(raw_cmd):
 #    Packet 2 (AX100):  CRC-32C = 0xB23EFBC3  ✓
 # =============================================================================
 
-import crcmod.predefined as _crcmod
+try:
+    import crcmod.predefined as _crcmod
+except ImportError:
+    raise ImportError(
+        "crcmod is required for CRC computation but not installed. "
+        "Install with: pip install crcmod   (or: conda install crcmod)"
+    ) from None
 
 _crc16_fn = _crcmod.mkCrcFun('xmodem')
 _crc32c_fn = _crcmod.mkCrcFun('crc-32c')
@@ -534,7 +540,7 @@ def load_command_defs(path="maveric_commands.yml"):
                 "suggestions": [str(s) for s in (spec.get("suggestions") or [])],
             }
         return defs, None
-    except (OSError, yaml.YAMLError):
+    except (OSError, yaml.YAMLError, AttributeError):
         msg = f"Could not load {path} -- all commands will be unrecognized"
         warnings.warn(msg, stacklevel=2)
         return {}, msg
@@ -586,7 +592,7 @@ def apply_schema(cmd, cmd_defs):
                 ta["important"] = True
             typed.append(ta)
             # Surface the first resolved timestamp for SAT TIME display
-            if arg_def["type"] == "epoch_ms" and "ms" in value and sat_time is None:
+            if arg_def["type"] == "epoch_ms" and isinstance(value, (_LazyEpochMs, dict)) and sat_time is None:
                 sat_time = (value["utc"], value["local"], value["ms"])
 
     extra = raw_args[len(schema_args):]
@@ -720,7 +726,7 @@ def format_arg_value(typed_arg):
 
     For epoch_ms args with resolved dicts, returns the ms string.
     For all other args, returns str(value)."""
-    if typed_arg["type"] == "epoch_ms" and "ms" in typed_arg["value"]:
+    if typed_arg["type"] == "epoch_ms" and isinstance(typed_arg["value"], (_LazyEpochMs, dict)):
         return str(typed_arg["value"]["ms"])
     return str(typed_arg["value"])
 

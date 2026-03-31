@@ -4,6 +4,8 @@ mav_gss_lib.tui_tx -- TX Dashboard Widgets (Textual)
 Author:  Irfan Annuar - USC ISI SERC
 """
 
+import time
+
 from rich.style import Style
 from rich.text import Text
 from mav_gss_lib.tui_common import Widget, ScrollableWidget
@@ -13,7 +15,7 @@ from mav_gss_lib.protocol import node_label
 from mav_gss_lib.tui_common import (
     S_LABEL, S_VALUE, S_SUCCESS, S_WARNING, S_ERROR, S_DIM, S_SEP, lr_line,
     scrollbar_styles, append_wrapped_args, build_header,
-    TS_SHORT, ptype_color, node_color, compute_col_widths,
+    TS_SHORT, ptype_color, node_color, compute_col_widths, title_style,
 )
 
 
@@ -54,8 +56,6 @@ class TxHeader(Widget):
         zmq_style = S_SUCCESS if s.zmq_status == "LIVE" else S_VALUE
         mode_style = Style(color="#55bbaa", bold=True) if s.uplink_mode == "ASM+Golay" else Style(color="#6699cc", bold=True)
         mode_label = "ASM+GOLAY" if s.uplink_mode == "ASM+Golay" else s.uplink_mode
-        if s.uplink_mode == "ASM+Golay":
-            mode_label += f" ({'HW' if s.asm_hw else 'GR'})"
         zmq_val = Text()
         zmq_val.append(s.zmq_addr_disp, style=S_VALUE)
         zmq_val.append(f" [{s.zmq_status}]", style=zmq_style)
@@ -63,8 +63,7 @@ class TxHeader(Widget):
             ("ZMQ", zmq_val, None),
             ("Mode", mode_label, mode_style),
         ]
-        right = []
-        t, _ = build_header("MAVERIC UPLINK", S_LABEL, items, w, right_items=right)
+        t, _ = build_header("MAVERIC UPLINK", S_LABEL, items, w)
         return t
 
 
@@ -87,7 +86,7 @@ class TxQueue(ScrollableWidget):
         s, w, h = self.s, self.content_size.width, self.content_size.height
         q, count = s.tx_queue, len(s.tx_queue)
         title = Text()
-        title.append(f" TX QUEUE ({count}) ", style="reverse bold #ffffff")
+        title.append(f" TX QUEUE ({count}) ", style=title_style(self.has_focus))
         title.append(f"  buf: {s.tx_delay_ms}ms", style=S_DIM)
         if count > 1:
             t_ms = (count - 1) * s.tx_delay_ms
@@ -138,8 +137,7 @@ class TxQueue(ScrollableWidget):
             if sending_idx >= 0 and ai < sending_idx:
                 base, tag, ts = "#888888", " SENT", "#888888"
             elif sending_idx >= 0 and ai == sending_idx:
-                import time as _time
-                flash = int(_time.time() * 1000 / 500) % 2 == 0
+                flash = int(time.time() * 1000 / 500) % 2 == 0
                 if flash:
                     base, tag, ts = "reverse bold #00ff87", " SENT", "reverse bold #00ff87"
                 else:
@@ -201,7 +199,7 @@ class SentHistory(ScrollableWidget):
         hist, count = s.history, len(s.history)
         t = Text(no_wrap=True, overflow="crop")
         title = Text()
-        title.append(f" SENT HISTORY ({count}) ", style="reverse bold #ffffff")
+        title.append(f" SENT HISTORY ({count}) ", style=title_style(self.has_focus))
         data_rows = h - 1
         # Compute visible slice first so header and data share same col widths
         data_rows -= 2  # col header + blank line between title and data
@@ -258,14 +256,14 @@ class SentHistory(ScrollableWidget):
             left.append(f" {rec['cmd']} ", style=f"{h_val} bold")
             args_indent = left.cell_len
             pending_args = None
+            right = Text(f"{rec['payload_len']}B ", style="#999999")
             if rec["args"]:
-                right = Text(f"{rec['payload_len']}B ", style="#999999")
                 avail = row_w - left.cell_len - right.cell_len
                 if avail >= len(rec["args"]):
                     left.append(rec["args"], style=h_val)
                 else:
                     pending_args = rec["args"]
-            line = lr_line(left, Text(f"{rec['payload_len']}B ", style="#999999"), row_w)
+            line = lr_line(left, right, row_w)
             if sb:
                 line.append(" ", style=sb[i])
             t.append_text(line)
@@ -319,8 +317,6 @@ def _is_ax25(v): return v.get("uplink_mode") == "AX.25"
 
 CONFIG_FIELDS = [
     ("Uplink Mode", "uplink_mode", ("cycle", ["AX.25", "ASM+Golay"], {"AX.25": Style(color="#6699cc", bold=True), "ASM+Golay": Style(color="#55bbaa", bold=True)}, {"ASM+Golay": "ASM+GOLAY"})),
-    # ASM+Golay fields
-    ("ASM Sync Word", "asm_hw", ("cycle", ["HW (AX100)", "GR (gr-sat)"], {"HW (AX100)": Style(color="#55bbaa", bold=True), "GR (gr-sat)": Style(color="#6699cc", bold=True)}), _is_golay),
     # AX.25 fields
     ("AX.25 Src Call", "ax25_src_call", True, _is_ax25),
     ("AX.25 Src SSID", "ax25_src_ssid", True, _is_ax25),
@@ -334,11 +330,10 @@ CONFIG_FIELDS = [
     ("TX Delay (ms)", "tx_delay_ms", True),
 ]
 
-def config_get_values(csp, ax25, freq, zmq_addr, tx_delay_ms, uplink_mode="AX.25", asm_hw=True):
+def config_get_values(csp, ax25, freq, zmq_addr, tx_delay_ms, uplink_mode="AX.25"):
     """Extract current TX config values for the config modal."""
     return {
         "uplink_mode": uplink_mode,
-        "asm_hw": "HW (AX100)" if asm_hw else "GR (gr-sat)",
         "ax25_src_call": ax25.src_call, "ax25_src_ssid": str(ax25.src_ssid),
         "ax25_dest_call": ax25.dest_call, "ax25_dest_ssid": str(ax25.dest_ssid),
         "csp_prio": str(csp.prio), "csp_src": str(csp.src), "csp_dest": str(csp.dest),
@@ -355,8 +350,7 @@ def config_apply(values, csp, ax25):
     csp.prio = int(values["csp_prio"], 0); csp.src = int(values["csp_src"], 0)
     csp.dest = int(values["csp_dest"], 0); csp.dport = int(values["csp_dport"], 0)
     csp.sport = int(values["csp_sport"], 0); csp.flags = int(values["csp_flags"], 0)
-    asm_hw = values["asm_hw"] == "HW (AX100)"
-    return values["freq"], values["zmq_addr"], max(0, int(values["tx_delay_ms"])), values["uplink_mode"], asm_hw
+    return values["freq"], values["zmq_addr"], max(0, int(values["tx_delay_ms"])), values["uplink_mode"]
 
 def tx_help_info(s):
     """Return (version, schema_count, schema_path, log_path) for the help panel."""

@@ -107,8 +107,8 @@ class RxPipeline:
         is_unknown, unknown_num = self._classify_unknown(cmd)
         is_uplink_echo = self._check_uplink_echo(cmd)
 
-        # Rate tracking — exclude uplink echoes
-        self._update_rate(now, is_uplink_echo)
+        # Rate tracking — exclude uplink echoes and unknown packets
+        self._update_rate(now, is_uplink_echo, is_unknown)
         self.last_arrival = now
 
         # Manual f-string formatting — avoids strftime C locale overhead
@@ -200,9 +200,9 @@ class RxPipeline:
             self.uplink_echo_count += 1
         return is_echo
 
-    def _update_rate(self, now, is_uplink_echo):
-        """Track packet rate, excluding uplink echoes."""
-        if not is_uplink_echo:
+    def _update_rate(self, now, is_uplink_echo, is_unknown):
+        """Track packet rate, excluding uplink echoes and unknown packets."""
+        if not is_uplink_echo and not is_unknown:
             self.pkt_times.append(now)
         while self.pkt_times and self.pkt_times[0] <= now - 60.0:
             self.pkt_times.popleft()

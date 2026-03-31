@@ -3,28 +3,50 @@ mav_gss_lib.golay -- ASM+Golay Uplink Encoder (AX100 Mode 5)
 
 Self-contained encoder for the ASM+Golay over-the-air frame format
 used by the GomSpace AX100 radio in Mode 5 (AX100 Software Manual
-§10.1.5), validated against gr-satellites u482c_decode.
+§10.1.5).  Validated against both gr-satellites u482c_decode and
+live AX100 hardware reception.
 
-Frame layout (Manual §10.1.5, always 312 bytes):
+Over-the-air frame layout (Manual §10.1.5, always 312 bytes):
     [preamble 50B] [ASM 4B] [golay 3B] [data field 255B]
 
-The Golay 12-bit field encodes flags + frame length:
-    bit 11:   unused
-    bit 10:   RS flag (1 = Reed-Solomon enabled)
-    bit 9:    scrambler flag (1 = CCSDS randomization enabled)
-    bit 8:    viterbi flag (0 for Mode 5)
-    bits 7-0: frame_len (= payload_len + 32 RS parity)
+ASM sync word: 0x930B51DE
+    The AX100 manual specifies 0xC9D08A7B as the register value
+    (§10.1.2), but the AX5043 radio chip serializes bits LSB-first
+    per byte, so the actual over-the-air bit pattern is 0x930B51DE
+    (each byte bit-reversed).  Since gfsk_mod(do_unpack=True) sends
+    bytes MSB-first, we use the over-the-air value directly — no
+    bit reversal needed.  Validated against both gr-satellites'
+    ax100_deframer and live AX100 hardware reception.
 
-The data field contains the CCSDS-scrambled RS codeword, zero-padded
-to 255 bytes.  The RS codeword is dynamically shortened:
-RS(frame_len, payload_len) using conventional (non-CCSDS-dual-basis)
-RS with pad = 255 - frame_len.
+Golay(24,12) header — 3 bytes, 24 bits:
+    Codeword format: [12 parity bits (upper)] [12 data bits (lower)]
+    The 12-bit data field contains the frame length in the lower 8
+    bits.  The U482C protocol defines bits 8-10 as optional flags
+    (viterbi, scrambler, RS), but real AX100 TX packets leave these
+    zero — the AX100 controls FEC via config parameters (csp_rs,
+    csp_rand), not per-frame flags.  gr-satellites' ax100_deframer
+    confirms this by hardcoding RS=1 and scrambler from config,
+    ignoring the per-frame flag bits entirely.
 
-Encoding: NRZ, MSB first (Manual §10.1.5).
-Scrambler polynomial: h(x) = x^8+x^7+x^5+x^3+1 (Manual §10.2.3).
-ASM sync word (selectable via asm_hw flag):
-    HW:  0xC9D08A7B — Manual §10.1.2: "0xC9D08A7B MSB (Unencoded)"
-    GR:  0x930B51DE — bit-reversed per byte, gr-satellites ax100_deframer
+Data field processing order (Manual §10.2):
+    CSP packet → CRC-32C (via csp.wrap()) → RS(255,223) encode
+    → CCSDS scramble → zero-pad to 255 bytes
+
+Reed-Solomon: CCSDS conventional RS(255,223) via libfec/libcorrect.
+    GF(2^8), primitive poly 0x187, fcr=112, prim=11, 32 parity bytes.
+    Dynamically shortened: pad = 223 - payload_len.
+
+CCSDS scrambler: polynomial h(x) = x^8+x^7+x^5+x^3+1 (§10.2.3).
+    XORed over the RS codeword only (not preamble/ASM/Golay header).
+
+Encoding: NRZ, MSB first (§10.1.5).  No G3RUH, no NRZI — those
+    are Mode 6 (AX.25) only.  The gfsk_mod block handles GFSK
+    modulation; this encoder just builds the baseband byte frame.
+
+Configuration requirements:
+    - AX100 must have mode=5, csp_rs=true, csp_crc=true, csp_rand=true
+    - After switching the AX100 to Mode 5, run 'config load 1' to
+      force the AX5043 radio chip to reinitialize its RX registers
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -96,8 +118,7 @@ else:
 # -- Constants ----------------------------------------------------------------
 
 PREAMBLE   = b'\xAA' * 50                    # Manual Table 5.4: preamb=0xAA, preamblen=50
-ASM_HW     = bytes([0xC9, 0xD0, 0x8A, 0x7B]) # Manual §10.1.2: 0xC9D08A7B (AX100 hardware)
-ASM_GR     = bytes([0x93, 0x0B, 0x51, 0xDE]) # bit-reversed per byte (gr-satellites convention)
+ASM        = bytes([0x93, 0x0B, 0x51, 0xDE]) # Over-the-air ASM sync word (0x930B51DE)
 RS_PARITY  = 32                              # Manual §10.2.2: RS(223,255), 32-byte parity
 MAX_PAYLOAD = 223                            # max RS data capacity (255 - 32)
 
@@ -166,10 +187,13 @@ def ccsds_scrambler_sequence(length):
 _PN_MAX = ccsds_scrambler_sequence(255)
 
 
-# -- Golay(24,12) Encoder (matching gr-satellites golay24.c) -------------------
+# -- Golay(24,12) Encoder -----------------------------------------------------
 
-# Generator matrix rows from gr-satellites (Morelos-Zaragoza construction).
-# Each row is a 24-bit value; lower 12 bits are the B(i) parity sub-matrix.
+# Generator matrix rows (Morelos-Zaragoza construction, matches gr-satellites
+# golay24.c).  Each 24-bit row: upper 12 = identity bit, lower 12 = parity
+# sub-matrix B(i).  The parity computation s = B * r (dot-product per row)
+# is mathematically equivalent to XOR-of-selected-rows due to the anti-
+# diagonal symmetry of B for the extended Golay code.
 _GOLAY_H = [
     0x8008ed, 0x4001db, 0x2003b5, 0x100769, 0x80ed1, 0x40da3,
     0x20b47,  0x1068f,  0x8d1d,   0x4a3b,   0x2477,  0x1ffe,
@@ -179,8 +203,12 @@ _GOLAY_H = [
 def golay_encode(value_12bit):
     """Encode a 12-bit value into a 24-bit Golay(24,12) codeword.
 
-    Matches gr-satellites golay24.c encode_golay24() exactly.
-    Format: [12 parity bits][12 data bits] (MSB first, 3 bytes)."""
+    Codeword format: [12 parity bits (upper)] [12 data bits (lower)].
+    gr-satellites u482c_decode extracts data from the lower 12 bits:
+        frame_len = length_field & 0xff
+        viterbi   = length_field & 0x100
+        scrambler = length_field & 0x200
+        rs        = length_field & 0x400"""
     r = value_12bit & 0xFFF
     s = 0
     for i in range(12):
@@ -192,22 +220,23 @@ def golay_encode(value_12bit):
 
 # -- Frame Assembly -----------------------------------------------------------
 
-def build_asm_golay_frame(csp_packet, asm_hw=True):
+def build_asm_golay_frame(csp_packet):
     """Build complete ASM+Golay over-the-air frame from a CSP packet.
 
-    Follows AX100 Manual §10.1.5 frame layout and §10.2 FEC order,
-    validated against gr-satellites u482c_decode:
-      - Golay 12-bit field: RS flag | scrambler flag | frame_len
-      - RS: conventional (decode_rs_8), dynamically shortened
-      - CCSDS scrambler on the RS codeword (§10.2.3)
-      - Data field zero-padded to 255 bytes
+    Produces a 312-byte frame ready for GFSK modulation via GNU Radio's
+    gfsk_mod(do_unpack=True).  Bytes go directly to the modulator with
+    no bit reversal — gfsk_mod sends MSB first, which produces the
+    correct over-the-air bit pattern with ASM 0x930B51DE.
+
+    Processing pipeline (Manual §10.2):
+        CSP packet (with CRC-32C) → RS encode → CCSDS scramble
+        → Golay header → ASM sync → preamble → 312-byte frame
 
     Args:
-        csp_packet: CSP packet bytes (max 223B).
-        asm_hw:     True  = AX100 hardware ASM (0xC9D08A7B),
-                    False = gr-satellites ASM (0x930B51DE, bit-reversed).
+        csp_packet: CSP packet bytes (max 223B), including 4B CSP
+                    header and 4B CRC-32C appended by CSPConfig.wrap().
 
-    Output: 312-byte frame ready for GFSK modulation.
+    Output: 312-byte frame:
             [preamble 50B][ASM 4B][golay 3B][data field 255B]"""
     if not _GR_RS_OK:
         raise RuntimeError("libfec not found — cannot build ASM+Golay frame")
@@ -215,20 +244,22 @@ def build_asm_golay_frame(csp_packet, asm_hw=True):
     if plen > MAX_PAYLOAD:
         raise ValueError(f"CSP packet {plen}B exceeds RS capacity {MAX_PAYLOAD}B")
 
-    # RS encode (conventional, shortened)
+    # 1. RS encode (conventional, dynamically shortened)
     rs_codeword = rs_encode(csp_packet)     # plen + 32 bytes
     frame_len = len(rs_codeword)            # = plen + 32
 
-    # CCSDS scrambler (only frame_len bytes) — bulk int XOR is ~13x faster than per-byte loop
+    # 2. CCSDS scrambler (XOR with PN sequence, only frame_len bytes)
     pn = _PN_MAX[:frame_len]
     scrambled = (int.from_bytes(rs_codeword, 'big') ^ int.from_bytes(pn, 'big')).to_bytes(frame_len, 'big')
 
-    # Golay field: [unused 1][rs 1][scrambler 1][viterbi 1][frame_len 8]
-    golay_value = (1 << 10) | (1 << 9) | (frame_len & 0xFF)
+    # 3. Golay header — 12-bit data: plain frame_len, no flags.
+    #    The U482C protocol defines bits 8-10 as viterbi/scrambler/RS flags,
+    #    but real AX100 packets leave these zero.  FEC is controlled by config
+    #    params (csp_rs, csp_rand), not per-frame flags.  gr-satellites'
+    #    ax100_deframer hardcodes RS/scrambler from config, ignoring flags.
+    golay_value = frame_len & 0xFF
     golay_field = golay_encode(golay_value)
 
-    # Pad data field to 255 bytes (Manual §10.1.5: [Sync][Golay][Data Field])
+    # 4. Assemble: [preamble][ASM][golay][data field zero-padded to 255B]
     data_field = scrambled.ljust(255, b'\x00')
-
-    asm = ASM_HW if asm_hw else ASM_GR
-    return PREAMBLE + asm + golay_field + data_field
+    return PREAMBLE + ASM + golay_field + data_field

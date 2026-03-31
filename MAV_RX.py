@@ -26,10 +26,9 @@ from mav_gss_lib.parsing import RxPipeline, build_rx_log_record
 from mav_gss_lib.logging import SessionLog
 from mav_gss_lib.tui_common import (StatusMessage, SplashScreen,
                                     Hints, HelpPanel, ConfigScreen, MavAppBase,
-                                    dispatch_common,
+                                    dispatch_common, TS_FULL,
                                     STATUS_BRIEF, STATUS_NORMAL, STATUS_LONG, STATUS_STARTUP)
 from mav_gss_lib.config import load_gss_config
-from mav_gss_lib.tui_common import TS_FULL
 from mav_gss_lib.tui_rx import (
     RxHeader, PacketList, PacketDetail,
     RX_HELP_LINES, RX_CONFIG_FIELDS, rx_config_get_values, rx_help_info,
@@ -94,6 +93,7 @@ class RxState:
     hide_uplink: bool = True
     logging_enabled: bool = True
     receiving: bool = False
+    receiving_unknown: bool = False
     frequency: str = "--"
     error_status: StatusMessage = field(default_factory=StatusMessage)
     status: StatusMessage = field(default_factory=StatusMessage)
@@ -144,6 +144,7 @@ def _drain_rx_queue(state, pkt_queue):
             continue
         if not pkt_record.is_uplink_echo:
             state.last_watchdog = time.time()
+            state.receiving_unknown = pkt_record.is_unknown
         if state.pipeline.frequency is not None:
             state.frequency = state.pipeline.frequency
         state.last_pkt_ts = pkt_record.gs_ts

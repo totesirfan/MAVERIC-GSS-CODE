@@ -12,11 +12,10 @@ from mav_gss_lib.tui_common import Widget
 
 import mav_gss_lib.protocol as protocol
 from mav_gss_lib.protocol import node_label, ptype_label, format_arg_value
-from rich.text import Text as RichText
 from mav_gss_lib.tui_common import (
     S_LABEL, S_VALUE, S_SUCCESS, S_WARNING, S_ERROR, S_DIM, S_SEP, lr_line,
     scrollbar_styles, append_wrapped_args, build_header,
-    TS_SHORT, frame_color, ptype_color, node_color, compute_col_widths,
+    TS_SHORT, frame_color, ptype_color, node_color, compute_col_widths, title_style,
 )
 
 class RxHeader(Widget):
@@ -32,7 +31,7 @@ class RxHeader(Widget):
         s, w = self.s, self.content_size.width
         st = self._zmq[0]
         zmq_style = S_SUCCESS if st == "LIVE" else (S_ERROR if st == "DOWN" else S_VALUE)
-        zmq_val = RichText()
+        zmq_val = Text()
         zmq_val.append(s.zmq_addr, style=S_VALUE)
         zmq_val.append(f" [{st}]", style=zmq_style)
         qdepth = self._q.qsize()
@@ -42,9 +41,9 @@ class RxHeader(Widget):
         hex_lbl = S_LABEL if s.show_hex else S_DIM
         ul_lbl = S_DIM if s.hide_uplink else S_LABEL
         q_lbl = S_LABEL if qdepth else S_DIM
-        hex_t = RichText(); hex_t.append("HEX:", style=hex_lbl); hex_t.append("ON" if s.show_hex else "OFF", style=hex_s)
-        ul_t = RichText(); ul_t.append("UL:", style=ul_lbl); ul_t.append("HIDE" if s.hide_uplink else "SHOW", style=ul_s)
-        q_t = RichText(); q_t.append("Queue:", style=q_lbl); q_t.append(str(qdepth), style=q_s)
+        hex_t = Text(); hex_t.append("HEX:", style=hex_lbl); hex_t.append("ON" if s.show_hex else "OFF", style=hex_s)
+        ul_t = Text(); ul_t.append("UL:", style=ul_lbl); ul_t.append("HIDE" if s.hide_uplink else "SHOW", style=ul_s)
+        q_t = Text(); q_t.append("Queue:", style=q_lbl); q_t.append(str(qdepth), style=q_s)
         items = [
             ("ZMQ", zmq_val, None),
             ("", hex_t, None),
@@ -152,7 +151,7 @@ class PacketList(Widget):
         auto = (s.selected_idx == -1)
         t = Text(no_wrap=True, overflow="crop")
         title = Text()
-        title.append(f" PACKETS ({count}) ", style="reverse bold #ffffff")
+        title.append(f" PACKETS ({count}) ", style=title_style(self.has_focus))
         title.append("  Auto Scroll:", style=S_DIM if auto else S_LABEL)
         title.append("ON" if auto else "OFF", style=S_DIM if auto else S_WARNING)
         if not auto:
@@ -271,10 +270,16 @@ class PacketList(Widget):
             spin_char = s.spinner[s.spin_idx] if s.spinner else "▸"
             if s.receiving:
                 flash = int(time.time() * 1000 / 500) % 2 == 0
-                if flash:
-                    rs, fill = "reverse bold #00ff87", "reverse #00ff87"
+                if s.receiving_unknown:
+                    if flash:
+                        rs, fill = "reverse bold #ffd700", "reverse #ffd700"
+                    else:
+                        rs, fill = "on #332b00 bold #ffd700", "on #332b00"
                 else:
-                    rs, fill = "on #003300 bold #00ff87", "on #003300"
+                    if flash:
+                        rs, fill = "reverse bold #00ff87", "reverse #00ff87"
+                    else:
+                        rs, fill = "on #003300 bold #00ff87", "on #003300"
                 t.append(f" {spin_char:<5}", style=rs)
                 t.append("  Received", style=rs)
                 remaining = w - t.cell_len
@@ -300,13 +305,13 @@ class PacketList(Widget):
                                     col_w["dest"], col_w["echo"], col_w["ptype"])
         left = Text(style=b)
         if pkt.get("is_unknown") and pkt.get("unknown_num") is not None:
-            left.append(f" {'U-' + str(pkt['unknown_num']):<{nw}} ", style=f"{b} #ff4444")
+            left.append(f" {'U-' + str(pkt['unknown_num']):<{nw}} ", style=f"{b} #ffd700")
         else:
             left.append(f" {'#' + str(pkt.get('pkt_num',0)):<{nw}} ", style=f"{b} #ffffff")
         left.append(f" {pkt.get('gs_ts_short','??:??:??')} ", style=f"{b} #ffffff")
         self._pending_args = None
         if pkt.get("is_unknown"):
-            left.append(f" {'UNKNOWN':<{fw}} ", style=f"{b} bold #ff4444")
+            left.append(f" {'UNKNOWN':<{fw}} ", style=f"{b} bold #ffd700")
         else:
             ft = pkt.get("frame_type", "???")
             left.append(f" {ft:<{fw}} ", style=f"{b} {frame_color(ft)}")
@@ -428,7 +433,7 @@ class PacketDetail(Widget):
         ts_r = pkt.get("ts_result")
         title = Text()
         if is_unk and pkt.get("unknown_num") is not None:
-            title.append(f" UNKNOWN U-{pkt['unknown_num']} ", style=S_ERROR)
+            title.append(f" UNKNOWN U-{pkt['unknown_num']} ", style=S_WARNING)
         else:
             title.append(f" PACKET #{pkt.get('pkt_num',0)} DETAIL ", style="reverse bold #ffffff")
         if ts_r:

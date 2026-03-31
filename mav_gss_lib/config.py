@@ -18,7 +18,7 @@ _DEFAULTS = {
         4: "HOLONAV", 5: "ASTROBOARD", 6: "GS", 7: "FTDI",
     },
     "ptypes": {
-        0: "NONE", 1: "REQ", 2: "RES", 3: "ACK",
+        1: "CMD", 2: "RES", 3: "ACK", 4: "TLM", 5: "FILE",
     },
     "ax25": {
         "src_call":  "WM2XBB",
@@ -39,7 +39,6 @@ _DEFAULTS = {
         "frequency": "437.25 MHz",
         "delay_ms":  500,
         "uplink_mode": "AX.25",
-        "asm_hw": True,
     },
     "rx": {
         "zmq_port": 52001,
@@ -132,7 +131,7 @@ def apply_csp(cfg, csp):
 
 
 def update_cfg_from_state(cfg, csp, ax25, freq=None, zmq_addr=None, tx_delay_ms=None,
-                          uplink_mode=None, asm_hw=None):
+                          uplink_mode=None):
     """Sync runtime state back into the config dict for saving."""
     _sync_to_cfg(cfg["ax25"], ax25, _AX25_MAP)
     _sync_to_cfg(cfg["csp"], csp, _CSP_MAP)
@@ -144,8 +143,6 @@ def update_cfg_from_state(cfg, csp, ax25, freq=None, zmq_addr=None, tx_delay_ms=
         cfg["tx"]["delay_ms"] = tx_delay_ms
     if uplink_mode is not None:
         cfg["tx"]["uplink_mode"] = uplink_mode
-    if asm_hw is not None:
-        cfg["tx"]["asm_hw"] = asm_hw
 
 
 def ax25_handle_msg(ax25, args):

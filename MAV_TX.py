@@ -57,7 +57,6 @@ CMD_DEFS_PATH = CFG["general"]["command_defs"]
 FREQUENCY     = CFG["tx"]["frequency"]
 TX_DELAY_MS   = CFG["tx"]["delay_ms"]
 UPLINK_MODE   = CFG["tx"].get("uplink_mode", "AX.25")
-ASM_HW        = CFG["tx"].get("asm_hw", True)
 MAX_HISTORY   = 500
 MAX_CMD_HISTORY = 500
 QUEUE_FILE = os.path.join(LOG_DIR, ".pending_queue.jsonl")
@@ -150,11 +149,18 @@ def _import_file(state, filename):
     """Import commands from a JSONL file into the TX queue.
     Returns (loaded_count, skipped_count) or raises FileNotFoundError."""
     entries, skipped = _parse_jsonl_file(os.path.join(IMPORT_DIR, filename))
+    overhead = state.csp.overhead() if state.uplink_mode == "ASM+Golay" else state.csp.overhead() + state.ax25.overhead()
+    accepted = []
     for e in entries:
+        raw_cmd = e[6]
+        if len(raw_cmd) + overhead > MAX_RS_PAYLOAD:
+            skipped += 1
+            continue
         state.tx_queue.append(e)
         _append_queue(e)
-    if entries: state._queue_dirty = True
-    return len(entries), skipped
+        accepted.append(e)
+    if accepted: state._queue_dirty = True
+    return len(accepted), skipped
 
 # -- State (widgets read directly) --------------------------------------------
 
@@ -190,7 +196,6 @@ class TxState:
     sending: dict = field(default_factory=lambda: {"active": False, "idx": -1, "total": 0})
     status: StatusMessage = field(default_factory=StatusMessage)
     uplink_mode: str = "AX.25"
-    asm_hw: bool = True
     version: str = ""
     schema_count: int = 0
     schema_path: str = ""
@@ -207,7 +212,7 @@ def _send_worker(state, snapshot, delay_ms, sock):
         with state.send_lock: state.sending["idx"] = i
         csp_packet = state.csp.wrap(raw_cmd)
         if state.uplink_mode == "ASM+Golay":
-            payload = build_asm_golay_frame(csp_packet, asm_hw=state.asm_hw)
+            payload = build_asm_golay_frame(csp_packet)
         else:
             ax25_frame = state.ax25.wrap(csp_packet)
             payload = build_ax25_gfsk_frame(ax25_frame)
@@ -230,7 +235,7 @@ def _send_worker(state, snapshot, delay_ms, sock):
         total = state.sending["total"]
         state.sending["idx"] = sent - 1  # keep on last sent item so it blinks
     # Hold briefly so UI can render the final blink
-    import time as _t; _t.sleep(1.5)
+    time.sleep(1.5)
     with state.send_lock:
         del state.tx_queue[:sent]; _save_queue(state.tx_queue)
     if state.send_abort.is_set():
@@ -418,7 +423,7 @@ class MavTxApp(MavAppBase):
             csp=csp, ax25=ax25, cmd_defs=cmd_defs, tx_queue=tx_queue, history=[],
             tx_log=TXLog(LOG_DIR, ZMQ_ADDR, version=VERSION), session_start=time.time(),
             freq=FREQUENCY, zmq_addr_disp=ZMQ_ADDR, tx_delay_ms=TX_DELAY_MS,
-            uplink_mode=UPLINK_MODE, asm_hw=ASM_HW,
+            uplink_mode=UPLINK_MODE,
             version=VERSION, schema_count=len(cmd_defs), schema_path=CMD_DEFS_PATH,
         )
         if tx_queue or q_skipped:
@@ -562,7 +567,7 @@ class MavTxApp(MavAppBase):
 
     def _open_config(self):
         s = self.state
-        vals = config_get_values(s.csp, s.ax25, s.freq, s.zmq_addr_disp, s.tx_delay_ms, s.uplink_mode, s.asm_hw)
+        vals = config_get_values(s.csp, s.ax25, s.freq, s.zmq_addr_disp, s.tx_delay_ms, s.uplink_mode)
         self.push_screen(ConfigScreen(CONFIG_FIELDS, vals), self._on_config_done)
 
     def _handle_result(self, result):
@@ -582,7 +587,7 @@ class MavTxApp(MavAppBase):
     def _on_config_done(self, values):
         s = self.state
         try:
-            s.freq, s.zmq_addr_disp, s.tx_delay_ms, s.uplink_mode, s.asm_hw = config_apply(values, s.csp, s.ax25)
+            s.freq, s.zmq_addr_disp, s.tx_delay_ms, s.uplink_mode = config_apply(values, s.csp, s.ax25)
             s.status.set("Config saved", STATUS_BRIEF)
         except (ValueError, KeyError):
             s.status.set("Invalid config value — reverted", STATUS_NORMAL)
@@ -608,7 +613,7 @@ class MavTxApp(MavAppBase):
         except Exception: pass
         try:
             update_cfg_from_state(CFG, s.csp, s.ax25, s.freq, s.zmq_addr_disp, s.tx_delay_ms,
-                                 uplink_mode=s.uplink_mode, asm_hw=s.asm_hw)
+                                 uplink_mode=s.uplink_mode)
             save_gss_config(CFG)
         except Exception: pass
         zmq_cleanup(self._zmq_monitor, PUB_STATUS, s.zmq_status, self._sock, self._zmq_ctx)

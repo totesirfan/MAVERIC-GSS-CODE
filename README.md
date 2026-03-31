@@ -12,7 +12,7 @@ graph LR
 
 Supports two uplink modes:
 - **AX.25 HDLC** (Mode 6) — HDLC framing, G3RUH scrambler, NRZI encoding (GNU Radio)
-- **ASM+Golay** (Mode 5) — Reed-Solomon FEC, CCSDS scrambler, Golay-coded length (Python encoder)
+- **ASM+Golay** (Mode 5, recommended) — Reed-Solomon FEC, CCSDS scrambler, Golay-coded length. Verified uplink to MAVERIC AX100 hardware
 
 ## Quick Start
 
@@ -137,7 +137,7 @@ Publishes command PDUs via ZMQ to the GNU Radio flowgraph. Commands are queued, 
 ┌──────────────────────────────────────────────┐
 │ MAVERIC UPLINK          2026-03-31 12:00:00 UTC │
 │ ─────────────────────────────────────────────── │
-│ ZMQ: tcp://... [LIVE]  Mode: ASM+GOLAY (HW)    │
+│ ZMQ: tcp://... [LIVE]  Mode: ASM+GOLAY          │
 ├─────────────────────────────────────────────────┤
 │ TX QUEUE (2)   buf: 3000ms  total: 3.0s         │
 │  ## DEST    E:ECHO  TYPE  CMD/ARGS         SIZE │
@@ -168,7 +168,7 @@ EPS 2 3 1 set_voltage 3.3
 **Commands**: `send`, `undo`/`pop`, `clear`, `hclear`, `cfg`, `help`, `nodes`, `csp`, `ax25`, `mode [AX.25|ASM+GOLAY]`, `imp [file]`, `raw <hex>`, `q`
 
 **Features**:
-- **Dual uplink mode**: AX.25 HDLC (Mode 6) or ASM+Golay (Mode 5), switchable via `mode` command or cfg panel toggle
+- **Dual uplink mode**: AX.25 HDLC (Mode 6) or ASM+Golay (Mode 5), switchable via `mode` command or cfg panel — both verified against live AX100 hardware
 - Queue persisted to `.pending_queue.jsonl`, restored on startup
 - Async send with abort support (Ctrl+C/Esc during send)
 - Config changes saved to `maveric_gss.yml` on exit
@@ -181,7 +181,7 @@ EPS 2 3 1 set_voltage 3.3
 Both apps open a config editor via the `cfg` command. The config screen is a modal overlay with keyboard navigation:
 
 - **↑↓** select field, **Enter** edit (text), toggle (on/off), or cycle (mode), **Esc** close and save
-- TX config: Uplink Mode (AX.25/ASM+Golay cycle toggle), AX.25 callsigns/SSIDs, CSP parameters, frequency, ZMQ address, TX delay
+- TX config: Uplink Mode (AX.25/ASM+Golay), AX.25 callsigns/SSIDs, CSP parameters, frequency, ZMQ address, TX delay
 - RX config: hex display toggle, logging toggle
 
 ### maveric_gss.yml

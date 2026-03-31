@@ -4,13 +4,15 @@ mav_gss_lib.tui_common -- Shared Textual TUI Utilities
 Author:  Irfan Annuar - USC ISI SERC
 """
 
+import os
 import time
 
+from rich.align import Align
+from rich.console import Group
 from rich.style import Style
 from rich.table import Table
 from rich.text import Text
 from textual.app import App, ComposeResult
-from textual.binding import Binding
 from textual.events import Key
 from textual.screen import ModalScreen
 from textual.widget import Widget
@@ -29,6 +31,14 @@ S_DIM     = Style(color="#888888")               # Grey — secondary info
 S_SEP     = Style(color="#707070")               # Mid grey — separators/col headers (4.1:1 contrast)
 S_USC_CARDINAL = Style(color="#990000", bold=True)
 S_USC_GOLD     = Style(color="#FFCC00", bold=True)
+
+# Focus-aware widget title: cyan highlight when focused, white reverse when not
+S_TITLE_FOCUSED  = "bold #000000 on #00bfff"
+S_TITLE_DEFAULT  = "reverse bold #ffffff"
+
+def title_style(has_focus):
+    """Return the appropriate title style string based on widget focus state."""
+    return S_TITLE_FOCUSED if has_focus else S_TITLE_DEFAULT
 
 # -- Status duration constants ------------------------------------------------
 
@@ -484,11 +494,15 @@ class ImportScreen(ModalScreen):
 
 
 class ConfirmScreen(ModalScreen):
-    """Modal confirmation dialog — Enter to confirm, Escape to cancel."""
+    """Modal confirmation dialog — Enter to confirm, Escape to cancel.
+
+    Uses a semi-transparent overlay so the TX queue remains visible
+    behind the guard, following spacecraft ops "see what you're commanding".
+    """
     CSS = """
-    ConfirmScreen { align: center middle; background: black 60%; }
-    #confirm-box { width: auto; min-width: 30; height: auto; border: solid #555555;
-                   background: black; padding: 1 2; }
+    ConfirmScreen { align: center middle; background: black 40%; }
+    #confirm-box { width: auto; min-width: 30; height: auto;
+                   border: solid #555555; background: black; padding: 1 3; }
     """
 
     def __init__(self, message, action_label="Confirm"):
@@ -503,16 +517,18 @@ class ConfirmScreen(ModalScreen):
         self._refresh()
 
     def _refresh(self):
-        t = Text()
-        t.append(f" {self._message}\n\n", style=S_WARNING)
-        t.append(f" Enter:{self._action_label}  Esc:cancel", style=S_DIM)
+        t = Text(justify="center")
+        t.append(f"{self._message}\n\n", style=S_WARNING)
+        t.append(f" Enter:{self._action_label} ", style="bold #000000 on #00ff87")
+        t.append("  ")
+        t.append(" Esc:Cancel ", style="bold #000000 on #ff4444")
         self.query_one("#confirm-box", Static).update(t)
 
     def on_key(self, event):
         if event.key == "enter":
-            self.dismiss(True); event.stop()
+            self.dismiss(True)
         elif event.key == "escape":
-            self.dismiss(False); event.stop()
+            self.dismiss(False)
         event.stop(); event.prevent_default()
 
 
@@ -593,8 +609,6 @@ class SplashScreen(ModalScreen):
         t.append(center(self._subtitle, inner_w), style=S_DIM)
         t.append("║\n", style=S_USC_GOLD)
         t.append("╚" + "═" * inner_w + "╝", style=S_USC_GOLD)
-        from rich.align import Align
-        from rich.console import Group
         parts = [Align.center(t)]
         parts.append(Text("\n!! Confirm GNU Radio MAV_DUPLEX Flowgraph is running !!\n",
                           justify="center", style=S_WARNING))
@@ -622,7 +636,6 @@ class SplashScreen(ModalScreen):
 def render_help_panel(help_lines, hint, version="", schema_count=0,
                       schema_path="", log_path=""):
     """Render the help panel Rich Text from help_lines data and session info."""
-    import os
     t = Text()
     t.append(" HELP\n", style=S_LABEL)
     for left, right in help_lines:
