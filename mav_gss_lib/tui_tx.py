@@ -124,7 +124,7 @@ class TxQueue(ScrollableWidget):
             hdr.append(f" {'DEST':<{dw}} ", style=S_SEP)
         hdr.append(f" E:{'ECHO':<{ew}} ", style=S_SEP)
         hdr.append(f" {'TYPE':<{pw}} ", style=S_SEP)
-        hdr.append(" CMD/ARGS", style=S_SEP)
+        hdr.append(" ID/ARGS", style=S_SEP)
         hdr_right = Text("SIZE ", style=S_SEP)
         t.append("\n")
         t.append_text(lr_line(hdr, hdr_right, row_w))
@@ -156,7 +156,7 @@ class TxQueue(ScrollableWidget):
             left.append(f" E:{node_label(echo):<{ew}} ", style=base if uniform else f"{base} {node_color(echo)}")
             pt = protocol.PTYPE_NAMES.get(ptype, str(ptype))
             left.append(f" {pt:<{pw}} ", style=base if uniform else (f"{base} {ptype_color(ptype)}" if not base else base))
-            left.append(f" {cmd} ", style=base if uniform else (f"{base} bold #ffffff" if not base else base))
+            left.append(f"{cmd} ", style=base if uniform else (f"{base} bold #ffffff" if not base else base))
             args_indent = left.cell_len
             args_style = base if (uniform or base == "#888888") else f"{base} #ffffff"
             pending_args = None
@@ -230,7 +230,7 @@ class SentHistory(ScrollableWidget):
             hdr.append(f" {'DEST':<{dw}} ", style=S_SEP)
         hdr.append(f" E:{'ECHO':<{ew}} ", style=S_SEP)
         hdr.append(f" {'TYPE':<{pw}} ", style=S_SEP)
-        hdr.append(" CMD/ARGS", style=S_SEP)
+        hdr.append(" ID/ARGS", style=S_SEP)
         hdr_right = Text("SIZE ", style=S_SEP)
         t.append("\n")
         t.append_text(lr_line(hdr, hdr_right, row_w))
@@ -253,7 +253,7 @@ class SentHistory(ScrollableWidget):
             left.append(f" E:{node_label(rec['echo']):<{ew}} ", style=echo_c)
             pt = protocol.PTYPE_NAMES.get(rec['ptype'], '?')
             left.append(f" {pt:<{pw}} ", style=h_node)
-            left.append(f" {rec['cmd']} ", style=f"{h_val} bold")
+            left.append(f"{rec['cmd']} ", style=f"{h_val} bold")
             args_indent = left.cell_len
             pending_args = None
             right = Text(f"{rec['payload_len']}B ", style="#999999")
@@ -297,9 +297,9 @@ class TxStatusBar(Widget):
 
 HELP_LINES = [
     ("COMMAND FORMAT", None), ("[SRC] DEST ECHO TYPE CMD [ARGS]", ""),
-    ("  SRC/DEST/ECHO", "Node name or ID"), ("  TYPE", "REQ|RES|ACK|NONE"),
+    ("  SRC/DEST/ECHO", "Node name or ID"), ("  TYPE", "CMD|RES|ACK|TLM|FILE"),
     ("SRC defaults to GS (6)", ""),
-    ("e.g.", "EPS UPPM REQ ping"), ("e.g.", "EPS 2 3 1 set_voltage 3.3"),
+    ("e.g.", "EPS UPPM CMD ping"), ("e.g.", "EPS 2 3 1 set_voltage 3.3"),
     ("KEYS", None), ("Ctrl+S / Ctrl+X", "Send / clear queue"),
     ("Ctrl+Z", "Remove last queued"), ("Up / Down", "History / scroll (focus)"),
     ("Tab / Shift+Tab", "Cycle focus: input/queue/history"),

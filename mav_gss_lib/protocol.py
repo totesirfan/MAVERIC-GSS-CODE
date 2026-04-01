@@ -533,6 +533,8 @@ def load_command_defs(path="maveric_commands.yml"):
                 entry = {"name": name, "type": typ}
                 if a.get("important"):
                     entry["important"] = True
+                if a.get("rx_only"):
+                    entry["rx_only"] = True
                 args.append(entry)
             defs[cmd_id.lower()] = {
                 "args": args,
@@ -616,19 +618,20 @@ def validate_args(cmd_id, args_str, cmd_defs):
     defn = cmd_defs[cmd_id]
     raw_args = args_str.split() if args_str else []
     schema_args = defn["args"]
+    tx_args = [a for a in schema_args if not a.get("rx_only")]
     issues = []
 
-    if len(raw_args) < len(schema_args):
+    if len(raw_args) < len(tx_args):
         issues.append(
-            f"expected {len(schema_args)} args, got {len(raw_args)}"
+            f"expected {len(tx_args)} args, got {len(raw_args)}"
         )
 
-    if len(raw_args) > len(schema_args) and not defn["variadic"]:
+    if len(raw_args) > len(tx_args) and not defn["variadic"]:
         issues.append(
-            f"extra args: expected {len(schema_args)}, got {len(raw_args)}"
+            f"extra args: expected {len(tx_args)}, got {len(raw_args)}"
         )
 
-    for i, arg_def in enumerate(schema_args):
+    for i, arg_def in enumerate(tx_args):
         if i >= len(raw_args):
             break
         parser = _TYPE_PARSERS.get(arg_def["type"], str)

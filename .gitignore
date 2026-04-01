@@ -5,3 +5,4 @@ __pycache__/
 logs/
 legacy/
 perf_bench.py
+maveric_commands.yml

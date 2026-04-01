@@ -59,8 +59,14 @@ TS_UTC_LABEL = "%Y-%m-%d %H:%M:%S UTC"  # UTC timestamp for detail panels
 _FRAME_COLORS = {"AX.25": "#6699cc", "ASM+GOLAY": "#55bbaa"}
 _FRAME_DEFAULT = "#ff4444"
 
-_PTYPE_COLORS = {"RES": "#00ff87", "ACK": "#00ff87", "NONE": "#888888"}
-_PTYPE_DEFAULT = "#00bfff"
+_PTYPE_COLORS = {
+    "CMD": "#00D7FF",   # cyan  — operator-initiated
+    "RES": "#00C853",   # green — nominal spacecraft reply
+    "ACK": "#00BFA5",   # teal  — confirmation receipt
+    "TLM": "#82B1FF",   # blue  — routine data stream
+    "FILE": "#F48FB1",  # pink  — bulk transfer
+}
+_PTYPE_DEFAULT = "#E0E0E0"
 
 def frame_color(frame_type):
     """Return color string for a frame type label."""

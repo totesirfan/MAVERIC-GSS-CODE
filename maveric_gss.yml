@@ -8,11 +8,12 @@ nodes:
   6: GS
   7: FTDI
 ptypes:
-  1: CMD
+  1: REQ
   2: RES
   3: ACK
   4: TLM
   5: FILE
+  0: NONE
 ax25:
   src_call: WM2XBB
   src_ssid: 97
@@ -28,13 +29,14 @@ csp:
 tx:
   zmq_addr: tcp://127.0.0.1:52002
   frequency: 437.25 MHz
-  delay_ms: 2000
+  delay_ms: 3500
   uplink_mode: ASM+Golay
+  asm_hw: false
 rx:
   zmq_port: 52001
   zmq_addr: tcp://127.0.0.1:52001
 general:
-  version: 4.2.0
+  version: 4.1.2
   log_dir: logs
   command_defs: maveric_commands.yml
   decoder_yml: maveric_decoder.yml

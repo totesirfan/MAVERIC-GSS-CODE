@@ -190,7 +190,7 @@ class PacketList(Widget):
         hdr.append(f" {'SRC':>{sw}} {'→':^1} {'DEST':<{dw}} ", style=S_SEP)
         hdr.append(f" E:{'ECHO':<{ew}} ", style=S_SEP)
         hdr.append(f" {'TYPE':<{pw}} ", style=S_SEP)
-        hdr.append(" CMD/ARGS", style=S_SEP)
+        hdr.append(" ID/ARGS", style=S_SEP)
         hdr_right = Text("FLAGS  SIZE ", style=S_SEP)
         t.append("\n")
         t.append_text(lr_line(hdr, hdr_right, row_w))
@@ -320,7 +320,7 @@ class PacketList(Widget):
                 left.append(f" E:{node_label(cmd['echo']):<{ew}} ", style=f"{b} {node_color(cmd['echo'])}")
                 pt = cmd['pkt_type']
                 left.append(f" {protocol.PTYPE_NAMES.get(cmd['pkt_type'],'?'):<{pw}} ", style=f"{b} {ptype_color(pt)}")
-                left.append(f" {cmd['cmd_id'][:14]} ", style=f"{b} bold #ffffff")
+                left.append(f"{cmd['cmd_id'][:14]} ", style=f"{b} bold #ffffff")
                 args = (" ".join(format_arg_value(ta) for ta in cmd.get("typed_args",[])
                                  if ta.get("important"))
                         if cmd.get("schema_match")

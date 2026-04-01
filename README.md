@@ -47,7 +47,6 @@ mav_gss_lib/
     tui_tx.py             TX widgets: header, queue, sent history, config fields
 
 maveric_gss.yml           Shared config (nodes, AX.25, CSP, ZMQ, frequency)
-maveric_commands.yml      Command schema (arg names, types, validation)
 maveric_decoder.yml       gr-satellites satellite definition
 generated_commands/       Importable .jsonl command files (MAV_TX imp command)
 
@@ -215,7 +214,7 @@ rx:
 
 ### maveric_commands.yml
 
-Defines argument schemas for known commands. Supported types: `str`, `int`, `float`, `epoch_ms`, `bool`.
+Defines argument schemas for known commands. Not tracked in git for security — a local `maveric_commands.yml` must be created in the project root before running. See the schema header comments in the file for format details. Supported types: `str`, `int`, `float`, `epoch_ms`, `bool`.
 
 - **RX**: parses known commands by position and type (falls back to heuristic for unknown)
 - **TX**: validates arguments before queuing; rejects invalid commands with specific errors
