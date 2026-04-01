@@ -6,6 +6,7 @@ Author:  Irfan Annuar - USC ISI SERC
 
 import os
 import time
+from datetime import datetime, timezone
 
 from rich.align import Align
 from rich.console import Group
@@ -98,6 +99,13 @@ def compute_col_widths(rows, extractors, defaults=None):
     return {k: max((len(s) for s in vals), default=defaults.get(k, 1))
             for k, vals in collected.items()}
 
+
+def hide_echo_if_all_none(col_widths, echo_values):
+    """Hide echo column when all visible echoes are NONE (node 0)."""
+    if all(protocol.NODE_NAMES.get(e) == "NONE" for e in echo_values):
+        col_widths["echo"] = 0
+
+
 # -- Shared layout helpers ----------------------------------------------------
 
 def _build_item_text(label, value, style):
@@ -125,7 +133,6 @@ def build_header(title, title_style, items, w, right_items=None):
     items:       list of (label, value, value_style) — flowed left-to-right, wrapping as needed.
     right_items: list of (label, value, value_style) — right-aligned on the last info row.
     Returns (Text, row_count)."""
-    from datetime import datetime, timezone
     utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     local = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
 
@@ -138,7 +145,6 @@ def build_header(title, title_style, items, w, right_items=None):
     rows = 2  # title + separator
 
     right_items = right_items or []
-    right_total = sum(_item_len(l, v) for l, v, _ in right_items)
 
     # Measure left items
     chunks = [(l, v, s, _item_len(l, v)) for l, v, s in items]
@@ -171,11 +177,8 @@ def build_header(title, title_style, items, w, right_items=None):
     cur_row = -1
     for i, (label, value, style, clen) in enumerate(chunks):
         if item_rows[i] != cur_row:
-            # Before starting a new row, finish previous row with right_items if it was the last
             if cur_row == last_row and right_items:
-                right_items = []  # already rendered
-            if cur_row >= 0:
-                pass  # row already in t
+                right_items = []
             t.append("\n")
             cur_row = item_rows[i]
             rows += 1
@@ -302,7 +305,9 @@ class MavAppBase(App):
     _INPUT_ID = ""
 
     def _act(self):
-        for w in self.query(self._WIDGET_QUERY): w.refresh()
+        for w in self.query(self._WIDGET_QUERY):
+            if w.display:
+                w.refresh()
 
     def _dispatch(self, line): raise NotImplementedError
     def _pre_dispatch(self, line): pass
@@ -504,6 +509,10 @@ class ConfirmScreen(ModalScreen):
 
     Uses a semi-transparent overlay so the TX queue remains visible
     behind the guard, following spacecraft ops "see what you're commanding".
+
+    Set destructive=True for irreversible actions (clear, delete) —
+    uses red border and red action button so the modal is visually
+    distinct from routine confirmations (NASA-HFDS 8.5.1).
     """
     CSS = """
     ConfirmScreen { align: center middle; background: black 40%; }
@@ -511,10 +520,11 @@ class ConfirmScreen(ModalScreen):
                    border: solid #555555; background: black; padding: 1 3; }
     """
 
-    def __init__(self, message, action_label="Confirm"):
+    def __init__(self, message, action_label="Confirm", *, destructive=False):
         super().__init__()
         self._message = message
         self._action_label = action_label
+        self._destructive = destructive
 
     def compose(self):
         yield Static(id="confirm-box")
@@ -524,11 +534,19 @@ class ConfirmScreen(ModalScreen):
 
     def _refresh(self):
         t = Text(justify="center")
-        t.append(f"{self._message}\n\n", style=S_WARNING)
-        t.append(f" Enter:{self._action_label} ", style="bold #000000 on #00ff87")
-        t.append("  ")
-        t.append(" Esc:Cancel ", style="bold #000000 on #ff4444")
-        self.query_one("#confirm-box", Static).update(t)
+        box = self.query_one("#confirm-box", Static)
+        if self._destructive:
+            t.append(f"⚠ {self._message}\n\n", style=S_ERROR)
+            t.append(f" Enter:{self._action_label} ", style="bold #ffffff on #cc0000")
+            t.append("  ")
+            t.append(" Esc:Cancel ", style="bold #000000 on #888888")
+            box.styles.border = ("solid", "#cc0000")
+        else:
+            t.append(f"{self._message}\n\n", style=S_WARNING)
+            t.append(f" Enter:{self._action_label} ", style="bold #000000 on #00ff87")
+            t.append("  ")
+            t.append(" Esc:Cancel ", style="bold #000000 on #ff4444")
+        box.update(t)
 
     def on_key(self, event):
         if event.key == "enter":
@@ -541,25 +559,30 @@ class ConfirmScreen(ModalScreen):
 # -- Status message -----------------------------------------------------------
 
 class StatusMessage:
-    """Transient status message with auto-expiry for the TUI status bar."""
-    __slots__ = ("_text", "_expire")
+    """Transient status message with auto-expiry for the TUI status bar.
+
+    Thread-safe: state is a single tuple replaced atomically (one
+    STORE_ATTR under CPython's GIL), so concurrent reads from the UI
+    thread and writes from background threads cannot tear.
+    """
+    __slots__ = ("_state",)
     def __init__(self, text="", duration=0):
-        self._text = text
-        self._expire = time.time() + duration if text else 0
+        self._state = (text, time.time() + duration) if text else ("", 0)
     def set(self, text, duration=3):
-        self._text, self._expire = text, time.time() + duration
+        self._state = (text, time.time() + duration)
     def clear(self):
-        self._text, self._expire = "", 0
+        self._state = ("", 0)
     def check_expiry(self):
-        if self._text and time.time() >= self._expire:
-            self._text = ""
+        text, expire = self._state
+        if text and time.time() >= expire:
+            self._state = ("", 0)
             return True
         return False
     @property
     def text(self):
-        return self._text
+        return self._state[0]
     def __bool__(self):
-        return bool(self._text)
+        return bool(self._state[0])
 
 # -- Splash screen ------------------------------------------------------------
 
@@ -597,23 +620,20 @@ class SplashScreen(ModalScreen):
             return " " * (p // 2) + txt + " " * (p - p // 2)
 
         t = Text()
-        t.append("╔" + "═" * inner_w + "╗\n", style=S_USC_GOLD)
-        t.append("║" + " " * inner_w + "║\n", style=S_USC_GOLD)
         logo_w = max(len(l.rstrip()) for l in _LOGO)
+        def row(content="", style=S_USC_GOLD):
+            t.append("║", style=S_USC_GOLD)
+            t.append(center(content, inner_w) if content else " " * inner_w, style=style)
+            t.append("║\n", style=S_USC_GOLD)
+        t.append("╔" + "═" * inner_w + "╗\n", style=S_USC_GOLD)
+        row()
         for line in _LOGO:
-            padded = line.rstrip().ljust(logo_w)
-            t.append("║", style=S_USC_GOLD)
-            t.append(center(padded, inner_w), style=S_USC_CARDINAL)
-            t.append("║\n", style=S_USC_GOLD)
-        t.append("║" + " " * inner_w + "║\n", style=S_USC_GOLD)
-        for label, sty in [("ISI", S_USC_GOLD), (serc, S_USC_GOLD)]:
-            t.append("║", style=S_USC_GOLD)
-            t.append(center(label, inner_w), style=sty)
-            t.append("║\n", style=S_USC_GOLD)
-        t.append("║" + " " * inner_w + "║\n", style=S_USC_GOLD)
-        t.append("║", style=S_USC_GOLD)
-        t.append(center(self._subtitle, inner_w), style=S_DIM)
-        t.append("║\n", style=S_USC_GOLD)
+            row(line.rstrip().ljust(logo_w), S_USC_CARDINAL)
+        row()
+        row("ISI", S_USC_GOLD)
+        row(serc, S_USC_GOLD)
+        row()
+        row(self._subtitle, S_DIM)
         t.append("╚" + "═" * inner_w + "╝", style=S_USC_GOLD)
         parts = [Align.center(t)]
         parts.append(Text("\n!! Confirm GNU Radio MAV_DUPLEX Flowgraph is running !!\n",

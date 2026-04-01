@@ -16,6 +16,7 @@ from mav_gss_lib.tui_common import (
     S_LABEL, S_VALUE, S_SUCCESS, S_WARNING, S_ERROR, S_DIM, S_SEP, lr_line,
     scrollbar_styles, append_wrapped_args, build_header,
     TS_SHORT, frame_color, ptype_color, node_color, compute_col_widths, title_style,
+    hide_echo_if_all_none,
 )
 
 class RxHeader(Widget):
@@ -55,21 +56,20 @@ class RxHeader(Widget):
 
 
 class _FilteredCache:
-    """Caches the filtered packet list; invalidates on packet count or toggle change."""
-    __slots__ = ("_cache", "_last_len", "_last_hide")
+    """Caches the filtered packet list; invalidates on generation counter or toggle change."""
+    __slots__ = ("_cache", "_last_gen", "_last_hide")
     def __init__(self):
         self._cache = []
-        self._last_len = -1
+        self._last_gen = -1
         self._last_hide = None
-    def get(self, packets, hide_uplink):
-        pkt_len = len(packets)
-        if pkt_len == self._last_len and hide_uplink == self._last_hide:
+    def get(self, packets, hide_uplink, pkt_gen=0):
+        if pkt_gen == self._last_gen and hide_uplink == self._last_hide:
             return self._cache
         if hide_uplink:
             self._cache = [(i, p) for i, p in enumerate(packets) if not p.get("is_uplink_echo")]
         else:
             self._cache = list(enumerate(packets))
-        self._last_len = pkt_len
+        self._last_gen = pkt_gen
         self._last_hide = hide_uplink
         return self._cache
 
@@ -146,7 +146,7 @@ class PacketList(Widget):
     def render(self):
         s, w, h = self.s, self.content_size.width, self.content_size.height
         # Build filtered view: list of (original_idx, pkt) — cached
-        filtered = self._filter_cache.get(s.packets, s.hide_uplink)
+        filtered = self._filter_cache.get(s.packets, s.hide_uplink, getattr(s, 'pkt_gen', 0))
         count = len(filtered)
         auto = (s.selected_idx == -1)
         t = Text(no_wrap=True, overflow="crop")
@@ -188,7 +188,8 @@ class PacketList(Widget):
         hdr.append(f" {'TIME':8} ", style=S_SEP)
         hdr.append(f" {'FRAME':<{fw}} ", style=S_SEP)
         hdr.append(f" {'SRC':>{sw}} {'→':^1} {'DEST':<{dw}} ", style=S_SEP)
-        hdr.append(f" E:{'ECHO':<{ew}} ", style=S_SEP)
+        if ew:
+            hdr.append(f" E:{'ECHO':<{ew}} ", style=S_SEP)
         hdr.append(f" {'TYPE':<{pw}} ", style=S_SEP)
         hdr.append(" ID/ARGS", style=S_SEP)
         hdr_right = Text("FLAGS  SIZE ", style=S_SEP)
@@ -209,15 +210,13 @@ class PacketList(Widget):
         sb_idx = 0
         for i, (orig_idx, pkt) in enumerate(vis_slice):
             t.append("\n")
-            line = self._pkt_line(pkt, orig_idx == actual, row_w, col_w)
+            line, pending = self._pkt_line(pkt, orig_idx == actual, row_w, col_w)
             if sb and sb_idx < len(sb):
                 line.append(" ", style=sb[sb_idx])
             sb_idx += 1
             t.append_text(line)
-            # Wrap args onto continuation line if they didn't fit
-            if self._pending_args:
-                args_text, indent, args_style = self._pending_args
-                self._pending_args = None
+            if pending:
+                args_text, indent, args_style = pending
                 sb_idx = append_wrapped_args(t, args_text, indent, args_style, row_w, sb, sb_idx)
         # Pad to pin spinner at bottom
         remaining = data_rows - sb_idx
@@ -250,7 +249,7 @@ class PacketList(Widget):
         def _frame(p):
             if p.get("is_unknown"): return ["UNKNOWN"]
             return [p.get("frame_type", "???")]
-        return compute_col_widths(visible, {
+        result = compute_col_widths(visible, {
             "num": _num,
             "frame": _frame,
             "src": lambda p: _cmd_field(p, 'src'),
@@ -258,6 +257,8 @@ class PacketList(Widget):
             "echo": lambda p: _cmd_field(p, 'echo'),
             "ptype": _ptype,
         }, defaults={"num": 2, "frame": 5, "src": 3, "dest": 4, "echo": 4, "ptype": 4})
+        hide_echo_if_all_none(result, [p["cmd"]["echo"] for p in visible if p.get("cmd")])
+        return result
 
     def _spinner_line(self, s, w):
         """Build the bottom spinner/status line showing receive state and packet rate."""
@@ -309,7 +310,7 @@ class PacketList(Widget):
         else:
             left.append(f" {'#' + str(pkt.get('pkt_num',0)):<{nw}} ", style=f"{b} #ffffff")
         left.append(f" {pkt.get('gs_ts_short','??:??:??')} ", style=f"{b} #ffffff")
-        self._pending_args = None
+        pending_args = None
         if pkt.get("is_unknown"):
             left.append(f" {'UNKNOWN':<{fw}} ", style=f"{b} bold #ffd700")
         else:
@@ -317,7 +318,8 @@ class PacketList(Widget):
             left.append(f" {ft:<{fw}} ", style=f"{b} {frame_color(ft)}")
             if cmd:
                 left.append(f" {node_label(cmd['src']):>{sw}} → {node_label(cmd['dest']):<{dw}} ", style=f"{b} #00bfff")
-                left.append(f" E:{node_label(cmd['echo']):<{ew}} ", style=f"{b} {node_color(cmd['echo'])}")
+                if ew:
+                    left.append(f" E:{node_label(cmd['echo']):<{ew}} ", style=f"{b} {node_color(cmd['echo'])}")
                 pt = cmd['pkt_type']
                 left.append(f" {protocol.PTYPE_NAMES.get(cmd['pkt_type'],'?'):<{pw}} ", style=f"{b} {ptype_color(pt)}")
                 left.append(f"{cmd['cmd_id'][:14]} ", style=f"{b} bold #ffffff")
@@ -326,7 +328,7 @@ class PacketList(Widget):
                         if cmd.get("schema_match")
                         else " ".join(str(a) for a in cmd.get("args",[])))
                 if args:
-                    self._pending_args = (" " + args + " ", left.cell_len, f"{b} #ffffff")
+                    pending_args = (" " + args + " ", left.cell_len, f"{b} #ffffff")
         right = Text(style=b)
         crc_v = pkt.get("crc_status",{}).get("csp_crc32_valid")
         if crc_v is None and cmd:
@@ -338,14 +340,13 @@ class PacketList(Widget):
         if pkt.get("is_dup"):
             right.append("DUP  ", style=f"{b} bold #ff4444")
         right.append(f"{len(pkt.get('inner_payload',b''))}B ", style=f"{b} #999999")
-        # Check if args fit on first line
-        if self._pending_args:
-            args_text, indent, args_style = self._pending_args
+        if pending_args:
+            args_text, indent, args_style = pending_args
             avail = w - left.cell_len - right.cell_len
             if avail >= len(args_text):
                 left.append(args_text, style=args_style)
-                self._pending_args = None
-        return lr_line(left, right, w, fill_style=b)
+                pending_args = None
+        return lr_line(left, right, w, fill_style=b), pending_args
 
 
 def _build_detail_lines(pkt, is_unk, show_hex, show_wrapper):

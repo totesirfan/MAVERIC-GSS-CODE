@@ -507,11 +507,36 @@ _TYPE_PARSERS = {
 }
 
 
+def _parse_arg_list(raw_list):
+    """Parse a list of arg dicts from YAML into internal format."""
+    args = []
+    for a in (raw_list or []):
+        name = a.get("name", f"arg{len(args)}")
+        typ = a.get("type", "str")
+        if typ not in _TYPE_PARSERS:
+            typ = "str"
+        entry = {"name": name, "type": typ}
+        if a.get("important"):
+            entry["important"] = True
+        args.append(entry)
+    return args
+
+
 def load_command_defs(path="maveric_commands.yml"):
     """Load command definitions from YAML.
 
+    Schema format — per command (all fields optional):
+      dest:     node name → resolved to int (enables shorthand TX entry)
+      echo:     node name (default from defaults block)
+      ptype:    ptype name (default from defaults block)
+      tx_args:  args the operator sends (TX validation)
+      rx_args:  args in the downlink response (RX parsing)
+      rx_only:  true if command only appears in downlink
+      variadic: true if extra args beyond tx_args are allowed
+
     Returns (defs, warning) where:
-      defs: {cmd_id: {"args": [{"name", "type"}, ...], "variadic": bool}}
+      defs: {cmd_id: {"tx_args", "rx_args", "variadic", "rx_only",
+                       "dest", "echo", "ptype"}}
       warning: str or None — set when schema could not be loaded.
     Returns (empty dict, warning) on any failure."""
     if not _YAML_OK:
@@ -522,24 +547,36 @@ def load_command_defs(path="maveric_commands.yml"):
     try:
         with open(path) as f:
             raw = yaml.safe_load(f)
+        # Global defaults
+        gd = raw.get("defaults") or {}
+        def_echo = resolve_node(str(gd.get("echo", "NONE")))
+        def_ptype = resolve_ptype(str(gd.get("ptype", "CMD")))
+        if def_echo is None:
+            def_echo = 0
+        if def_ptype is None:
+            def_ptype = 1
+
         defs = {}
         for cmd_id, spec in (raw.get("commands") or {}).items():
-            args = []
-            for a in (spec.get("args") or []):
-                name = a.get("name", f"arg{len(args)}")
-                typ = a.get("type", "str")
-                if typ not in _TYPE_PARSERS:
-                    typ = "str"
-                entry = {"name": name, "type": typ}
-                if a.get("important"):
-                    entry["important"] = True
-                if a.get("rx_only"):
-                    entry["rx_only"] = True
-                args.append(entry)
+            spec = spec or {}
+            tx_args = _parse_arg_list(spec.get("tx_args"))
+            rx_args = _parse_arg_list(spec.get("rx_args"))
+
+            # Resolve routing
+            dest = None
+            if "dest" in spec:
+                dest = resolve_node(str(spec["dest"]))
+            echo = resolve_node(str(spec["echo"])) if "echo" in spec else def_echo
+            ptype = resolve_ptype(str(spec["ptype"])) if "ptype" in spec else def_ptype
+
             defs[cmd_id.lower()] = {
-                "args": args,
+                "tx_args":  tx_args,
+                "rx_args":  rx_args,
                 "variadic": spec.get("variadic", False),
-                "suggestions": [str(s) for s in (spec.get("suggestions") or [])],
+                "rx_only":  spec.get("rx_only", False),
+                "dest":     dest,
+                "echo":     echo if echo is not None else 0,
+                "ptype":    ptype if ptype is not None else 1,
             }
         return defs, None
     except (OSError, yaml.YAMLError, AttributeError):
@@ -574,11 +611,11 @@ def apply_schema(cmd, cmd_defs):
 
     defn = cmd_defs[cmd["cmd_id"]]
     raw_args = cmd["args"]
-    schema_args = defn["args"]
+    rx_args = defn["rx_args"]
     typed = []
     sat_time = None
 
-    for i, arg_def in enumerate(schema_args):
+    for i, arg_def in enumerate(rx_args):
         if i < len(raw_args):
             parser = _TYPE_PARSERS.get(arg_def["type"], str)
             try:
@@ -597,12 +634,14 @@ def apply_schema(cmd, cmd_defs):
             if arg_def["type"] == "epoch_ms" and isinstance(value, (_LazyEpochMs, dict)) and sat_time is None:
                 sat_time = (value["utc"], value["local"], value["ms"])
 
-    extra = raw_args[len(schema_args):]
+    extra = raw_args[len(rx_args):]
 
     cmd["typed_args"]   = typed
     cmd["extra_args"]   = extra
     cmd["sat_time"]     = sat_time
     cmd["schema_match"] = True
+    cmd["dest_default"] = defn.get("dest")
+    cmd["rx_only"]      = defn.get("rx_only", False)
     return True
 
 
@@ -616,9 +655,11 @@ def validate_args(cmd_id, args_str, cmd_defs):
         return True, []
 
     defn = cmd_defs[cmd_id]
+    if defn.get("rx_only"):
+        return False, [f"'{cmd_id}' is receive-only"]
+
     raw_args = args_str.split() if args_str else []
-    schema_args = defn["args"]
-    tx_args = [a for a in schema_args if not a.get("rx_only")]
+    tx_args = defn["tx_args"]
     issues = []
 
     if len(raw_args) < len(tx_args):

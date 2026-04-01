@@ -257,49 +257,8 @@ def _start_send(state, sock):
 
 # -- Command dispatch ---------------------------------------------------------
 
-def _cmd_send(state, line, sock):
-    """Handler for 'send' command — returns signal for app to show confirmation."""
-    return "confirm_send"
-
-def _cmd_clear(state, line, sock):
-    """Handler for 'clear' command — returns signal for app to show confirmation."""
-    return "confirm_clear"
-
-def _cmd_undo(state, line, sock):
-    """Handler for 'undo'/'pop' command — remove last queued command."""
-    if state.tx_queue:
-        r = state.tx_queue.pop(); _save_queue(state.tx_queue); state._queue_dirty = True
-        state.status.set(f"Removed: {r[4]} ({len(state.tx_queue)} left)", STATUS_BRIEF)
-    else:
-        state.status.set("Queue is empty", STATUS_BRIEF)
-
-def _cmd_hclear(state, line, sock):
-    """Handler for 'hclear' command — clear sent history."""
-    if state.history:
-        state.status.set(f"Cleared {len(state.history)} entries", STATUS_BRIEF)
-        state.history.clear(); state.hist_scroll = 0; state._hist_dirty = True
-    else:
-        state.status.set("History already empty", STATUS_BRIEF)
-
-def _cmd_imp(state, line, sock):
-    """Handler for 'imp' command — open import file picker."""
-    return "open_import"
-
-def _cmd_nodes(state, line, sock):
-    """Handler for 'nodes' command — display node ID table."""
-    state.status.set("Nodes: " + ", ".join(
-        f"{n}={protocol.NODE_NAMES[n]}" for n in sorted(protocol.NODE_NAMES)), STATUS_LONG)
-
-def _cmd_csp(state, line, sock):
-    """Handler for 'csp' command — show or set CSP header fields."""
-    state.status.set(csp_handle_msg(state.csp, line[3:].strip() if len(line) > 3 else ""), STATUS_NORMAL)
-
-def _cmd_ax25(state, line, sock):
-    """Handler for 'ax25' command — show or set AX.25 callsign/SSID."""
-    state.status.set(ax25_handle_msg(state.ax25, line[4:].strip() if len(line) > 4 else ""), STATUS_NORMAL)
-
-def _cmd_mode(state, line, sock):
-    """Handler for 'mode' command — show or switch uplink encoding mode."""
+def _cmd_mode(state, line):
+    """Show or switch uplink encoding mode."""
     arg = line[4:].strip() if len(line) > 4 else ""
     if not arg:
         state.status.set(f"Uplink mode: {state.uplink_mode}", STATUS_NORMAL)
@@ -315,29 +274,45 @@ def _cmd_mode(state, line, sock):
     else:
         state.status.set("mode [AX.25 | ASM+GOLAY]", STATUS_NORMAL)
 
-# Handler registry: command -> handler function
-_TX_HANDLERS = {
-    "send": _cmd_send, "clear": _cmd_clear,
-    "undo": _cmd_undo, "pop": _cmd_undo,
-    "hclear": _cmd_hclear, "imp": _cmd_imp, "nodes": _cmd_nodes,
-}
-
-# Prefix handlers: checked with startswith
-_TX_PREFIX_HANDLERS = [
-    ("csp",  _cmd_csp),
-    ("ax25", _cmd_ax25),
-    ("mode", _cmd_mode),
-]
-
 def _queue_command(state, line):
-    """Parse a command line and add to the TX queue."""
-    try:
-        parsed = parse_cmd_line(line)
-    except ValueError as e:
-        state.status.set(f"Bad command: {e}", STATUS_NORMAL); return True
-    src, dest, echo, ptype, cmd, args = parsed
+    """Parse a command line and add to the TX queue.
+
+    Supports two input forms:
+      Shorthand:  CMD [ARGS]         — uses schema routing defaults (dest required in schema)
+      Full form:  [SRC] DEST ECHO TYPE CMD [ARGS]  — explicit routing, always works
+    """
+    parts = line.split()
+    if not parts:
+        return True
+    candidate = parts[0].lower()
+
+    # Shorthand: first token is a known TX command with a dest default
+    if candidate in state.cmd_defs:
+        defn = state.cmd_defs[candidate]
+        if not defn.get("rx_only") and defn.get("dest") is not None:
+            cmd = candidate
+            args = " ".join(parts[1:])
+            src, dest = protocol.GS_NODE, defn["dest"]
+            echo, ptype = defn["echo"], defn["ptype"]
+        else:
+            # Known command but no dest default (or rx_only) — need full form
+            try:
+                src, dest, echo, ptype, cmd, args = parse_cmd_line(line)
+            except ValueError as e:
+                if defn.get("rx_only"):
+                    state.status.set(f"Rejected: '{candidate}' is receive-only", STATUS_NORMAL)
+                else:
+                    state.status.set(f"Bad command: {e}", STATUS_NORMAL)
+                return True
+    else:
+        # Full-form parsing
+        try:
+            src, dest, echo, ptype, cmd, args = parse_cmd_line(line)
+        except ValueError as e:
+            state.status.set(f"Bad command: {e}", STATUS_NORMAL); return True
+
     valid, issues = validate_args(cmd, args, state.cmd_defs)
-    if not valid and issues:
+    if not valid:
         state.status.set(f"Rejected: {issues[0]}", STATUS_NORMAL); return True
     if state.cmd_defs and cmd not in state.cmd_defs:
         state.status.set(f"Rejected: '{cmd}' not in schema", STATUS_NORMAL); return True
@@ -358,17 +333,35 @@ def _dispatch_tx_command(state, line, sock):
     common = dispatch_common(state, cl)
     if common is not None:
         return common
-    # Exact match
-    handler = _TX_HANDLERS.get(cl)
-    if handler:
-        result = handler(state, line, sock)
-        return result if result else True
-    # Prefix match (e.g. "csp prio 2", "mode AX.25")
-    for prefix, handler in _TX_PREFIX_HANDLERS:
-        if cl == prefix or cl.startswith(prefix + " "):
-            result = handler(state, line, sock)
-            return result if result else True
-    # Fall through: parse as a command to queue
+    if cl == "send": return "confirm_send"
+    if cl == "clear": return "confirm_clear"
+    if cl in ("undo", "pop"):
+        if state.tx_queue:
+            r = state.tx_queue.pop(); _save_queue(state.tx_queue); state._queue_dirty = True
+            state.status.set(f"Removed: {r[4]} ({len(state.tx_queue)} left)", STATUS_BRIEF)
+        else:
+            state.status.set("Queue is empty", STATUS_BRIEF)
+        return True
+    if cl == "hclear":
+        if state.history:
+            state.status.set(f"Cleared {len(state.history)} entries", STATUS_BRIEF)
+            state.history.clear(); state.hist_scroll = 0; state._hist_dirty = True
+        else:
+            state.status.set("History already empty", STATUS_BRIEF)
+        return True
+    if cl == "imp": return "open_import"
+    if cl == "nodes":
+        state.status.set("Nodes: " + ", ".join(
+            f"{n}={protocol.NODE_NAMES[n]}" for n in sorted(protocol.NODE_NAMES)), STATUS_LONG)
+        return True
+    if cl == "csp" or cl.startswith("csp "):
+        state.status.set(csp_handle_msg(state.csp, line[3:].strip() if len(line) > 3 else ""), STATUS_NORMAL)
+        return True
+    if cl == "ax25" or cl.startswith("ax25 "):
+        state.status.set(ax25_handle_msg(state.ax25, line[4:].strip() if len(line) > 4 else ""), STATUS_NORMAL)
+        return True
+    if cl == "mode" or cl.startswith("mode "):
+        _cmd_mode(state, line); return True
     return _queue_command(state, line)
 
 # =============================================================================
@@ -454,7 +447,7 @@ class MavTxApp(MavAppBase):
                     ("AX.25", f"GS:{ax['src_call']}-{ax['src_ssid']} -> SAT:{ax['dest_call']}-{ax['dest_ssid']}"),
                     ("CSP", f"Prio:{cs['priority']} Src:{cs['source']} Dest:{cs['destination']}"),
                     ("Commands", CMD_DEFS_PATH), ("Log", f"{LOG_DIR}/text")]))
-        self.set_interval(1/60, self._tick)
+        self.set_interval(1/15, self._tick)
         self._last_header_sec = -1
         self._last_send_idx = -1
         self.query_one("#tx-input").focus()
@@ -489,20 +482,26 @@ class MavTxApp(MavAppBase):
 
     def action_quit_or_close(self):
         s = self.state
-        if s.sending["active"]: s.send_abort.set(); s.status.set("Aborting send...", STATUS_BRIEF); self._act(); return
+        with s.send_lock:
+            active = s.sending["active"]
+        if active: s.send_abort.set(); s.status.set("Aborting send...", STATUS_BRIEF); self._act(); return
         if s.help_open: s.help_open = False; self._act(); return
         self._cleanup(); self.exit()
 
     def action_close_or_cancel(self):
         s = self.state
-        if s.sending["active"]: s.send_abort.set(); s.status.set("Aborting send...", STATUS_BRIEF)
+        with s.send_lock:
+            active = s.sending["active"]
+        if active: s.send_abort.set(); s.status.set("Aborting send...", STATUS_BRIEF)
         elif s.help_open: s.help_open = False
         self._act()
 
     def action_send_queue(self):
         s = self.state
         if not s.tx_queue: s.status.set("Nothing queued", STATUS_BRIEF); self._act(); return
-        if s.sending["active"]: s.status.set("Send already in progress", STATUS_BRIEF); self._act(); return
+        with s.send_lock:
+            active = s.sending["active"]
+        if active: s.status.set("Send already in progress", STATUS_BRIEF); self._act(); return
         n = len(s.tx_queue)
         def _on_confirm(confirmed):
             if confirmed: _start_send(self.state, self._sock); self._act()
@@ -525,7 +524,7 @@ class MavTxApp(MavAppBase):
                 s.status.set(f"Cleared {len(s.tx_queue)} command{'s' if len(s.tx_queue)!=1 else ''}", STATUS_BRIEF)
                 s.tx_queue.clear(); _save_queue(s.tx_queue); s.queue_scroll = 0; s._queue_dirty = True
                 self._act()
-        self.push_screen(ConfirmScreen(f"Clear {n} command{'s' if n != 1 else ''}?", "Clear"), _on_confirm)
+        self.push_screen(ConfirmScreen(f"Clear {n} command{'s' if n != 1 else ''}?", "Clear", destructive=True), _on_confirm)
 
     def _cycle_focus(self, direction):
         cycle = self._FOCUS_CYCLE

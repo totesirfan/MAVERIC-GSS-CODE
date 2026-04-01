@@ -5,7 +5,6 @@ Author:  Irfan Annuar - USC ISI SERC
 """
 
 import argparse
-import gc
 import queue
 import sys
 import threading
@@ -44,7 +43,7 @@ CMD_DEFS_PATH = CFG["general"]["command_defs"]
 DECODER_YML_PATH = CFG["general"]["decoder_yml"]
 MAX_PACKETS = 500
 MAX_SEEN_FPS = 10_000
-GC_INTERVAL = 300
+DRAIN_BATCH_MAX = 50
 RECEIVING_TIMEOUT = 2.0
 SPINNER = ["▸", "▸▸", "▸▸▸", "▸▸▸▸", "▸▸▸▸▸"]
 
@@ -83,7 +82,6 @@ class RxState:
     zmq_addr: str = ""
     first_pkt_ts: str | None = None
     last_pkt_ts: str | None = None
-    last_gc: float = 0.0
     selected_idx: int = -1
     scroll_offset: int = 0
     detail_open: bool = True
@@ -107,6 +105,7 @@ class RxState:
     version: str = ""
     schema_count: int = 0
     schema_path: str = ""
+    pkt_gen: int = 0
 
 
 # =============================================================================
@@ -129,12 +128,14 @@ def _drain_rx_queue(state, pkt_queue):
     Returns True if any packets were drained (dirty flag for rendering).
     """
     dirty = False
-    while True:
+    drained = 0
+    while drained < DRAIN_BATCH_MAX:
         try:
             meta, raw = pkt_queue.get_nowait()
         except queue.Empty:
             break
         dirty = True
+        drained += 1
         if state.first_pkt_ts is None:
             state.first_pkt_ts = datetime.now().astimezone().strftime(TS_FULL)
         try:
@@ -156,6 +157,7 @@ def _drain_rx_queue(state, pkt_queue):
                 state.error_status.set(f"Log error: {e}", STATUS_LONG)
         was_full = len(state.packets) >= state.packets.maxlen
         state.packets.append(pkt_record)
+        state.pkt_gen += 1
         if was_full and state.selected_idx != -1:
             state.selected_idx = max(-1, state.selected_idx - 1)
     state.receiving = (time.time() - state.last_watchdog) < RECEIVING_TIMEOUT
@@ -181,7 +183,7 @@ def _dispatch_rx_command(state, line):
     elif cmd == 'hclear':
         if state.packets:
             state.status.set(f"Cleared {len(state.packets)} packets", STATUS_BRIEF)
-            state.packets.clear(); state.selected_idx = -1; state.scroll_offset = 0
+            state.packets.clear(); state.selected_idx = -1; state.scroll_offset = 0; state.pkt_gen += 1
         else: state.status.set("History already empty", STATUS_BRIEF)
     elif cmd == 'live': state.selected_idx = -1
     else: state.status.set(f"Unknown command: {line}", STATUS_NORMAL)
@@ -232,7 +234,7 @@ class MavRxApp(MavAppBase):
         self.state = RxState(
             packets=deque(maxlen=MAX_PACKETS), pipeline=RxPipeline(cmd_defs, self._tx_freq_map, MAX_SEEN_FPS),
             log=SessionLog(LOG_DIR, ZMQ_ADDR, version=VERSION), cmd_defs=cmd_defs,
-            session_start=now, last_watchdog=now - RECEIVING_TIMEOUT, last_gc=now,
+            session_start=now, last_watchdog=now - RECEIVING_TIMEOUT,
             zmq_addr=ZMQ_ADDR, version=VERSION, schema_count=len(cmd_defs),
             schema_path=CMD_DEFS_PATH, spinner=SPINNER,
             frequency=next(iter(self._tx_freq_map.values()), "N/A"),
@@ -273,17 +275,19 @@ class MavRxApp(MavAppBase):
                   lambda msg: self.state.error_status.set(msg, STATUS_LONG)),
             daemon=True)
         self._rx_thread.start()
-        self.set_interval(1/60, self._tick)
+        self.set_interval(1/15, self._tick)
+        self._last_tick_time = time.time()
         self._last_header_sec = -1
         self.query_one("#rx-input").focus()
 
     def _tick(self):
         s = self.state
+        now = time.time()
+        dt = now - self._last_tick_time
+        self._last_tick_time = now
         pkt_dirty = _drain_rx_queue(s, self._pkt_queue)
-        if time.time() - s.last_gc > GC_INTERVAL:
-            gc.collect(); s.last_gc = time.time()
         old_spin = s.spin_idx
-        s._spin_acc += 0.5 if s.receiving else 0.05
+        s._spin_acc = (s._spin_acc + (30.0 if s.receiving else 3.0) * dt) % 40.0
         s.spin_idx = int(s._spin_acc) % len(SPINNER)
         spin_dirty = (s.spin_idx != old_spin)
         status_dirty = s.error_status.check_expiry() or s.status.check_expiry()

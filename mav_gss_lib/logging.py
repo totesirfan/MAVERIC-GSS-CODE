@@ -169,34 +169,14 @@ class SessionLog(_BaseLog):
     def write_packet(self, pkt):
         """Write one RX packet entry. Takes a Packet instance."""
         lines = []
-
-        # Separator line
-        pkt_num = pkt.pkt_num
-        is_unknown = pkt.is_unknown
-        unknown_num = pkt.unknown_num
-        frame_type = pkt.frame_type
-        raw = pkt.raw
-        inner = pkt.inner_payload
-        delta_t = pkt.delta_t
-        is_dup = pkt.is_dup
-        is_uplink_echo = pkt.is_uplink_echo
-
-        if is_unknown and unknown_num is not None:
-            label = f"U-{unknown_num}"
-        else:
-            label = f"#{pkt_num}"
-
-        extras = f"{frame_type}  {len(raw)}B \u2192 {len(inner)}B"
-        if delta_t is not None:
-            extras += f"  \u0394t {delta_t:.3f}s"
-        if is_dup:
-            extras += "  [DUP]"
-        if is_uplink_echo:
-            extras += "  [UL]"
+        label = f"U-{pkt.unknown_num}" if pkt.is_unknown and pkt.unknown_num is not None else f"#{pkt.pkt_num}"
+        extras = f"{pkt.frame_type}  {len(pkt.raw)}B \u2192 {len(pkt.inner_payload)}B"
+        if pkt.delta_t is not None: extras += f"  \u0394t {pkt.delta_t:.3f}s"
+        if pkt.is_dup: extras += "  [DUP]"
+        if pkt.is_uplink_echo: extras += "  [UL]"
         lines.append(self._separator(label, extras))
-        if is_uplink_echo:
-            banner = "  \u25b2\u25b2\u25b2 UPLINK ECHO \u25b2\u25b2\u25b2"
-            lines.append(banner)
+        if pkt.is_uplink_echo:
+            lines.append("  \u25b2\u25b2\u25b2 UPLINK ECHO \u25b2\u25b2\u25b2")
 
         # Warnings
         for w in pkt.warnings:
@@ -250,11 +230,9 @@ class SessionLog(_BaseLog):
             tag = "OK" if crc_status["csp_crc32_valid"] else "FAIL"
             lines.append(self._field("CRC-32C", f"0x{crc_status['csp_crc32_rx']:08x} [{tag}]"))
 
-        # HEX + ASCII
-        lines.extend(self._hex_lines(raw, "HEX"))
-        text = pkt.text
-        if text:
-            lines.append(self._field("ASCII", text))
+        lines.extend(self._hex_lines(pkt.raw, "HEX"))
+        if pkt.text:
+            lines.append(self._field("ASCII", pkt.text))
 
         self._write_entry(lines)
 
@@ -342,37 +320,21 @@ class TXLog(_BaseLog):
 
         # -- JSONL entry --
         rec = {
-            "n": n,
-            "ts": datetime.now().astimezone().isoformat(),
+            "n": n, "ts": datetime.now().astimezone().isoformat(),
             "uplink_mode": uplink_mode,
-            "src": src,
-            "src_lbl": node_label(src),
-            "dest": dest,
-            "dest_lbl": node_label(dest),
-            "echo": echo,
-            "echo_lbl": node_label(echo),
-            "ptype": ptype,
-            "ptype_lbl": ptype_label(ptype),
-            "cmd": cmd,
-            "args": args,
-            "raw_hex": raw_cmd.hex(),
-            "raw_len": len(raw_cmd),
-            "hex": payload.hex(),
-            "len": len(payload),
-            "ax25": {
-                "enabled": ax25.enabled,
-                "src": f"{ax25.src_call}-{ax25.src_ssid}",
-                "dest": f"{ax25.dest_call}-{ax25.dest_ssid}",
-            },
-            "csp": {
-                "enabled": csp.enabled,
-                "prio": csp.prio,
-                "src": csp.src,
-                "dest": csp.dest,
-                "dport": csp.dport,
-                "sport": csp.sport,
-                "flags": csp.flags,
-            },
+            "src": src, "src_lbl": node_label(src),
+            "dest": dest, "dest_lbl": node_label(dest),
+            "echo": echo, "echo_lbl": node_label(echo),
+            "ptype": ptype, "ptype_lbl": ptype_label(ptype),
+            "cmd": cmd, "args": args,
+            "raw_hex": raw_cmd.hex(), "raw_len": len(raw_cmd),
+            "hex": payload.hex(), "len": len(payload),
+            "ax25": {"enabled": ax25.enabled,
+                     "src": f"{ax25.src_call}-{ax25.src_ssid}",
+                     "dest": f"{ax25.dest_call}-{ax25.dest_ssid}"},
+            "csp": {"enabled": csp.enabled, "prio": csp.prio, "src": csp.src,
+                    "dest": csp.dest, "dport": csp.dport, "sport": csp.sport,
+                    "flags": csp.flags},
         }
         if cmd_crc16 is not None:
             rec["crc16"] = f"0x{cmd_crc16:04x}"

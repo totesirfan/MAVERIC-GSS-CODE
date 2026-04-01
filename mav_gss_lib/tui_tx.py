@@ -16,6 +16,7 @@ from mav_gss_lib.tui_common import (
     S_LABEL, S_VALUE, S_SUCCESS, S_WARNING, S_ERROR, S_DIM, S_SEP, lr_line,
     scrollbar_styles, append_wrapped_args, build_header,
     TS_SHORT, ptype_color, node_color, compute_col_widths, title_style,
+    hide_echo_if_all_none,
 )
 
 
@@ -23,23 +24,44 @@ def _tx_col_widths(visible, scroll_offset):
     """Compute column widths for TX queue visible rows."""
     # Pre-compute num labels since they need index
     nums = {id(row): str(scroll_offset + i + 1) for i, row in enumerate(visible)}
-    return compute_col_widths(visible, {
+    result = compute_col_widths(visible, {
         "num": lambda row: [nums[id(row)]],
         "src": lambda row: [node_label(row[0])],
         "dest": lambda row: [node_label(row[1])],
         "echo": lambda row: [node_label(row[2])],
         "ptype": lambda row: [protocol.PTYPE_NAMES.get(row[3], str(row[3]))],
     }, defaults={"num": 1, "src": 3, "dest": 4, "echo": 4, "ptype": 4})
+    hide_echo_if_all_none(result, [row[2] for row in visible])
+    return result
+
+def _build_col_hdr(nw, sw, dw, ew, pw, has_non_gs_src, has_time=False):
+    """Build column header row shared by TxQueue and SentHistory."""
+    hdr = Text()
+    hdr.append(f" #{'#':<{nw}} ", style=S_SEP)
+    if has_time:
+        hdr.append(f" {'TIME':8} ", style=S_SEP)
+    if has_non_gs_src:
+        hdr.append(f" {'SRC':>{sw}} → {'DEST':<{dw}} ", style=S_SEP)
+    else:
+        hdr.append(f" {'DEST':<{dw}} ", style=S_SEP)
+    if ew:
+        hdr.append(f" E:{'ECHO':<{ew}} ", style=S_SEP)
+    hdr.append(f" {'TYPE':<{pw}} ", style=S_SEP)
+    hdr.append(" ID/ARGS", style=S_SEP)
+    return hdr, Text("SIZE ", style=S_SEP)
+
 
 def _hist_col_widths(visible):
     """Compute column widths for sent history visible rows."""
-    return compute_col_widths(visible, {
+    result = compute_col_widths(visible, {
         "num": lambda rec: [str(rec['n'])],
         "src": lambda rec: [node_label(rec.get('src', protocol.GS_NODE))],
         "dest": lambda rec: [node_label(rec['dest'])],
         "echo": lambda rec: [node_label(rec['echo'])],
         "ptype": lambda rec: [protocol.PTYPE_NAMES.get(rec['ptype'], '?')],
     }, defaults={"num": 1, "src": 3, "dest": 4, "echo": 4, "ptype": 4})
+    hide_echo_if_all_none(result, [rec['echo'] for rec in visible])
+    return result
 
 
 class TxHeader(Widget):
@@ -115,17 +137,7 @@ class TxQueue(ScrollableWidget):
             sb = []
         nw, sw, dw, ew, pw = col_w["num"], col_w["src"], col_w["dest"], col_w["echo"], col_w["ptype"]
         row_w = w - 1 if sb else w
-        # Sticky column header row — format strings match data rows exactly
-        hdr = Text()
-        hdr.append(f" #{'#':<{nw}} ", style=S_SEP)
-        if has_non_gs_src:
-            hdr.append(f" {'SRC':>{sw}} → {'DEST':<{dw}} ", style=S_SEP)
-        else:
-            hdr.append(f" {'DEST':<{dw}} ", style=S_SEP)
-        hdr.append(f" E:{'ECHO':<{ew}} ", style=S_SEP)
-        hdr.append(f" {'TYPE':<{pw}} ", style=S_SEP)
-        hdr.append(" ID/ARGS", style=S_SEP)
-        hdr_right = Text("SIZE ", style=S_SEP)
+        hdr, hdr_right = _build_col_hdr(nw, sw, dw, ew, pw, has_non_gs_src)
         t.append("\n")
         t.append_text(lr_line(hdr, hdr_right, row_w))
         if count == 0:
@@ -153,7 +165,8 @@ class TxQueue(ScrollableWidget):
                 left.append(f" {node_label(src):>{sw}} → {node_label(dest):<{dw}} ", style=base if uniform else (f"{base} #00bfff" if not base else base))
             else:
                 left.append(f" {node_label(dest):<{dw}} ", style=base if uniform else (f"{base} #00bfff" if not base else base))
-            left.append(f" E:{node_label(echo):<{ew}} ", style=base if uniform else f"{base} {node_color(echo)}")
+            if ew:
+                left.append(f" E:{node_label(echo):<{ew}} ", style=base if uniform else f"{base} {node_color(echo)}")
             pt = protocol.PTYPE_NAMES.get(ptype, str(ptype))
             left.append(f" {pt:<{pw}} ", style=base if uniform else (f"{base} {ptype_color(ptype)}" if not base else base))
             left.append(f"{cmd} ", style=base if uniform else (f"{base} bold #ffffff" if not base else base))
@@ -220,18 +233,7 @@ class SentHistory(ScrollableWidget):
         # Title line
         ind = Text(f"[{start+1}-{end}/{count}] ", style=S_DIM) if count > data_rows else Text()
         t.append_text(lr_line(title, ind, w))
-        # Sticky column header row — format strings match data rows exactly
-        hdr = Text()
-        hdr.append(f" #{'#':<{nw}} ", style=S_SEP)
-        hdr.append(f" {'TIME':8} ", style=S_SEP)
-        if has_non_gs_src:
-            hdr.append(f" {'SRC':>{sw}} → {'DEST':<{dw}} ", style=S_SEP)
-        else:
-            hdr.append(f" {'DEST':<{dw}} ", style=S_SEP)
-        hdr.append(f" E:{'ECHO':<{ew}} ", style=S_SEP)
-        hdr.append(f" {'TYPE':<{pw}} ", style=S_SEP)
-        hdr.append(" ID/ARGS", style=S_SEP)
-        hdr_right = Text("SIZE ", style=S_SEP)
+        hdr, hdr_right = _build_col_hdr(nw, sw, dw, ew, pw, has_non_gs_src, has_time=True)
         t.append("\n")
         t.append_text(lr_line(hdr, hdr_right, row_w))
         if count == 0:
@@ -249,8 +251,9 @@ class SentHistory(ScrollableWidget):
                 left.append(f" {node_label(src):>{sw}} → {node_label(rec['dest']):<{dw}} ", style=h_node)
             else:
                 left.append(f" {node_label(rec['dest']):<{dw}} ", style=h_node)
-            echo_c = "#888888" if protocol.NODE_NAMES.get(rec['echo']) == "NONE" else h_node
-            left.append(f" E:{node_label(rec['echo']):<{ew}} ", style=echo_c)
+            if ew:
+                echo_c = "#888888" if protocol.NODE_NAMES.get(rec['echo']) == "NONE" else h_node
+                left.append(f" E:{node_label(rec['echo']):<{ew}} ", style=echo_c)
             pt = protocol.PTYPE_NAMES.get(rec['ptype'], '?')
             left.append(f" {pt:<{pw}} ", style=h_node)
             left.append(f"{rec['cmd']} ", style=f"{h_val} bold")
@@ -283,9 +286,11 @@ class TxStatusBar(Widget):
     def render(self):
         s = self.s
         t = Text(no_wrap=True, overflow="crop")
-        if s.sending.get("active"):
+        with s.send_lock:
+            active = s.sending.get("active")
             idx = s.sending.get("idx", 0)
             total = s.sending.get("total", len(s.tx_queue))
+        if active:
             t.append(f" SENT {idx + 1}/{total}", style=S_SUCCESS)
         elif s.status.text:
             t.append(f" {s.status.text}", style=S_WARNING)
@@ -296,10 +301,12 @@ class TxStatusBar(Widget):
 # -- Help / Config data -------------------------------------------------------
 
 HELP_LINES = [
-    ("COMMAND FORMAT", None), ("[SRC] DEST ECHO TYPE CMD [ARGS]", ""),
+    ("COMMAND FORMAT", None),
+    ("CMD [ARGS]", "Uses schema defaults (if dest defined)"),
+    ("[SRC] DEST ECHO TYPE CMD [ARGS]", "Full form (always works)"),
     ("  SRC/DEST/ECHO", "Node name or ID"), ("  TYPE", "CMD|RES|ACK|TLM|FILE"),
     ("SRC defaults to GS (6)", ""),
-    ("e.g.", "EPS UPPM CMD ping"), ("e.g.", "EPS 2 3 1 set_voltage 3.3"),
+    ("e.g.", "set_voltage 3.3"), ("e.g.", "EPS NONE CMD ping hello"),
     ("KEYS", None), ("Ctrl+S / Ctrl+X", "Send / clear queue"),
     ("Ctrl+Z", "Remove last queued"), ("Up / Down", "History / scroll (focus)"),
     ("Tab / Shift+Tab", "Cycle focus: input/queue/history"),
