@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { GlobalHeader } from '@/components/layout/GlobalHeader'
 import { SplitPane } from '@/components/layout/SplitPane'
 import { useRxSocket } from '@/hooks/useRxSocket'
@@ -10,6 +10,12 @@ import { LogViewer } from '@/components/logs/LogViewer'
 import { HelpModal } from '@/components/shared/HelpModal'
 import type { GssConfig } from '@/lib/types'
 
+function isInputFocused(): boolean {
+  const tag = document.activeElement?.tagName
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' ||
+    (document.activeElement as HTMLElement)?.isContentEditable === true
+}
+
 export default function App() {
   const rx = useRxSocket()
   const tx = useTxSocket()
@@ -19,7 +25,44 @@ export default function App() {
   const [showConfig, setShowConfig] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
 
-  // all modal states now wired up
+  // Keyboard shortcuts
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    // Ctrl+S: send queue
+    if (e.ctrlKey && e.key === 's') {
+      e.preventDefault()
+      if (tx.queue.length > 0 && !tx.sendProgress) {
+        tx.sendAll()
+      }
+      return
+    }
+
+    // Ctrl+Z: undo last
+    if (e.ctrlKey && e.key === 'z') {
+      e.preventDefault()
+      tx.undoLast()
+      return
+    }
+
+    // Escape: close modals in priority order, or abort send
+    if (e.key === 'Escape') {
+      if (showConfig) { setShowConfig(false); return }
+      if (showLogs) { setShowLogs(false); return }
+      if (showHelp) { setShowHelp(false); return }
+      if (tx.sendProgress) { tx.abortSend(); return }
+      return
+    }
+
+    // ?: toggle help (only when not in an input element)
+    if (e.key === '?' && !isInputFocused()) {
+      setShowHelp((v) => !v)
+      return
+    }
+  }, [showConfig, showLogs, showHelp, tx])
+
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [handleKeyDown])
 
   useEffect(() => {
     fetch('/api/config')
