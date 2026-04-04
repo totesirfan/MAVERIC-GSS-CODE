@@ -4,7 +4,7 @@ import { SplitPane } from '@/components/layout/SplitPane'
 import { useRxSocket } from '@/hooks/useRxSocket'
 import { useTxSocket } from '@/hooks/useTxSocket'
 import { RxPanel } from '@/components/rx/RxPanel'
-import { colors } from '@/lib/colors'
+import { TxPanel } from '@/components/tx/TxPanel'
 import type { GssConfig } from '@/lib/types'
 
 export default function App() {
@@ -44,9 +44,28 @@ export default function App() {
       />
       <SplitPane
         left={
-          <div className="flex-1 flex items-center justify-center" style={{ color: colors.dim }}>
-            TX Panel
-          </div>
+          <TxPanel
+            queue={tx.queue}
+            summary={tx.summary}
+            history={tx.history}
+            sendProgress={tx.sendProgress}
+            guardConfirm={tx.guardConfirm}
+            error={tx.error}
+            uplinkMode={uplinkMode}
+            queueCommand={tx.queueCommand}
+            queueBuilt={tx.queueBuilt}
+            deleteItem={tx.deleteItem}
+            clearQueue={tx.clearQueue}
+            undoLast={tx.undoLast}
+            toggleGuard={tx.toggleGuard}
+            reorder={tx.reorder}
+            addDelay={tx.addDelay}
+            editDelay={tx.editDelay}
+            sendAll={tx.sendAll}
+            abortSend={tx.abortSend}
+            approveGuard={tx.approveGuard}
+            rejectGuard={tx.rejectGuard}
+          />
         }
         right={
           <RxPanel packets={rx.packets} status={rx.status} />
