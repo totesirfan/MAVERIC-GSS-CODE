@@ -3,6 +3,7 @@ import { GlobalHeader } from '@/components/layout/GlobalHeader'
 import { SplitPane } from '@/components/layout/SplitPane'
 import { useRxSocket } from '@/hooks/useRxSocket'
 import { useTxSocket } from '@/hooks/useTxSocket'
+import { RxPanel } from '@/components/rx/RxPanel'
 import { colors } from '@/lib/colors'
 import type { GssConfig } from '@/lib/types'
 
@@ -48,9 +49,7 @@ export default function App() {
           </div>
         }
         right={
-          <div className="flex-1 flex items-center justify-center" style={{ color: colors.dim }}>
-            RX Panel — {rx.packets.length} packets
-          </div>
+          <RxPanel packets={rx.packets} status={rx.status} />
         }
       />
     </div>
