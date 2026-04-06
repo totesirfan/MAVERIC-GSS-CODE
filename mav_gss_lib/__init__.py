@@ -2,10 +2,11 @@
 mav_gss_lib -- MAVERIC Ground Station Shared Library
 
 Shared protocol and transport code for the MAVERIC CubeSat
-ground station software suite (MAV_RX, MAV_TX).
+ground station software suite (web runtime + fallback TUIs).
 
 Modules:
     protocol   -- Mission protocol: nodes, CSP, KISS, CRC-16, CRC-32C, command format, schema
+    mission_adapter -- Explicit mission boundary for RX/TX parsing and command behavior
     transport  -- ZMQ + PMT: PUB/SUB sockets, PDU send/receive
     parsing    -- RX packet processing pipeline
     logging    -- Session logging (JSONL + text)
@@ -33,3 +34,5 @@ from mav_gss_lib.transport import (
 from mav_gss_lib.parsing import RxPipeline, build_rx_log_record
 
 from mav_gss_lib.logging import SessionLog, TXLog
+
+from mav_gss_lib.mission_adapter import MavericMissionAdapter

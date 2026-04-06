@@ -1,266 +1,354 @@
 # MAVERIC Ground Station Software
 
-Ground station suite for the MAVERIC CubeSat mission (USC ISI SERC). Provides simultaneous full-duplex uplink/downlink using a single USRP B210 with the GNU Radio MAV_DUPLEX flowgraph.
+MAVERIC Ground Station Software is the ground-station runtime and operator console for the **MAVERIC CubeSat**, developed at the **University of Southern California (USC)** through the **Space Engineering Research Center (SERC)**.
+
+It is a web-based system for live telemetry monitoring, command uplink operations, and operator-facing session control across the full ground-station workflow.
+
+MAVERIC GSS brings together packet transport, protocol parsing, uplink queue management, browser-based operations, and local session logging into one integrated operational layer between the radio stack and the operator.
+
+This repository is public-facing by design: the implementation is visible, the architecture is documented, and the operationally sensitive mission-specific files stay local.
+
+## Ground Segment at a Glance
+
+- **Mission Role:** ground-station runtime for the MAVERIC CubeSat
+- **Institutional Context:** developed at USC through SERC
+- **Primary Interface:** browser-based operator console
+- **Core Functions:** receive telemetry, review packets, validate commands, execute uplink queues, record sessions
+- **System Position:** operational layer between GNU Radio and the operator
+
+---
+
+## Ground Station Runtime
+
+For the MAVERIC CubeSat mission, MAVERIC GSS is not only a dashboard layered on top of radio data. It is the operational middle layer between the radio stack and the operator.
+
+It receives decoded traffic from GNU Radio over ZMQ, parses and classifies packets through a shared protocol pipeline, exposes that state live to browser clients, validates outbound commands against a local schema, frames those commands for transmission, and records both RX and TX activity into local session logs.
+
+In practice, it acts as the control surface and runtime coordinator for the station.
 
 ```mermaid
-graph LR
-    TX["MAV_TX\nUplink Dashboard"] -- "ZMQ PUB\ncommand PDUs" --> GR["GNU Radio\nMAV_DUPLEX / MAV_GOLAY"]
-    GR -- "ZMQ PUB\ndecoded frames" --> RX["MAV_RX\nDownlink Monitor"]
-    GR -- "437.25 MHz\nGFSK" --> SAT["MAVERIC\nCubeSat"]
-    SAT -- "437.25 MHz\nGFSK" --> GR
+flowchart LR
+    OP["Operator"] --> UI["Web Console"]
+    UI --> CORE["MAVERIC GSS Runtime"]
+    CORE --> RX["RX Parse / Classify / Log"]
+    CORE --> TX["TX Validate / Queue / Frame"]
+    RX <-->|ZMQ| GR["GNU Radio Flowgraph"]
+    TX <-->|ZMQ| GR
 ```
 
-Supports two uplink modes:
-- **AX.25 HDLC** (Mode 6) — HDLC framing, G3RUH scrambler, NRZI encoding (GNU Radio)
-- **ASM+Golay** (Mode 5, recommended) — Reed-Solomon FEC, CCSDS scrambler, Golay-coded length. Verified uplink to MAVERIC AX100 hardware
+---
 
-## Quick Start
+## What It Delivers
 
-Requires the **radioconda** conda environment with GNU Radio 3.10+, gr-satellites, PyZMQ, pmt, crcmod, pyyaml, and textual.
+### Live Downlink Operations
 
-```bash
-conda activate gnuradio
+- real-time packet visibility
+- parsed routing and command detail
+- duplicate detection and uplink-echo tagging
+- stale-link and health visibility
+- local RX session logging
 
-# Start GNU Radio MAV_DUPLEX flowgraph first
+### Controlled Uplink Operations
 
-python3 MAV_RX.py              # Downlink monitor
-python3 MAV_TX.py              # Uplink dashboard
-python3 MAV_RX.py --nosplash   # Skip splash screen
+- validated command entry
+- persistent TX queue management
+- delay items and guard confirmations
+- framed transmit payload generation
+- local TX session logging
+
+### Operator Workflow
+
+- browser-based split RX/TX console
+- replay and log review
+- runtime config editing against local private YAMLs
+- status, alarms, and session-state feedback
+
+---
+
+## Capability View
+
+```mermaid
+flowchart TD
+    GSS["MAVERIC GSS"]
+    GSS --> RXC["RX Operations"]
+    GSS --> TXC["TX Operations"]
+    GSS --> RTC["Runtime Services"]
+    GSS --> UIC["Operator UI"]
+
+    RXC --> RX1["Live packet stream"]
+    RXC --> RX2["Packet detail views"]
+    RXC --> RX3["Duplicate / echo handling"]
+    RXC --> RX4["RX session logs"]
+
+    TXC --> TX1["Command validation"]
+    TXC --> TX2["Queue persistence"]
+    TXC --> TX3["Delay + guard controls"]
+    TXC --> TX4["Framing pipeline"]
+
+    RTC --> RT1["FastAPI backend"]
+    RTC --> RT2["WebSocket streaming"]
+    RTC --> RT3["ZMQ integration"]
+    RTC --> RT4["Local config loading"]
+
+    UIC --> UI1["RX panel"]
+    UIC --> UI2["TX panel"]
+    UIC --> UI3["Alarm strip"]
+    UIC --> UI4["Log viewer + replay"]
 ```
 
-## Structure
+---
 
+## System Architecture
+
+MAVERIC GSS is structured around four cooperating layers:
+
+1. **Browser UI**
+   The operator-facing interface for live RX/TX work.
+
+2. **Web Runtime**
+   FastAPI app, WebSocket endpoints, runtime state, queue control, and API routes.
+
+3. **Shared Core Library**
+   Protocol handling, parsing, transport helpers, framing, and logging.
+
+4. **Radio Integration**
+   GNU Radio flowgraph connected over RX/TX ZMQ sockets.
+
+```mermaid
+flowchart TD
+    UI["Browser UI"] --> API["FastAPI + Web Runtime"]
+    CFG["Local Private Config"] --> API
+    API --> RX["RX Service"]
+    API --> TX["TX Service"]
+    RX --> PARSE["Parsing Pipeline"]
+    TX --> FRAME["Protocol + Framing"]
+    PARSE --> LOG1["RX Logs"]
+    TX --> LOG2["TX Logs"]
+    PARSE <-->|ZMQ RX| GR["GNU Radio"]
+    FRAME <-->|ZMQ TX| GR
 ```
-MAV_RX.py                 Downlink packet monitor (Textual app)
-MAV_TX.py                 Uplink command dashboard (Textual app)
+
+---
+
+## Implementation
+
+### Web Runtime
+
+The entrypoint is `MAV_WEB.py`, but the main web runtime lives under `mav_gss_lib/web_runtime/`.
+
+That layer owns:
+
+- startup lifecycle
+- runtime state
+- REST API routes
+- RX and TX websocket endpoints
+- queue and session handling
+- browser session-token/origin checks
+
+### Shared Core Library
+
+The protocol and transport implementation lives in `mav_gss_lib/`.
+
+Key modules:
+
+- `protocol.py`
+  Command format, schema loading, command validation, node/type resolution
+- `parsing.py`
+  RX pipeline, packet classification, counters, duplicate tracking, log-record generation
+- `transport.py`
+  ZMQ helpers and transport integration
+- `logging.py`
+  RX/TX session logging
+- `ax25.py`
+  AX.25 framing support
+- `golay.py`
+  ASM+Golay framing support
+- `config.py`
+  Local config load/save and protocol object application
+
+### Operator Console
+
+The web UI lives under `mav_gss_lib/web/`.
+
+It provides:
+
+- RX packet list and detail views
+- TX queue construction and history
+- alarm/status feedback
+- config editing UI
+- log browsing and replay flows
+- keyboard-driven operator controls
+
+---
+
+## Operational Use
+
+### Live Pass Monitoring
+
+The operator runs the flowgraph, opens the browser console, and watches decoded traffic arrive in real time. MAVERIC GSS parses and surfaces packet structure, warnings, routing fields, and link health so the session can be monitored as an operational stream rather than raw transport output.
+
+### Command Queue Execution
+
+The operator builds an uplink sequence through validated command entry, optional delay items, and guard confirmations. The runtime persists queue state locally, frames each command for the selected uplink mode, and sends payloads back to GNU Radio over the TX ZMQ path.
+
+### Session Review and Replay
+
+Saved RX and TX logs can be revisited for inspection, replay, and workflow review. This makes MAVERIC GSS useful not only during live operations, but also as a record of what happened during a session.
+
+---
+
+## Codebase Layout
+
+```text
+MAV_WEB.py                  Web runtime entrypoint
+MAV_IMG.py                  Image downlink utility
 
 mav_gss_lib/
-    protocol.py           Nodes, CSP v1, AX.25, KISS, CRC-16/CRC-32C (crcmod), command wire format
-    transport.py          ZMQ PUB/SUB, PMT PDU send/receive, socket monitoring
-    config.py             YAML config loader/saver, AX.25/CSP command handlers
-    parsing.py            RX packet processing pipeline (RxPipeline)
-    logging.py            Session logging — JSONL + formatted text, background writer thread
-    golay.py              ASM+Golay encoder: Golay(24,12), RS FEC (cached), CCSDS scrambler, frame assembly
-    ax25.py               AX.25 HDLC encoder: fused HDLC+G3RUH+NRZI+pack single-pass pipeline
-    tui_common.py         Shared Textual UI: ConfigScreen, ConfirmScreen, HelpScreen, SplashScreen, Hints, column builders, styles
-    tui_rx.py             RX widgets: header, packet list (cached filter), packet detail
-    tui_tx.py             TX widgets: header, queue, sent history, config fields
+    ax25.py
+    config.py
+    golay.py
+    imaging.py
+    logging.py
+    parsing.py
+    protocol.py
+    transport.py
+    tui_common.py
+    tui_rx.py
+    tui_tx.py
 
-maveric_gss.yml           Shared config (nodes, AX.25, CSP, ZMQ, frequency)
-maveric_decoder.yml       gr-satellites satellite definition
-generated_commands/       Importable .jsonl command files (MAV_TX imp command)
+    config/
+        maveric_gss.example.yml
+        maveric_commands.example.yml
 
-start_rx_macos.command    macOS launcher for MAV_RX
-start_tx_macos.command    macOS launcher for MAV_TX
-start_rx_linux.sh         Linux launcher for MAV_RX
-start_tx_linux.sh         Linux launcher for MAV_TX
+    web/
+        package.json
+        src/
+        public/
 
-logs/
-    text/                 Human-readable logs (downlink_*.txt, uplink_*.txt)
-    json/                 Machine-readable JSONL (downlink_*.jsonl, uplink_*.jsonl)
+    web_runtime/
+        api.py
+        app.py
+        runtime.py
+        rx.py
+        security.py
+        services.py
+        state.py
+        tx.py
+
+backup_control/
+    MAV_RX.py
+    MAV_TX.py
 ```
 
-## Protocol Stack
+---
 
-```mermaid
-graph TD
-    A["Operator Command\n[SRC] DEST ECHO TYPE CMD [ARGS]"] --> B
-    B["Command Wire Format\n[src][dest][echo][ptype][id_len][args_len]\n[cmd_id][0x00][args][0x00][CRC-16 LE]"] --> C
-    C["CSP v1 Wrap\n[4B header][command][4B CRC-32C BE]"] --> D
-    D{Uplink Mode?}
-    D -- "AX.25" --> E["AX.25 Wrap\n[16B header][CSP packet]\n→ GNU Radio HDLC + G3RUH + NRZI"]
-    D -- "ASM+Golay" --> F["ASM+Golay Encode\nRS FEC + CCSDS scrambler + Golay header\n→ GNU Radio GFSK only"]
+## Public Repository Policy
+
+This repository is meant to show the software without exposing live station operations.
+
+Tracked in git:
+
+- source code
+- web UI code
+- public-safe examples
+- documentation
+
+Kept local and untracked:
+
+- real `maveric_gss.yml`
+- real `maveric_commands.yml`
+- decoder configuration used in live operations
+- logs
+- generated command files
+- local workspace/tooling state
+
+---
+
+## Startup
+
+To bring up a local instance:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp mav_gss_lib/config/maveric_gss.example.yml mav_gss_lib/config/maveric_gss.yml
+cp mav_gss_lib/config/maveric_commands.example.yml mav_gss_lib/config/maveric_commands.yml
+npm --prefix mav_gss_lib/web install
+npm --prefix mav_gss_lib/web run build
+python3 MAV_WEB.py
 ```
 
-### CSP v1 Header (32-bit big-endian)
+Your GNU Radio flowgraph should already be running and exposing the expected RX/TX ZMQ endpoints before launching the web runtime.
 
-```
-Bit:  31  30  29    25  24    20  19      14  13     8  7        0
-     ├────┤├───────┤├───────┤├─────────┤├────────┤├──────────────┤
-     │Pri │  Src   │  Dest  │  DPort   │  SPort  │    Flags     │
-     │ 2b │  5b    │  5b    │   6b     │   6b    │     8b       │
-     └────┘└───────┘└───────┘└─────────┘└────────┘└──────────────┘
-```
+For maintainer-focused setup, architecture, and adaptation guidance, see `docs/maintainer_handoff.md`.
 
-### AX.25 SSID Encoding
+For the long-term implementation spec covering transport/protocol separation, mission-adapter boundaries, adaptive UI contracts, and the phased migration plan, see `docs/architecture_migration_spec.md`.
 
-The GomSpace AX100 radio provides SSID values as raw hex bytes. The encoder accepts both formats:
-- **0–15**: Standard SSID value, encoded as `0x60 | (ssid << 1) | ext_bit`
-- **>15**: Raw SSID byte from AX100 config, placed directly with managed extension bit
+---
 
-## MAV_RX — Downlink Monitor
+## Legacy Control Path
 
-Subscribes to ZMQ where GNU Radio publishes decoded PDUs. A background thread receives packets into a queue; the Textual UI drains and displays them at 60Hz.
+Legacy Textual applications remain under `backup_control/` for fallback and historical continuity:
 
-```
-┌──────────────────────────────────────────────┐
-│ MAVERIC DOWNLINK        2026-03-31 12:00:00 UTC │
-│ ─────────────────────────────────────────────── │
-│ ZMQ: tcp://... [ONLINE]  HEX:OFF  UL:HIDE  Q:0 │
-├─────────────────────────────────────────────────┤
-│ PACKETS (5)                                     │
-│  #  TIME      FRAME  SRC → DEST  E:ECHO  TYPE  │
-│  #1 12:00:00  AX.25  GS → EPS   E:UPPM  REQ   │
-│  #2 12:00:01  AX.25  GS → EPS   E:UPPM  REQ   │
-│ ...                                             │
-│ ─────────────────────────────────────────────── │
-│ ▸▸▸  Received                                   │
-├─────────────────────────────────────────────────┤
-│ PACKET #2 DETAIL  2026-03-31 12:00:01 UTC  PDT │
-│ CMD ROUTE   Src:GS  Dest:EPS  Echo:UPPM  REQ   │
-│ CMD ID      ping                                │
-│ CRC-16      0xc315 [OK]                         │
-├─────────────────────────────────────────────────┤
-│ > _                                             │
-│ ↑↓ select  ⏎ detail       ⇥ input  ? help  ^C │
-└─────────────────────────────────────────────────┘
+```bash
+python3 backup_control/MAV_RX.py --nosplash
+python3 backup_control/MAV_TX.py --nosplash
 ```
 
-**Commands**: `help` / `?`, `cfg`, `hex`, `ul`, `wrapper`, `detail`, `live`, `hclear`, `tag <name>`, `log [name]`, `restart`, `q`
+The primary direction of the codebase is the modular web runtime and browser operator console.
 
-**Keys**: Up/Down (select packet), PgUp/PgDn (scroll page), Shift+Down (jump to live), Enter (toggle detail), Tab (cycle focus), Ctrl+C (quit)
+---
 
-**Features**:
-- Auto-follow newest packets; selecting a packet unlocks scroll (`SCROLL UNLOCKED` badge)
-- Uplink echoes tagged `UL` (src=GS or dest/echo not addressed to GS)
-- Duplicate detection via CRC-16 + CRC-32C fingerprint (tagged `DUP`)
-- Unparseable signals shown as `UNKNOWN` with separate numbering
-- Uplink echoes excluded from pkt/min rate
-- Hex/ASCII display toggleable; ASCII always shown in detail
-- Context-aware hint bar shows relevant keys for the focused widget
-- Help opens as a scrollable modal screen (`?` or `help`)
-- `tag` renames current log files; `log` starts a new log session
+## Direction
 
-## MAV_TX — Uplink Dashboard
+MAVERIC GSS is evolving toward a cleaner separation between:
 
-Publishes command PDUs via ZMQ to the GNU Radio flowgraph. Commands are queued with optional delay and guard items, then sent asynchronously in a background thread. The queue renders bottom-up with the next-to-send command at the bottom.
+- protocol logic
+- runtime services
+- operator interface
+- local operational state
+- session review and replay
 
-```
-┌──────────────────────────────────────────────┐
-│ MAVERIC UPLINK          2026-03-31 12:00:00 UTC │
-│ ─────────────────────────────────────────────── │
-│ ZMQ: tcp://... [ONLINE]  Mode: ASM+GOLAY        │
-├─────────────────────────────────────────────────┤
-│ TX QUEUE (2)       Ctrl+S: send | Ctrl+X: clear │
-│  ## DEST    E:ECHO  TYPE  CMD/ARGS         SIZE │
-│                                                 │
-│  #2 UPPM    E:UPPM  REQ   set_mode 5        15B │
-│  ──────────────── 1.0s ─────────────────────    │
-│  #1 EPS     E:UPPM  REQ   ping     NEXT     12B │
-├─────────────────────────────────────────────────┤
-│ SENT HISTORY (3)                                │
-│  ## TIME     DEST    E:ECHO  TYPE  CMD/ARGS SIZE│
-│  #1 12:00:00 EPS     E:UPPM  REQ   ping     20B │
-│ ...                                             │
-├─────────────────────────────────────────────────┤
-│ SENT 1/2                                        │
-│ > _                                             │
-│ ^S send  ^X clear  cfg        ⇥ queue  ? help  ^C │
-└─────────────────────────────────────────────────┘
-```
+The public repository is structured to reflect that direction while keeping mission-specific operational data out of version control.
 
-**Command format**: `CMD [ARGS]` (shorthand, uses schema defaults) or `[SRC] DEST ECHO TYPE CMD [ARGS]` (full form)
+## Mission Adapter Boundary
 
-SRC defaults to GS. Examples:
-```
-ping                          # Shorthand (if schema has routing defaults)
-set_voltage 3.3               # Shorthand with args
-EPS UPPM REQ ping             # Full form
-EPS 2 3 1 set_voltage 3.3     # Full form with numeric IDs
+The current mission boundary is `mav_gss_lib/mission_adapter.py`.
+
+That adapter now owns the mission-facing RX/TX semantics that future missions are most likely to change:
+
+- frame classification from GNU Radio metadata
+- outer-frame normalization
+- inner packet parsing
+- mission integrity checks
+- duplicate fingerprint rules
+- uplink-echo classification
+- TX command payload build and argument validation
+
+`mav_gss_lib/parsing.py` should only orchestrate packet flow and tracking state. It should not need to know where the command payload starts, whether CSP is present, or which fields define a duplicate for a given mission.
+
+For a future SERC mission, the intended adaptation order is:
+
+1. update config and command schema
+2. confirm whether the current mission adapter still matches the mission packet layout
+3. replace adapter-owned parsing/encoding behavior only if the new mission differs materially
+4. leave transport, runtime shell, logging, and most UI code alone unless operator workflow truly changes
+
+This is deliberate future-proofing, not a plugin framework. The goal is one clear replacement seam for mission truth.
+
+## Testing
+
+The default test suite covers the reusable runtime and protocol path:
+
+```bash
+pytest -q
 ```
 
-**Keys**: Ctrl+S (send queue — with confirmation), Ctrl+Z (undo last), Ctrl+X (clear queue — with confirmation), Up/Down (history recall), Tab (cycle focus), Ctrl+C/Esc (abort send or quit)
+One heavier end-to-end GNU Radio flowgraph test is intentionally opt-in:
 
-**Queue Focus Keys**: Up/Down (navigate items), Space (toggle guard on command), Enter (edit delay value), W (insert delay after selected), Delete/Backspace (remove selected item)
-
-**Commands**: `send`, `undo`/`pop`, `clear`, `hclear`, `wait [ms]`, `cfg`, `help` / `?`, `nodes`, `csp`, `ax25`, `mode [AX.25|ASM+GOLAY]`, `imp [file]`, `raw <hex>`, `tag <name>`, `log [name]`, `restart`, `q`
-
-**Features**:
-- **Dual uplink mode**: AX.25 HDLC (Mode 6) or ASM+Golay (Mode 5), switchable via `mode` command or cfg panel — both verified against live AX100 hardware
-- **Typed queue items**: commands and delay separators, with optional guard flag (amber badge) for per-command confirmation during send
-- **Reversed queue display**: next-to-send at bottom with `NEXT` pill flag, new items added above
-- **Interactive queue editing**: navigate, delete, insert delays, toggle guards, edit delay values — all from keyboard
-- Context-aware hint bar shows relevant keys for the focused widget (input, queue, or history)
-- Help opens as a scrollable modal screen (`?` or `help`)
-- Queue persisted to `.pending_queue.jsonl`, restored on startup
-- Import supports JSONL with `//` comments and hybrid array+dict format
-- Async send with instant abort (Ctrl+C/Esc), uniform SENT/GUARD flash
-- `tag` renames current log files; `log` starts a new log session
-- Config changes saved to `maveric_gss.yml` on exit
-- Commands validated against `maveric_commands.yml` schema
-
-## Configuration
-
-### Config Modal
-
-Both apps open a config editor via the `cfg` command. The config screen is a modal overlay with keyboard navigation:
-
-- **↑↓** select field, **Enter** edit (text), toggle (on/off), or cycle (mode), **Esc** close and save
-- TX config: Uplink Mode (AX.25/ASM+Golay), AX.25 callsigns/SSIDs, CSP parameters, frequency, ZMQ address, TX delay
-- RX config: hex display toggle, logging toggle
-
-### maveric_gss.yml
-
-Shared by both apps. TX persists runtime changes on exit.
-
-```yaml
-ax25:
-  src_call: WM2XBB         # Ground station callsign
-  src_ssid: 0x61            # Raw SSID byte (GomSpace AX100)
-  dest_call: WS9XSW        # Satellite callsign
-  dest_ssid: 0x60
-
-csp:
-  priority: 2
-  source: 0                 # Ground station CSP address
-  destination: 8            # Satellite CSP address
-  dest_port: 24
-  src_port: 0
-  flags: 0
-  csp_crc: true               # CRC-32C in CSP packets
-
-tx:
-  zmq_addr: tcp://127.0.0.1:52002
-  frequency: 437.6 MHz
-  delay_ms: 1000            # Inter-packet delay for queue sends (ms)
-  uplink_mode: AX.25        # or "ASM+Golay"
-
-rx:
-  zmq_addr: tcp://127.0.0.1:52001
+```bash
+MAVERIC_FULL_GR=1 pytest -q -rs tests/test_ops_golay_path.py
 ```
 
-### maveric_commands.yml
-
-Defines argument schemas for known commands. Not tracked in git for security — a local `maveric_commands.yml` must be created in the project root before running. See the schema header comments in the file for format details. Supported types: `str`, `int`, `float`, `epoch_ms`, `bool`.
-
-- **RX**: parses known commands by position and type (falls back to heuristic for unknown)
-- **TX**: validates arguments before queuing; rejects invalid commands with specific errors
-
-## Logging
-
-Both sessions produce paired logs in `logs/text/` and `logs/json/`:
-
-| File | Content |
-|------|---------|
-| `downlink_YYYYMMDD_HHMMSS.txt` | RX packets — CSP, command routing, CRC, hex dump, flags |
-| `downlink_YYYYMMDD_HHMMSS.jsonl` | RX packets — machine-readable |
-| `uplink_YYYYMMDD_HHMMSS.txt` | TX commands — routing, AX.25/CSP state, CRC, hex |
-| `uplink_YYYYMMDD_HHMMSS.jsonl` | TX commands — machine-readable |
-
-All file I/O runs on a background thread so the UI never blocks on disk writes. RX logging can be toggled at runtime. Use `tag <name>` to rename the current log files for easy identification, or `log [name]` to write a session summary and start a new log file pair.
-
-## Decoder
-
-`maveric_decoder.yml` configures gr-satellites with transmitter modes on 437.250 MHz:
-
-- 19k2 FSK AX.25 G3RUH
-- 4k8 FSK AX.25 G3RUH
-- 4k8 FSK AX100 ASM+Golay
-- 9k6 FSK AX100 ASM+Golay
-
-## Dependencies
-
-- [radioconda](https://github.com/ryanvolz/radioconda) (GNU Radio 3.10+, gr-satellites, PyZMQ, pmt)
-- [Textual](https://textual.textualize.io/) (`pip install textual`)
-- `crcmod` (`pip install crcmod`) — C-accelerated CRC-16/CRC-32C
-- `pyyaml` (`pip install pyyaml`)
+That test requires a working GNU Radio environment with the expected `gr-satellites` flowgraph dependencies. If it skips, the reusable code still may be fine; the skip usually means the local GNU Radio test environment is incomplete rather than that the Python runtime logic failed.

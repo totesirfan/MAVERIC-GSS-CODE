@@ -1,0 +1,14 @@
+# Backend/runtime Python dependencies for MAVERIC GSS.
+#
+# Notes:
+# - `pmt` is provided by the local GNU Radio installation and is not listed here.
+# - `tkinter` is part of the standard-library build shipped with most Python installs.
+
+fastapi
+uvicorn
+PyYAML
+pyzmq
+crcmod
+Pillow
+rich
+textual

@@ -39,42 +39,61 @@ class _BaseLog:
 
     _SENTINEL = None  # poison pill to stop the writer thread
 
-    def __init__(self, log_dir, prefix, version, mode, zmq_addr):
+    def __init__(self, log_dir, prefix, version, mode, zmq_addr, mission_name="MAVERIC"):
         self._log_dir = log_dir
         self._prefix = prefix
         self._version = version
         self._mode = mode
         self._zmq_addr = zmq_addr
+        self._mission_name = mission_name
+        self._q_lock = threading.Lock()  # guards _q replacement during new_session
         os.makedirs(os.path.join(log_dir, "text"), exist_ok=True)
         os.makedirs(os.path.join(log_dir, "json"), exist_ok=True)
         self._open_files()
 
     def _writer_loop(self):
-        """Drain the write queue until sentinel received."""
+        """Drain the write queue until sentinel received, then flush remaining."""
         while True:
             item = self._q.get()
             if item is self._SENTINEL:
+                # Drain any items queued before the sentinel
+                while not self._q.empty():
+                    try:
+                        remaining = self._q.get_nowait()
+                        if remaining is self._SENTINEL:
+                            continue
+                        self._process_item(remaining)
+                    except Exception:
+                        break
                 break
-            kind, data = item
-            if kind == "jsonl":
-                self._jsonl_f.write(data)
-                self._jsonl_f.flush()
-            elif kind == "text":
-                self._text_f.write(data)
-                self._text_f.flush()
-            elif kind == "rename":
-                new_text, new_jsonl = data
-                self._text_f.close(); self._jsonl_f.close()
-                os.rename(self.text_path, new_text)
-                os.rename(self.jsonl_path, new_jsonl)
-                self.text_path, self.jsonl_path = new_text, new_jsonl
-                self._text_f = open(new_text, "a", buffering=1)
-                self._jsonl_f = open(new_jsonl, "a", buffering=1)
+            try:
+                self._process_item(item)
+            except Exception as e:
+                print(f"WARNING: log write failed ({e}), continuing", file=sys.stderr)
+
+    def _process_item(self, item):
+        """Process a single queue item."""
+        kind, data = item
+        if kind == "jsonl":
+            self._jsonl_f.write(data)
+            self._jsonl_f.flush()
+        elif kind == "text":
+            self._text_f.write(data)
+            self._text_f.flush()
+        elif kind == "rename":
+            new_text, new_jsonl = data
+            self._text_f.close(); self._jsonl_f.close()
+            os.rename(self.text_path, new_text)
+            os.rename(self.jsonl_path, new_jsonl)
+            self.text_path, self.jsonl_path = new_text, new_jsonl
+            self._text_f = open(new_text, "a", buffering=1)
+            self._jsonl_f = open(new_jsonl, "a", buffering=1)
 
     # -- Shared helpers -------------------------------------------------------
 
     def _write_text(self, text):
-        self._q.put(("text", text))
+        with self._q_lock:
+            self._q.put(("text", text))
 
     def _separator(self, label, extras=""):
         """Build thin separator: ──── #1  timestamp  extras ────────"""
@@ -122,18 +141,21 @@ class _BaseLog:
                 f"DPort:{dport}  SPort:{sport}  Flags:0x{flags:02X}")
 
     def write_jsonl(self, record):
-        self._q.put(("jsonl", json.dumps(record) + "\n"))
+        with self._q_lock:
+            self._q.put(("jsonl", json.dumps(record) + "\n"))
 
     def _write_entry(self, lines):
         """Write a complete log entry (list of lines + trailing blank)."""
-        self._q.put(("text", "\n".join(lines) + "\n\n"))
+        with self._q_lock:
+            self._q.put(("text", "\n".join(lines) + "\n\n"))
 
     def _write_summary_block(self, summary_lines):
         """Write a summary block with ═ borders."""
         block = [
             "", HEADER_CHAR * LOG_LINE_WIDTH, "  Session Summary", HEADER_CHAR * LOG_LINE_WIDTH,
         ] + summary_lines + [HEADER_CHAR * LOG_LINE_WIDTH, ""]
-        self._q.put(("text", "\n".join(block) + "\n"))
+        with self._q_lock:
+            self._q.put(("text", "\n".join(block) + "\n"))
 
     def _open_files(self, tag=""):
         """Open new log files with fresh timestamp, write header, start writer thread."""
@@ -147,7 +169,7 @@ class _BaseLog:
         session_ts = datetime.now().astimezone().strftime(TS_FULL)
         self._text_f.write(
             f"{HEADER_CHAR * LOG_LINE_WIDTH}\n"
-            f"  MAVERIC Ground Station Log  v{self._version}\n"
+            f"  {self._mission_name} Ground Station Log  v{self._version}\n"
             f"  Mode:      {self._mode}\n"
             f"  Session:   {session_ts}\n"
             f"  ZMQ:       {self._zmq_addr}\n"
@@ -161,11 +183,13 @@ class _BaseLog:
 
     def new_session(self, tag=""):
         """Close current log files and start a new session."""
-        self._q.put(self._SENTINEL)
+        with self._q_lock:
+            self._q.put(self._SENTINEL)
         self._writer.join(timeout=5.0)
-        self._text_f.flush(); self._jsonl_f.flush()
-        self._text_f.close(); self._jsonl_f.close()
-        self._open_files(tag)
+        if not self._writer.is_alive():
+            self._text_f.close(); self._jsonl_f.close()
+        with self._q_lock:
+            self._open_files(tag)
 
     def rename(self, tag):
         """Rename log files by appending a sanitized tag before the extension."""
@@ -186,8 +210,9 @@ class _BaseLog:
     def close(self):
         self._q.put(self._SENTINEL)
         self._writer.join(timeout=5.0)
-        self._jsonl_f.close()
-        self._text_f.close()
+        if not self._writer.is_alive():
+            self._jsonl_f.close()
+            self._text_f.close()
 
 
 # =============================================================================
@@ -197,8 +222,8 @@ class _BaseLog:
 class SessionLog(_BaseLog):
     """RX session log — JSONL + text."""
 
-    def __init__(self, log_dir, zmq_addr, version=""):
-        super().__init__(log_dir, "downlink", version, "RX Monitor", zmq_addr)
+    def __init__(self, log_dir, zmq_addr, version="", mission_name="MAVERIC"):
+        super().__init__(log_dir, "downlink", version, "RX Monitor", zmq_addr, mission_name=mission_name)
 
     def write_packet(self, pkt):
         """Write one RX packet entry. Takes a Packet instance."""
@@ -291,8 +316,8 @@ class SessionLog(_BaseLog):
 class TXLog(_BaseLog):
     """TX session log — JSONL + text."""
 
-    def __init__(self, log_dir, zmq_addr, version=""):
-        super().__init__(log_dir, "uplink", version, "TX Dashboard", zmq_addr)
+    def __init__(self, log_dir, zmq_addr, version="", mission_name="MAVERIC"):
+        super().__init__(log_dir, "uplink", version, "TX Dashboard", zmq_addr, mission_name=mission_name)
 
     def write_command(self, n, src, dest, echo, ptype, cmd, args,
                       raw_cmd, payload, ax25, csp, uplink_mode="AX.25"):

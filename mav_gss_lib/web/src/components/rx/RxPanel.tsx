@@ -13,7 +13,7 @@ import {
   ContextMenuRoot, ContextMenuTrigger, ContextMenuContent,
   ContextMenuItem,
 } from '@/components/shared/ContextMenu'
-import type { RxPacket, RxStatus } from '@/lib/types'
+import type { GssConfig, RxPacket, RxStatus } from '@/lib/types'
 
 function f(label: string, value: string): string {
   return `  ${label.padEnd(12)}${value}`
@@ -44,8 +44,15 @@ function formatPacketText(p: RxPacket): string {
 }
 
 interface RxPanelProps {
+  config?: GssConfig | null
   packets: RxPacket[]
   status: RxStatus
+  packetStats?: {
+    total: number
+    crcFailures: number
+    dupCount: number
+    hasEcho: boolean
+  }
   replayMode?: boolean
   replaySession?: string | null
   replacePackets?: (pkts: RxPacket[]) => void
@@ -60,7 +67,11 @@ function ageColor(s: number): string {
   return colors.textMuted
 }
 
-export function RxPanel({ packets, status, replayMode, replaySession, replacePackets, onStopReplay }: RxPanelProps) {
+function hasEcho(packet: RxPacket): boolean {
+  return Boolean(packet.echo && packet.echo !== 'NONE' && packet.echo !== '0')
+}
+
+export function RxPanel({ config, packets, status, packetStats, replayMode, replaySession, replacePackets, onStopReplay }: RxPanelProps) {
   const [showHex, setShowHex] = useState(false)
   const [showFrame, setShowFrame] = useState(false)
   const [showWrapper, setShowWrapper] = useState(false)
@@ -79,6 +90,10 @@ export function RxPanel({ packets, status, replayMode, replaySession, replacePac
   const filtered = useMemo(
     () => hideUplink ? packets.filter(p => !p.is_echo) : packets,
     [packets, hideUplink],
+  )
+  const showEcho = useMemo(
+    () => !hideUplink && (packetStats?.hasEcho ?? packets.some(hasEcho)),
+    [hideUplink, packetStats?.hasEcho, packets],
   )
   const lastNum = filtered.length > 0 ? filtered[filtered.length - 1].num : null
   const lastPktNum = packets.length > 0 ? packets[packets.length - 1].num : -1
@@ -146,16 +161,26 @@ export function RxPanel({ packets, status, replayMode, replaySession, replacePac
 
   const selectedPacket = selectedNum !== null ? filtered.find(p => p.num === selectedNum) ?? null : null
   const isLive = autoScroll && selectedNum === lastNum
+  const missionName = config?.general?.mission_name ?? 'Mission'
+  const nodeDescriptions = config?.node_descriptions
 
   return (
     <div className="flex flex-col h-full gap-3 relative">
       <div
-        className={`flex flex-col flex-1 min-h-0 rounded-lg border overflow-hidden shadow-panel ${receiving ? 'animate-pulse-glow' : ''}`}
-        style={{ borderColor: receiving ? `${colors.success}55` : colors.borderSubtle, backgroundColor: colors.bgPanel }}
+        className="flex flex-col flex-1 min-h-0 rounded-lg border overflow-hidden shadow-panel"
+        style={{
+          borderColor: receiving ? `${colors.success}55` : colors.borderSubtle,
+          backgroundColor: colors.bgPanel,
+          transition: 'border-color 160ms ease',
+        }}
       >
         <div
           className={`flex items-center justify-between px-3 py-1.5 border-b shrink-0 ${receiving ? 'animate-sweep-green' : ''}`}
-          style={{ borderColor: colors.borderSubtle }}
+          style={{
+            borderColor: colors.borderSubtle,
+            backgroundColor: receiving ? `${colors.success}08` : 'transparent',
+            transition: 'background-color 160ms ease',
+          }}
         >
           <div className="flex items-center gap-2">
             <span className="text-xs font-bold tracking-wide" style={{ color: colors.value }}>RX DOWNLINK</span>
@@ -177,12 +202,12 @@ export function RxPanel({ packets, status, replayMode, replaySession, replacePac
             )}
             {!replayMode && packets.length > 0 && (
               <span className="text-[11px] font-mono tabular-nums flex items-center gap-2 ml-auto mr-2" style={{ color: colors.textMuted }}>
-                {packets.length} pkts
-                {packets.filter(p => p.crc16_ok === false).length > 0 && (
-                  <span style={{ color: `${colors.danger}99` }}>{packets.filter(p => p.crc16_ok === false).length} CRC</span>
+                {packetStats?.total ?? packets.length} pkts
+                {(packetStats?.crcFailures ?? 0) > 0 && (
+                  <span style={{ color: `${colors.danger}99` }}>{packetStats?.crcFailures ?? 0} CRC</span>
                 )}
-                {packets.filter(p => p.is_dup).length > 0 && (
-                  <span style={{ color: `${colors.warning}99` }}>{packets.filter(p => p.is_dup).length} dup</span>
+                {(packetStats?.dupCount ?? 0) > 0 && (
+                  <span style={{ color: `${colors.warning}99` }}>{packetStats?.dupCount ?? 0} dup</span>
                 )}
               </span>
             )}
@@ -205,7 +230,7 @@ export function RxPanel({ packets, status, replayMode, replaySession, replacePac
             {!showHex && hideUplink && !showFrame && !showWrapper && (
               <SlidersHorizontal className="size-3.5 group-hover/toggles:hidden" style={{ color: colors.dim }} />
             )}
-            <Button variant="ghost" size="icon" className="size-6" onClick={() => window.open('/?panel=rx', 'maveric-rx', 'popup=1,width=900,height=800')} title="Pop out RX panel">
+            <Button variant="ghost" size="icon" className="size-6" onClick={() => window.open('/?panel=rx', `${missionName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-rx`, 'popup=1,width=900,height=800')} title={`Pop out ${missionName} RX panel`}>
               <ExternalLink className="size-3.5" style={{ color: colors.dim }} />
             </Button>
           </div>
@@ -216,9 +241,11 @@ export function RxPanel({ packets, status, replayMode, replaySession, replacePac
         )}
 
         <PacketList
-          packets={packets}
+          packets={filtered}
+          nodeDescriptions={nodeDescriptions}
           showFrame={showFrame}
-          hideUplink={hideUplink}
+          showEcho={showEcho}
+          flashPacketNum={lastNum}
           selectedNum={selectedNum}
           onSelect={handleSelect}
           autoScroll={autoScroll}
@@ -279,7 +306,7 @@ export function RxPanel({ packets, status, replayMode, replaySession, replacePac
                       exit={{ opacity: 0 }}
                       transition={{ duration: 0.1, ease: 'easeOut' }}
                     >
-                      <PacketDetail packet={selectedPacket} showHex={showHex} showWrapper={showWrapper} showFrame={showFrame} />
+                      <PacketDetail packet={selectedPacket} nodeDescriptions={nodeDescriptions} showHex={showHex} showWrapper={showWrapper} showFrame={showFrame} />
                     </motion.div>
                   </AnimatePresence>
                 </div>

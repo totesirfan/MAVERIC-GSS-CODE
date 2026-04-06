@@ -6,7 +6,9 @@ export interface Alarm {
   label: string
   detail: string
   severity: 'danger' | 'warning' | 'advisory'
-  triggeredAt: number
+  firstSeen: number
+  lingering: boolean
+  acked: boolean
 }
 
 const STALE_THRESHOLD_S = 60
@@ -14,6 +16,18 @@ const CRC_THRESHOLD = 3
 const NONE_THRESHOLD = 3
 const DUP_THRESHOLD = 5
 const WINDOW_MS = 60_000
+const LINGER_MS = 10_000
+
+type AlarmSeverity = Alarm['severity']
+
+const ALARM_META = {
+  stale: { label: 'STALE', severity: 'danger' },
+  zmq_down: { label: 'ZMQ DOWN', severity: 'danger' },
+  zmq_retry: { label: 'ZMQ RETRY', severity: 'warning' },
+  crc: { label: 'CRC', severity: 'warning' },
+  none_frames: { label: 'NONE', severity: 'warning' },
+  dup: { label: 'DUP', severity: 'advisory' },
+} as const satisfies Record<string, { label: string; severity: AlarmSeverity }>
 
 export function useAlarms(
   status: RxStatus,
@@ -27,11 +41,20 @@ export function useAlarms(
   const [ackedSet, setAckedSet] = useState<Set<string>>(new Set())
   const clearedSinceAck = useRef<Set<string>>(new Set())
 
+  // First-seen timestamps — persists as long as the alarm stays active or is lingering
+  const firstSeenMap = useRef<Map<string, number>>(new Map())
+  // When an alarm's condition clears, record the clear time for linger
+  const clearedAtMap = useRef<Map<string, number>>(new Map())
+
   // Sliding window timestamps for packet-based alarms
   const crcTimes = useRef<number[]>([])
   const noneTimes = useRef<number[]>([])
   const dupTimes = useRef<number[]>([])
   const prevLen = useRef(0)
+
+  // Force re-eval for linger expiry
+  const [tick, setTick] = useState(0)
+  const lingerTimer = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Update sliding windows when new packets arrive
   if (packets.length > prevLen.current) {
@@ -45,6 +68,12 @@ export function useAlarms(
     prevLen.current = packets.length
   }
 
+  // Tick every 2s to expire lingering alarms and update relative times
+  useEffect(() => {
+    lingerTimer.current = setInterval(() => setTick(t => t + 1), 2000)
+    return () => { if (lingerTimer.current) clearInterval(lingerTimer.current) }
+  }, [])
+
   const alarms = useMemo<Alarm[]>(() => {
     if (replayMode) return []
 
@@ -55,70 +84,125 @@ export function useAlarms(
     noneTimes.current = noneTimes.current.filter(t => t > cutoff)
     dupTimes.current = dupTimes.current.filter(t => t > cutoff)
 
-    const candidates: Alarm[] = []
+    // Build active candidates (condition currently true)
+    type ActiveAlarm = Omit<Alarm, 'firstSeen' | 'lingering' | 'acked'>
+    const active: ActiveAlarm[] = []
 
     if (status.silence_s >= STALE_THRESHOLD_S) {
-      candidates.push({
-        id: 'stale', label: 'STALE',
+      active.push({
+        id: 'stale', label: ALARM_META.stale.label,
         detail: `no packet for ${status.silence_s.toFixed(0)}s`,
-        severity: 'danger', triggeredAt: now,
+        severity: ALARM_META.stale.severity,
       })
     }
 
     if (status.zmq === 'DOWN') {
-      candidates.push({
-        id: 'zmq_down', label: 'ZMQ DOWN',
+      active.push({
+        id: 'zmq_down', label: ALARM_META.zmq_down.label,
         detail: 'ZMQ socket disconnected',
-        severity: 'danger', triggeredAt: now,
+        severity: ALARM_META.zmq_down.severity,
       })
     }
 
     if (status.zmq === 'RETRY') {
-      candidates.push({
-        id: 'zmq_retry', label: 'ZMQ RETRY',
+      active.push({
+        id: 'zmq_retry', label: ALARM_META.zmq_retry.label,
         detail: 'ZMQ socket reconnecting',
-        severity: 'warning', triggeredAt: now,
+        severity: ALARM_META.zmq_retry.severity,
       })
     }
 
     const crcCount = crcTimes.current.length
     if (crcCount >= CRC_THRESHOLD) {
-      candidates.push({
-        id: 'crc', label: 'CRC',
+      active.push({
+        id: 'crc', label: ALARM_META.crc.label,
         detail: `${crcCount} errors in 60s`,
-        severity: 'warning', triggeredAt: now,
+        severity: ALARM_META.crc.severity,
       })
     }
 
     const noneCount = noneTimes.current.length
     if (noneCount >= NONE_THRESHOLD) {
-      candidates.push({
-        id: 'none_frames', label: 'NONE',
+      active.push({
+        id: 'none_frames', label: ALARM_META.none_frames.label,
         detail: `${noneCount} unparseable in 60s`,
-        severity: 'advisory', triggeredAt: now,
+        severity: ALARM_META.none_frames.severity,
       })
     }
 
     const dupCount = dupTimes.current.length
     if (dupCount >= DUP_THRESHOLD) {
-      candidates.push({
-        id: 'dup', label: 'DUP',
+      active.push({
+        id: 'dup', label: ALARM_META.dup.label,
         detail: `${dupCount} duplicates in 60s`,
-        severity: 'advisory', triggeredAt: now,
+        severity: ALARM_META.dup.severity,
       })
     }
 
-    // Filter: remove acked alarms that haven't cleared and re-triggered
-    const filtered = candidates.filter(a => {
-      if (!ackedSet.has(a.id)) return true
-      return clearedSinceAck.current.has(a.id)
-    })
+    const activeIds = new Set(active.map(a => a.id))
+
+    // Update firstSeen — set on first appearance, never overwritten while active/lingering
+    for (const a of active) {
+      if (!firstSeenMap.current.has(a.id)) {
+        firstSeenMap.current.set(a.id, now)
+      }
+      // Condition is active again — remove any pending clear
+      clearedAtMap.current.delete(a.id)
+    }
+
+    // Track cleared alarms for linger
+    for (const [id] of firstSeenMap.current) {
+      if (!activeIds.has(id) && !clearedAtMap.current.has(id)) {
+        clearedAtMap.current.set(id, now)
+      }
+    }
+
+    // Build final alarm list: active + lingering
+    const result: Alarm[] = []
+
+    // Active alarms
+    for (const a of active) {
+      result.push({
+        ...a,
+        firstSeen: firstSeenMap.current.get(a.id) ?? now,
+        lingering: false,
+        acked: ackedSet.has(a.id) && !clearedSinceAck.current.has(a.id),
+      })
+    }
+
+    // Lingering alarms (condition cleared but within linger window)
+    for (const [id, clearedAt] of clearedAtMap.current) {
+      if (activeIds.has(id)) continue
+      if (now - clearedAt > LINGER_MS) {
+        // Linger expired — clean up
+        clearedAtMap.current.delete(id)
+        firstSeenMap.current.delete(id)
+        continue
+      }
+      // Don't show if acked
+      if (ackedSet.has(id)) {
+        clearedAtMap.current.delete(id)
+        firstSeenMap.current.delete(id)
+        continue
+      }
+      const meta = ALARM_META[id as keyof typeof ALARM_META]
+      const firstSeen = firstSeenMap.current.get(id) ?? clearedAt
+      result.push({
+        id,
+        label: meta?.label ?? id.toUpperCase().replace('_', ' '),
+        detail: 'cleared',
+        severity: meta?.severity ?? 'advisory',
+        firstSeen,
+        lingering: true,
+        acked: false,
+      })
+    }
 
     const order: Record<string, number> = { danger: 0, warning: 1, advisory: 2 }
-    filtered.sort((a, b) => order[a.severity] - order[b.severity])
+    result.sort((a, b) => order[a.severity] - order[b.severity])
 
-    return filtered
-  }, [status.silence_s, status.zmq, packets.length, replayMode, ackedSet])
+    return result
+  }, [status.silence_s, status.zmq, packets.length, replayMode, ackedSet, tick])
 
   // Track which acked alarms have cleared (side-effect outside useMemo)
   useEffect(() => {
@@ -138,9 +222,10 @@ export function useAlarms(
       ids.forEach(id => next.add(id))
       return next
     })
-    // Only clear the specific alarms being acked, not all
     for (const id of ids) {
       clearedSinceAck.current.delete(id)
+      clearedAtMap.current.delete(id)
+      firstSeenMap.current.delete(id)
     }
   }, [alarms])
 
@@ -151,6 +236,8 @@ export function useAlarms(
       return next
     })
     clearedSinceAck.current.delete(id)
+    clearedAtMap.current.delete(id)
+    firstSeenMap.current.delete(id)
   }, [])
 
   return { alarms, ackAll, ackOne }

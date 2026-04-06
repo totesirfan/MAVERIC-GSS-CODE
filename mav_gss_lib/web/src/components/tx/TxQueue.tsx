@@ -10,6 +10,7 @@ import { Trash2, Send, Timer, Save } from 'lucide-react'
 import { PromptDialog } from '@/components/shared/PromptDialog'
 import { PanelToasts } from '@/components/shared/StatusToast'
 import { showToast } from '@/components/shared/StatusToast'
+import { authFetch } from '@/lib/auth'
 import {
   ContextMenuRoot, ContextMenuTrigger, ContextMenuContent,
   ContextMenuItem,
@@ -19,9 +20,10 @@ import { QueueItem } from './QueueItem'
 import { DelayItem } from './DelayItem'
 import { colors } from '@/lib/colors'
 import { col } from '@/lib/columns'
-import type { TxQueueItem, TxQueueSummary, SendProgress } from '@/lib/types'
+import type { GssConfig, TxQueueItem, TxQueueSummary, SendProgress } from '@/lib/types'
 
 interface TxQueueProps {
+  nodeDescriptions?: GssConfig['node_descriptions']
   queue: TxQueueItem[]
   summary: TxQueueSummary
   sendProgress: SendProgress | null
@@ -47,7 +49,7 @@ function assignUids(items: TxQueueItem[]): { item: TxQueueItem; uid: number }[] 
 }
 
 export function TxQueue({
-  queue, summary, sendProgress, isGuarding,
+  nodeDescriptions, queue, summary, sendProgress, isGuarding,
   onToggleGuard, onDelete, onEditDelay, onReorder, onAddDelay,
   onClear, onSend, onDuplicate, onMoveToTop, onMoveToBottom,
   triggerConfirmSend, triggerConfirmClear,
@@ -201,6 +203,7 @@ export function TxQueue({
                   <motion.div key={uid} exit={{ opacity: 0, x: 30 }} transition={{ duration: 0.15 }}>
                     <QueueItem
                       item={{ ...item, num: realIdx + 1 }}
+                      nodeDescriptions={nodeDescriptions}
                       index={realIdx}
                       sortId={`uid-${uid}`}
                       expanded={selectedIdx === realIdx}
@@ -271,17 +274,17 @@ export function TxQueue({
           </div>
         </div>
       )}
-      <PromptDialog
-        open={showSavePrompt}
-        title="Save Queue"
-        placeholder="File name (optional)"
-        onSubmit={(name) => {
-          setShowSavePrompt(false)
-          fetch('/api/export-queue', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name }),
-          }).then(r => r.json()).then(d => {
+        <PromptDialog
+          open={showSavePrompt}
+          title="Save Queue"
+          placeholder="File name (optional)"
+          onSubmit={(name) => {
+            setShowSavePrompt(false)
+            authFetch('/api/export-queue', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name }),
+            }).then(r => r.json()).then(d => {
             if (d.ok) showToast(`Saved ${d.count} commands as ${d.filename}`, 'success')
             else showToast(d.error || 'Save failed', 'error')
           }).catch(() => showToast('Failed to save queue', 'error'))

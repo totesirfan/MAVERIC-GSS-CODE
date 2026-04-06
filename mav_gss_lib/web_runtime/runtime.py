@@ -1,0 +1,152 @@
+"""
+mav_gss_lib.web_runtime.runtime -- Shared Web Runtime Helpers
+
+Small helper functions shared across the web backend for queue-item
+construction, config merging, shutdown scheduling, and TX admission
+validation.
+
+These functions stay intentionally light so API routes and websocket
+handlers do not need to duplicate queue/build/validation logic.
+
+Author:  Irfan Annuar - USC ISI SERC
+"""
+
+from __future__ import annotations
+
+import asyncio
+import copy
+import os
+import signal
+from typing import Any
+
+from .state import SHUTDOWN_DELAY, WebRuntime, ensure_runtime
+
+try:
+    from mav_gss_lib.golay import MAX_PAYLOAD as GOLAY_MAX_PAYLOAD
+except ImportError:
+    GOLAY_MAX_PAYLOAD = 223
+
+
+# =============================================================================
+#  SHUTDOWN HELPERS
+# =============================================================================
+
+async def check_shutdown(runtime: WebRuntime) -> None:
+    """Exit the process after a quiet period if all clients are gone."""
+    await asyncio.sleep(SHUTDOWN_DELAY)
+    with runtime.rx.lock:
+        rx_count = len(runtime.rx.clients)
+    with runtime.tx.lock:
+        tx_count = len(runtime.tx.clients)
+    if rx_count == 0 and tx_count == 0 and runtime.had_clients:
+        if runtime.tx.sending["active"]:
+            schedule_shutdown_check(runtime)
+            return
+        os.kill(os.getpid(), signal.SIGINT)
+
+
+def schedule_shutdown_check(runtime: WebRuntime) -> None:
+    """Schedule or replace the delayed shutdown check task."""
+    if runtime.shutdown_task and not runtime.shutdown_task.done():
+        runtime.shutdown_task.cancel()
+    try:
+        runtime.shutdown_task = asyncio.get_event_loop().create_task(check_shutdown(runtime))
+    except RuntimeError:
+        pass
+
+
+# =============================================================================
+#  QUEUE / TX HELPERS
+# =============================================================================
+
+def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> None:
+    """Merge nested dict *override* into *base* in place."""
+    for key, value in override.items():
+        if key in base and isinstance(base[key], dict) and isinstance(value, dict):
+            deep_merge(base[key], value)
+        else:
+            base[key] = value
+
+
+def build_send_context(runtime: WebRuntime | None = None):
+    """Copy the current send-mode protocol context from the runtime."""
+    runtime = ensure_runtime(runtime)
+    with runtime.cfg_lock:
+        return (
+            runtime.cfg.get("tx", {}).get("uplink_mode", "AX.25"),
+            copy.copy(runtime.csp),
+            copy.copy(runtime.ax25),
+        )
+
+
+def make_cmd(src, dest, echo, ptype, cmd, args, guard=False, runtime: WebRuntime | None = None):
+    """Build one validated command queue item with mission raw bytes attached."""
+    runtime = ensure_runtime(runtime)
+    raw_cmd = runtime.adapter.build_raw_command(src, dest, echo, ptype, cmd, args)
+    return {
+        "type": "cmd",
+        "src": src,
+        "dest": dest,
+        "echo": echo,
+        "ptype": ptype,
+        "cmd": cmd,
+        "args": args,
+        "guard": guard,
+        "raw_cmd": raw_cmd,
+    }
+
+
+def make_delay(delay_ms):
+    """Build one delay queue item."""
+    return {"type": "delay", "delay_ms": delay_ms}
+
+
+def validate_cmd_item(src, dest, echo, ptype_val, cmd_id, args, guard=False, runtime: WebRuntime | None = None):
+    """Validate one TX command item against schema and framing limits."""
+    runtime = ensure_runtime(runtime)
+    defn = runtime.cmd_defs.get(cmd_id.lower())
+    if not defn:
+        raise ValueError(f"'{cmd_id}' not in schema")
+    if defn.get("rx_only"):
+        raise ValueError(f"'{cmd_id}' is receive-only")
+    valid, issues = runtime.adapter.validate_tx_args(cmd_id, args)
+    if not valid:
+        raise ValueError("; ".join(issues))
+
+    item = make_cmd(src, dest, echo, ptype_val, cmd_id, args, guard=guard, runtime=runtime)
+    uplink_mode, send_csp, _send_ax25 = build_send_context(runtime)
+    if uplink_mode == "ASM+Golay":
+        csp_packet = send_csp.wrap(item["raw_cmd"])
+        if len(csp_packet) > GOLAY_MAX_PAYLOAD:
+            raise ValueError(
+                f"command too large for ASM+Golay RS payload "
+                f"({len(csp_packet)}B > {GOLAY_MAX_PAYLOAD}B)"
+            )
+    return item
+
+
+def sanitize_queue_items(items, runtime: WebRuntime | None = None):
+    """Filter a queue restore/import set down to valid command/delay items."""
+    runtime = ensure_runtime(runtime)
+    accepted = []
+    skipped = 0
+    for item in items:
+        if item["type"] == "delay":
+            accepted.append(item)
+            continue
+        try:
+            accepted.append(
+                validate_cmd_item(
+                    item["src"],
+                    item["dest"],
+                    item["echo"],
+                    item["ptype"],
+                    item["cmd"],
+                    item.get("args", ""),
+                    bool(item.get("guard", False)),
+                    runtime=runtime,
+                )
+            )
+        except ValueError:
+            skipped += 1
+    return accepted, skipped

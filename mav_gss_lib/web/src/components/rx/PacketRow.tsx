@@ -3,7 +3,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { ChevronRight, ClipboardCopy, Braces, Binary } from 'lucide-react'
 import { colors, frameColor } from '@/lib/colors'
 import { col } from '@/lib/columns'
-import { nodeFullName } from '@/lib/nodes'
+import { getNodeFullName } from '@/lib/nodes'
 import { PtypeBadge } from '@/components/shared/PtypeBadge'
 import {
   ContextMenuRoot,
@@ -11,18 +11,19 @@ import {
   ContextMenuContent,
   ContextMenuItem,
 } from '@/components/shared/ContextMenu'
-import type { RxPacket } from '@/lib/types'
+import type { GssConfig, RxPacket } from '@/lib/types'
 
 interface PacketRowProps {
   packet: RxPacket
+  nodeDescriptions?: GssConfig['node_descriptions']
   selected: boolean
   showFrame: boolean
   showEcho: boolean
   onClick: () => void
 }
 
-function NodeName({ name, color }: { name: string; color: string }) {
-  const full = nodeFullName[name]
+function NodeName({ name, color, nodeDescriptions }: { name: string; color: string; nodeDescriptions?: GssConfig['node_descriptions'] }) {
+  const full = getNodeFullName(name, nodeDescriptions)
   if (!full) return <span style={{ color }}>{name}</span>
   return (
     <TooltipProvider delay={300}>
@@ -51,7 +52,7 @@ function allArgs(p: RxPacket): string {
   return [...named, ...extra].join(', ')
 }
 
-export function PacketRow({ packet: p, selected, showFrame, showEcho, onClick }: PacketRowProps) {
+export function PacketRow({ packet: p, nodeDescriptions, selected, showFrame, showEcho, onClick }: PacketRowProps) {
   return (
     <ContextMenuRoot>
       <ContextMenuTrigger>
@@ -75,10 +76,12 @@ export function PacketRow({ packet: p, selected, showFrame, showEcho, onClick }:
             <span className={`py-1.5 px-2 ${col.frame} shrink-0 whitespace-nowrap`} style={{ color: frameColor(p.frame) }}>{p.frame}</span>
           )}
           <span className={`py-1.5 px-2 ${col.node} shrink-0 whitespace-nowrap`}>
-            <NodeName name={p.src} color={colors.label} />
+            <NodeName name={p.src} color={colors.label} nodeDescriptions={nodeDescriptions} />
           </span>
           {showEcho && (
-            <span className={`py-1.5 px-2 ${col.node} shrink-0 whitespace-nowrap`} style={{ color: colors.warning }}>{p.echo}</span>
+            <span className={`py-1.5 px-2 ${col.node} shrink-0 whitespace-nowrap`}>
+              <NodeName name={p.echo} color={colors.warning} nodeDescriptions={nodeDescriptions} />
+            </span>
           )}
           <span className={`py-1.5 px-1 ${col.ptype} shrink-0`}><PtypeBadge ptype={p.ptype} /></span>
           <span className="py-1.5 px-2 flex-1 min-w-0 truncate">

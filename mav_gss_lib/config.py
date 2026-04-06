@@ -9,7 +9,14 @@ Author:  Irfan Annuar - USC ISI SERC
 """
 
 import os
+import tempfile
+from pathlib import Path
+
 import yaml
+
+# Resolve config directory relative to this file, not CWD
+_CONFIG_DIR = Path(__file__).resolve().parent / "config"
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 _DEFAULTS = {
@@ -19,6 +26,12 @@ _DEFAULTS = {
     },
     "ptypes": {
         1: "CMD", 2: "RES", 3: "ACK", 4: "TLM", 5: "FILE",
+    },
+    "node_descriptions": {
+        "LPPM": "Lower Pluggable Processor Module",
+        "UPPM": "Upper Pluggable Processor Module",
+        "EPS": "Electrical Power System",
+        "GS": "Ground Station",
     },
     "ax25": {
         "src_call":  "WM2XBB",
@@ -46,11 +59,16 @@ _DEFAULTS = {
         "zmq_addr": "tcp://127.0.0.1:52001",
     },
     "general": {
+        "mission_name": "MAVERIC",
         "version":      "4.3.1",
         "log_dir":      "logs",
-        "command_defs": "maveric_commands.yml",
+        "command_defs": str(_CONFIG_DIR / "maveric_commands.yml"),
         "decoder_yml":  "maveric_decoder.yml",
         "gs_node":      "GS",
+        "generated_commands_dir": "generated_commands",
+        "rx_title":     "Mission Downlink",
+        "tx_title":     "Mission Uplink",
+        "splash_subtitle": "Mission Ground Station",
     },
 }
 
@@ -66,8 +84,10 @@ def _deep_merge(base, override):
     return merged
 
 
-def load_gss_config(path="maveric_gss.yml"):
+def load_gss_config(path=None):
     """Load config from YAML, falling back to defaults for missing keys."""
+    if path is None:
+        path = str(_CONFIG_DIR / "maveric_gss.yml")
     user = {}
     if os.path.isfile(path):
         with open(path, "r") as f:
@@ -77,10 +97,56 @@ def load_gss_config(path="maveric_gss.yml"):
     return _deep_merge(_DEFAULTS, user)
 
 
-def save_gss_config(cfg, path="maveric_gss.yml"):
-    """Write current config back to YAML, preserving runtime changes."""
-    with open(path, "w") as f:
-        yaml.dump(cfg, f, default_flow_style=False, sort_keys=False)
+def resolve_project_path(path_value, *, base_dir=None):
+    """Resolve a config path relative to the chosen base directory when needed."""
+    path = Path(path_value)
+    if path.is_absolute():
+        return path
+    root = _PROJECT_ROOT if base_dir is None else Path(base_dir)
+    return (root / path).resolve()
+
+
+def get_command_defs_path(cfg):
+    """Return the resolved command schema path from config."""
+    general = cfg.get("general", {})
+    raw = general.get("command_defs", str(_CONFIG_DIR / "maveric_commands.yml"))
+    return str(resolve_project_path(raw, base_dir=_CONFIG_DIR))
+
+
+def get_decoder_yml_path(cfg):
+    """Return the resolved decoder YAML path from config."""
+    general = cfg.get("general", {})
+    raw = general.get("decoder_yml", "maveric_decoder.yml")
+    return str(resolve_project_path(raw, base_dir=_CONFIG_DIR))
+
+
+def get_generated_commands_dir(cfg):
+    """Return the resolved import/export directory for queue JSONL files."""
+    general = cfg.get("general", {})
+    raw = general.get("generated_commands_dir", "generated_commands")
+    return resolve_project_path(raw)
+
+
+def save_gss_config(cfg, path=None):
+    """Atomically write current config back to YAML.
+
+    Writes to a temp file first, then renames — prevents truncated files
+    if the process is killed mid-write.
+    """
+    if path is None:
+        path = str(_CONFIG_DIR / "maveric_gss.yml")
+    dir_name = os.path.dirname(path) or "."
+    fd, tmp = tempfile.mkstemp(suffix=".tmp", dir=dir_name)
+    try:
+        with os.fdopen(fd, "w") as f:
+            yaml.dump(cfg, f, default_flow_style=False, sort_keys=False)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 # -- Bidirectional config mapping ---------------------------------------------

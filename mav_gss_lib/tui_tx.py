@@ -62,7 +62,8 @@ class TxHeader(Widget):
         ]
         if not s.csp.csp_crc:
             items.append(("", "NO CRC", Style(color="#ff6666", bold=True)))
-        t, _ = build_header("MAVERIC UPLINK", S_LABEL, items, w)
+        title = getattr(s, "tx_title", "Mission Uplink")
+        t, _ = build_header(title, S_LABEL, items, w)
         return t
 
 

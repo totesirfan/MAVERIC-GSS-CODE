@@ -1,0 +1,563 @@
+"""
+mav_gss_lib.web_runtime.services -- Web RX/TX Services
+
+Own the long-lived RX and TX service objects used by the web runtime.
+
+RxService handles ZMQ subscription, packet processing, logging, and
+websocket broadcast. TxService handles queue persistence, send-state
+tracking, command/history projection, and serialized TX execution.
+
+Author:  Irfan Annuar - USC ISI SERC
+"""
+
+from __future__ import annotations
+
+import asyncio
+import copy
+import json
+import logging
+import os
+import tempfile
+import threading
+import time
+from collections import deque
+from datetime import datetime
+from queue import Empty, Queue
+from typing import TYPE_CHECKING
+
+import mav_gss_lib.protocol as protocol
+from mav_gss_lib.ax25 import build_ax25_gfsk_frame
+from mav_gss_lib.parsing import RxPipeline, build_rx_log_record
+from mav_gss_lib.protocol import node_name, parse_cmd_line, ptype_name, resolve_node, resolve_ptype
+from mav_gss_lib.transport import PUB_STATUS, SUB_STATUS, init_zmq_pub, init_zmq_sub, poll_monitor, receive_pdu, send_pdu, zmq_cleanup
+
+if TYPE_CHECKING:
+    from .state import WebRuntime
+
+try:
+    from mav_gss_lib.golay import _GR_RS_OK, build_asm_golay_frame
+
+    GOLAY_OK = _GR_RS_OK
+except ImportError:
+    GOLAY_OK = False
+
+
+# =============================================================================
+#  RX SERVICE
+# =============================================================================
+
+class RxService:
+    """Own the RX side of the web runtime: ZMQ -> parse -> log -> broadcast."""
+
+    def __init__(self, runtime: "WebRuntime") -> None:
+        self.runtime = runtime
+        self.status = ["OFFLINE"]
+        self.packets: deque = deque(maxlen=runtime.max_packets)
+        self.queue: Queue = Queue()
+        self.stop = threading.Event()
+        self.broadcast_stop = False
+        self.clients: list = []
+        self.lock = threading.Lock()
+        self.log = None
+        self.thread_handle: threading.Thread | None = None
+        self.broadcast_task = None
+        self.pipeline = RxPipeline(runtime.adapter, {})
+
+    def start_receiver(self) -> None:
+        if self.thread_handle and self.thread_handle.is_alive():
+            return
+        self.stop.clear()
+        self.thread_handle = threading.Thread(target=self._thread, daemon=True, name="maveric-rx-sub")
+        self.thread_handle.start()
+
+    def restart_receiver(self) -> None:
+        self.stop.set()
+        if self.thread_handle:
+            self.thread_handle.join(timeout=1.0)
+        self.stop.clear()
+        self.thread_handle = threading.Thread(target=self._thread, daemon=True, name="maveric-rx-sub")
+        self.thread_handle.start()
+
+    def _thread(self) -> None:
+        addr = self.runtime.cfg.get("rx", {}).get("zmq_addr", "tcp://127.0.0.1:52001")
+        try:
+            ctx, sock, monitor = init_zmq_sub(addr)
+        except Exception as exc:
+            logging.error("RX ZMQ init failed: %s", exc)
+            return
+
+        status = "OFFLINE"
+        while not self.stop.is_set():
+            status = poll_monitor(monitor, SUB_STATUS, status)
+            self.status[0] = status
+            result = receive_pdu(sock)
+            if result is not None:
+                self.queue.put(result)
+
+        zmq_cleanup(monitor, SUB_STATUS, status, sock, ctx)
+
+    def packet_to_json(self, pkt) -> dict:
+        cmd = pkt.cmd
+        args_named = []
+        args_extra = []
+        if cmd and cmd.get("schema_match") and cmd.get("typed_args"):
+            for ta in cmd["typed_args"]:
+                val = ta.get("value", "")
+                if ta["type"] == "epoch_ms":
+                    if hasattr(val, "ms"):
+                        val = val.ms
+                    elif isinstance(val, dict) and "ms" in val:
+                        val = val["ms"]
+                if isinstance(val, (bytes, bytearray)):
+                    val = val.hex()
+                args_named.append({"name": ta["name"], "value": str(val), "important": bool(ta.get("important"))})
+            args_extra = [a.hex() if isinstance(a, (bytes, bytearray)) else str(a) for a in cmd.get("extra_args", [])]
+        elif cmd:
+            raw_args = cmd.get("args", [])
+            if isinstance(raw_args, list):
+                args_extra = [str(a) for a in raw_args]
+            else:
+                args_extra = [str(raw_args)] if raw_args else []
+
+        payload = {
+            "num": pkt.pkt_num,
+            "time": pkt.gs_ts_short,
+            "time_utc": pkt.gs_ts,
+            "frame": pkt.frame_type,
+            "src": node_name(cmd["src"]) if cmd else "",
+            "dest": node_name(cmd["dest"]) if cmd else "",
+            "echo": node_name(cmd["echo"]) if cmd else "",
+            "ptype": ptype_name(cmd["pkt_type"]) if cmd else "",
+            "cmd": cmd["cmd_id"] if cmd else "",
+            "args_named": args_named,
+            "args_extra": args_extra,
+            "size": len(pkt.raw),
+            "crc16_ok": cmd.get("crc_valid") if cmd else None,
+            "crc32_ok": pkt.crc_status.get("csp_crc32_valid"),
+            "is_echo": pkt.is_uplink_echo,
+            "is_dup": pkt.is_dup,
+            "is_unknown": pkt.is_unknown,
+            "raw_hex": pkt.raw.hex(),
+            "warnings": pkt.warnings,
+            "csp_header": pkt.csp,
+            "ax25_header": pkt.stripped_hdr,
+        }
+        if pkt.ts_result:
+            dt_utc, dt_local, ms = pkt.ts_result
+            payload["sat_time_utc"] = dt_utc.strftime("%H:%M:%S") + " UTC" if dt_utc else None
+            payload["sat_time_local"] = dt_local.strftime("%H:%M:%S %Z") if dt_local else None
+            payload["sat_time_ms"] = ms
+        return payload
+
+    async def broadcast_loop(self) -> None:
+        """Drain received packets and push packet/status updates to clients."""
+        version = self.runtime.cfg.get("general", {}).get("version", "")
+        last_status_push = 0.0
+        while True:
+            drained = 0
+            while True:
+                try:
+                    meta, raw = self.queue.get_nowait()
+                except Empty:
+                    break
+                pkt = self.pipeline.process(meta, raw)
+                try:
+                    if self.log:
+                        self.log.write_jsonl(build_rx_log_record(pkt, version, meta))
+                        self.log.write_packet(pkt)
+                except Exception as exc:
+                    logging.warning("RX log write failed: %s", exc)
+                pkt_json = self.packet_to_json(pkt)
+                self.packets.append(pkt_json)
+                msg = json.dumps({"type": "packet", "data": pkt_json})
+                with self.lock:
+                    dead = []
+                    for ws in self.clients:
+                        try:
+                            await ws.send_text(msg)
+                        except Exception:
+                            dead.append(ws)
+                    for ws in dead:
+                        self.clients.remove(ws)
+                drained += 1
+
+            if self.broadcast_stop:
+                if drained == 0:
+                    return
+                continue
+
+            now = time.time()
+            if drained == 0 and now - last_status_push > 1.0:
+                last_status_push = now
+                cutoff = now - 5
+                recent = sum(1 for t in self.pipeline.pkt_times if t > cutoff)
+                pkt_rate = round(recent * 12, 1) if recent else 0
+                silence_s = round(now - self.pipeline.last_arrival, 1) if self.pipeline.last_arrival else 0
+                status_msg = json.dumps(
+                    {
+                        "type": "status",
+                        "zmq": self.status[0],
+                        "pkt_rate": pkt_rate,
+                        "silence_s": silence_s,
+                        "packet_count": self.pipeline.packet_count,
+                    }
+                )
+                with self.lock:
+                    dead = []
+                    for ws in self.clients:
+                        try:
+                            await ws.send_text(status_msg)
+                        except Exception:
+                            dead.append(ws)
+                    for ws in dead:
+                        self.clients.remove(ws)
+
+            await asyncio.sleep(0.05)
+
+
+# =============================================================================
+#  TX SERVICE
+# =============================================================================
+
+class TxService:
+    """Own the TX side of the web runtime: queue, send state, and history."""
+
+    def __init__(self, runtime: "WebRuntime") -> None:
+        self.runtime = runtime
+        self.clients: list = []
+        self.lock = threading.Lock()
+        self.log = None
+        self.count = 0
+        self.zmq_ctx = None
+        self.zmq_sock = None
+        self.zmq_monitor = None
+        self.queue: list = []
+        self.history: list = []
+        self.sending = {"active": False, "idx": -1, "total": 0, "guarding": False, "sent_at": 0, "waiting": False}
+        self.abort = threading.Event()
+        self.guard_ok = threading.Event()
+        self.send_lock = threading.Lock()
+        self.send_task = None
+
+    def queue_file(self):
+        """Return the queue persistence file path used by this runtime."""
+        return self.runtime.queue_file()
+
+    def restart_pub(self, addr: str) -> None:
+        """Recreate the TX PUB socket at *addr*."""
+        if self.zmq_sock:
+            try:
+                zmq_cleanup(self.zmq_monitor, PUB_STATUS, self.status[0], self.zmq_sock, self.zmq_ctx)
+            except Exception:
+                pass
+        self.zmq_ctx = self.zmq_sock = self.zmq_monitor = None
+        try:
+            self.zmq_ctx, self.zmq_sock, self.zmq_monitor = init_zmq_pub(addr)
+            self.status[0] = "BOUND"
+        except Exception as exc:
+            self.status[0] = "OFFLINE"
+            logging.error("TX ZMQ PUB init failed: %s", exc)
+
+    @property
+    def status(self):
+        return self.runtime.tx_status
+
+    def save_queue(self) -> None:
+        """Persist the current queue to disk as JSONL."""
+        queue_file = self.queue_file()
+        if not self.queue:
+            try:
+                os.remove(queue_file)
+            except FileNotFoundError:
+                pass
+            return
+        queue_file.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(suffix=".tmp", dir=str(queue_file.parent))
+        try:
+            with os.fdopen(fd, "w") as handle:
+                for item in self.queue:
+                    handle.write(json.dumps(item_to_json(item)) + "\n")
+            os.replace(tmp, str(queue_file))
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+
+    def load_queue(self):
+        """Load any persisted queue items from disk."""
+        queue_file = self.queue_file()
+        if not queue_file.is_file():
+            return []
+        items = []
+        with open(queue_file) as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    payload = json.loads(line)
+                    items.append(self.json_to_item(payload))
+                except (json.JSONDecodeError, KeyError, ValueError) as exc:
+                    logging.warning("Skipped corrupted queue entry: %s", exc)
+        return items
+
+    def json_to_item(self, payload):
+        """Convert one persisted JSON payload back into a runtime queue item."""
+        from .runtime import make_delay, validate_cmd_item
+
+        if payload["type"] == "delay":
+            return make_delay(payload.get("delay_ms", 0))
+        return validate_cmd_item(
+            payload["src"],
+            payload["dest"],
+            payload["echo"],
+            payload["ptype"],
+            payload["cmd"],
+            payload.get("args", ""),
+            bool(payload.get("guard")),
+            runtime=self.runtime,
+        )
+
+    def renumber_queue(self) -> None:
+        """Assign sequential display numbers to queued command items."""
+        count = 0
+        for item in self.queue:
+            if item["type"] == "cmd":
+                count += 1
+                item["num"] = count
+
+    def match_tx_args(self, cmd_id: str, args_str: str) -> list:
+        """Map TX args to schema names for UI/history presentation."""
+        defn = self.runtime.cmd_defs.get(cmd_id.lower(), {})
+        tx_args_schema = defn.get("tx_args", [])
+        parts = args_str.split() if args_str else []
+        named = []
+        for index, schema_arg in enumerate(tx_args_schema):
+            if index < len(parts):
+                named.append({"name": schema_arg["name"], "value": parts[index]})
+        return named
+
+    def tx_extra_args(self, cmd_id: str, args_str: str) -> list:
+        """Return TX args that extend beyond the named schema fields."""
+        defn = self.runtime.cmd_defs.get(cmd_id.lower(), {})
+        tx_args_schema = defn.get("tx_args", [])
+        parts = args_str.split() if args_str else []
+        return parts[len(tx_args_schema) :]
+
+    def queue_summary(self):
+        """Summarize queue size, guard count, and rough execution time."""
+        cmds = sum(1 for item in self.queue if item["type"] == "cmd")
+        guards = sum(1 for item in self.queue if item.get("guard"))
+        delay_total = sum(item.get("delay_ms", 0) for item in self.queue if item["type"] == "delay")
+        default_delay = self.runtime.cfg.get("tx", {}).get("delay_ms", 500)
+        inter_cmd_ms = default_delay * max(cmds - 1, 0)
+        est_time_s = (delay_total + inter_cmd_ms) / 1000.0
+        return {"cmds": cmds, "guards": guards, "est_time_s": round(est_time_s, 1)}
+
+    def queue_items_json(self):
+        """Project the current queue into the websocket/API JSON shape."""
+        result = []
+        for item in self.queue:
+            if item["type"] == "delay":
+                result.append({"type": "delay", "delay_ms": item["delay_ms"]})
+                continue
+            result.append(
+                {
+                    "type": "cmd",
+                    "num": item.get("num", 0),
+                    "src": node_name(item["src"]),
+                    "dest": node_name(item["dest"]),
+                    "echo": node_name(item["echo"]),
+                    "ptype": ptype_name(item["ptype"]),
+                    "cmd": item["cmd"],
+                    "args": item.get("args", ""),
+                    "args_named": self.match_tx_args(item["cmd"], item.get("args", "")),
+                    "args_extra": self.tx_extra_args(item["cmd"], item.get("args", "")),
+                    "guard": item.get("guard", False),
+                    "size": len(item.get("raw_cmd", b"")),
+                }
+            )
+        return result
+
+    async def broadcast(self, msg):
+        """Broadcast one JSON-serializable message to all TX websocket clients."""
+        text = json.dumps(msg) if isinstance(msg, dict) else msg
+        with self.lock:
+            dead = []
+            for ws in self.clients:
+                try:
+                    await ws.send_text(text)
+                except Exception:
+                    dead.append(ws)
+            for ws in dead:
+                self.clients.remove(ws)
+
+    async def send_queue_update(self):
+        """Broadcast the current queue plus send-state snapshot."""
+        await self.broadcast({"type": "queue_update", "items": self.queue_items_json(), "summary": self.queue_summary(), "sending": self.sending.copy()})
+
+    async def run_send(self):
+        """Run the serialized TX send loop until queue exhaustion or abort."""
+        if self.zmq_sock is None:
+            await self.broadcast({"type": "send_error", "error": "TX ZMQ socket not initialized"})
+            with self.send_lock:
+                self.sending.update(active=False, idx=-1, total=0, guarding=False, sent_at=0, waiting=False)
+            await self.send_queue_update()
+            return
+
+        sock = self.zmq_sock
+        with self.runtime.cfg_lock:
+            uplink_mode = self.runtime.cfg.get("tx", {}).get("uplink_mode", "AX.25")
+            default_delay = self.runtime.cfg.get("tx", {}).get("delay_ms", 500)
+            send_csp = copy.copy(self.runtime.csp)
+            send_ax25 = copy.copy(self.runtime.ax25)
+
+        sent = 0
+        total = self.sending.get("total", len(self.queue))
+        prev_was_cmd = False
+
+        try:
+            while not self.abort.is_set():
+                with self.send_lock:
+                    if not self.queue:
+                        break
+                    item = self.queue[0]
+                    self.sending["idx"] = 0
+                    self.sending["waiting"] = False
+
+                await self.send_queue_update()
+
+                if item["type"] == "delay":
+                    with self.send_lock:
+                        self.sending["sent_at"] = 0
+                        self.sending["waiting"] = True
+                    await self.broadcast({"type": "send_progress", "sent": sent, "total": total, "current": f"delay {item['delay_ms']}ms", "waiting": True})
+                    prev_was_cmd = False
+                    remaining_ms = item["delay_ms"]
+                    while remaining_ms > 0 and not self.abort.is_set():
+                        await asyncio.sleep(0.1)
+                        remaining_ms -= 100
+                    with self.send_lock:
+                        self.sending["waiting"] = False
+                    if self.abort.is_set():
+                        break
+                    with self.send_lock:
+                        if self.queue:
+                            self.queue.pop(0)
+                        self.renumber_queue()
+                        self.save_queue()
+                    continue
+
+                if prev_was_cmd and default_delay > 0:
+                    with self.send_lock:
+                        self.sending["waiting"] = True
+                    remaining_ms = default_delay
+                    while remaining_ms > 0 and not self.abort.is_set():
+                        await asyncio.sleep(0.1)
+                        remaining_ms -= 100
+                    with self.send_lock:
+                        self.sending["waiting"] = False
+                    if self.abort.is_set():
+                        break
+
+                if item.get("guard"):
+                    with self.send_lock:
+                        self.sending["guarding"] = True
+                    self.guard_ok.clear()
+                    await self.broadcast({"type": "guard_confirm", "index": 0, "cmd": item["cmd"], "args": item.get("args", ""), "dest": node_name(item["dest"])})
+                    while not self.guard_ok.is_set() and not self.abort.is_set():
+                        await asyncio.sleep(0.1)
+                    with self.send_lock:
+                        self.sending["guarding"] = False
+                    if self.abort.is_set():
+                        break
+
+                raw_cmd = item.get("raw_cmd", b"")
+                if not raw_cmd:
+                    await self.broadcast({"type": "send_error", "error": f"empty raw_cmd for {item.get('cmd', '?')}"})
+                    with self.send_lock:
+                        if self.queue:
+                            self.queue.pop(0)
+                        self.renumber_queue()
+                        self.save_queue()
+                    break
+
+                try:
+                    csp_packet = send_csp.wrap(raw_cmd)
+                    if uplink_mode == "ASM+Golay" and GOLAY_OK:
+                        payload = build_asm_golay_frame(csp_packet)
+                    else:
+                        ax25_frame = send_ax25.wrap(csp_packet)
+                        payload = build_ax25_gfsk_frame(ax25_frame)
+                except Exception as exc:
+                    logging.error("Frame build failed for %s: %s", item.get("cmd", "?"), exc)
+                    await self.broadcast({"type": "send_error", "error": f"frame build failed: {exc}"})
+                    with self.send_lock:
+                        if self.queue:
+                            self.queue.pop(0)
+                        self.renumber_queue()
+                        self.save_queue()
+                    break
+
+                if not send_pdu(sock, payload):
+                    logging.error("ZMQ send failed for %s", item.get("cmd", "?"))
+                    await self.broadcast({"type": "send_error", "error": "ZMQ send failed"})
+                    with self.send_lock:
+                        if self.queue:
+                            self.queue.pop(0)
+                        self.renumber_queue()
+                        self.save_queue()
+                    break
+
+                with self.send_lock:
+                    self.sending["sent_at"] = time.time()
+                self.count += 1
+                sent += 1
+
+                src, dest, echo, ptype_val = item["src"], item["dest"], item["echo"], item["ptype"]
+                if self.log:
+                    try:
+                        self.log.write_command(
+                            self.count, src, dest, echo, ptype_val, item["cmd"], item["args"], raw_cmd, payload, send_ax25, send_csp, uplink_mode=uplink_mode
+                        )
+                    except Exception as exc:
+                        logging.warning("TX log write failed: %s", exc)
+
+                hist_entry = {"n": self.count, "ts": datetime.now().strftime("%H:%M:%S"), "src": node_name(src), "dest": node_name(dest), "echo": node_name(echo), "ptype": ptype_name(ptype_val), "cmd": item["cmd"], "args": item["args"], "size": len(payload)}
+                self.history.append(hist_entry)
+                if len(self.history) > self.runtime.max_history:
+                    del self.history[: len(self.history) - self.runtime.max_history]
+
+                await self.broadcast({"type": "sent", "data": hist_entry})
+                await self.broadcast({"type": "send_progress", "sent": sent, "total": total, "current": item["cmd"], "waiting": False})
+
+                await asyncio.sleep(0.5)
+                with self.send_lock:
+                    if self.queue:
+                        self.queue.pop(0)
+                    self.sending["sent_at"] = 0
+                    self.renumber_queue()
+                    self.save_queue()
+                prev_was_cmd = True
+        finally:
+            with self.send_lock:
+                self.save_queue()
+                self.sending.update(active=False, idx=-1, total=0, guarding=False, sent_at=0, waiting=False)
+
+            remaining = len(self.queue)
+            if self.abort.is_set():
+                await self.broadcast({"type": "send_aborted", "sent": sent, "remaining": remaining})
+            else:
+                await self.broadcast({"type": "send_complete", "sent": sent})
+
+            await self.send_queue_update()
+            await self.broadcast({"type": "history", "items": self.history[-self.runtime.max_history :]})
+
+
+def item_to_json(item):
+    payload = {key: value for key, value in item.items() if key != "raw_cmd"}
+    if payload["type"] == "cmd" and not payload.get("guard"):
+        payload.pop("guard", None)
+    return payload

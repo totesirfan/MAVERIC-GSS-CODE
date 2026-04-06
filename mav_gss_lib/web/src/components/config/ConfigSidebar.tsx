@@ -5,8 +5,10 @@ import { showToast } from '@/components/shared/StatusToast'
 import type { GssConfig } from '@/lib/types'
 import { X, FileText, Database, Plus, Tag } from 'lucide-react'
 import { PromptDialog } from '@/components/shared/PromptDialog'
+import { authFetch } from '@/lib/auth'
 
 const springConfig = { type: 'spring' as const, stiffness: 500, damping: 30, mass: 0.8 }
+let hasLoadedConfigSidebar = false
 
 /* -- helper sub-components ---------------------------------------- */
 
@@ -99,6 +101,11 @@ export function ConfigSidebar({ open, onClose }: ConfigSidebarProps) {
   const initialRef = useRef<GssConfig | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<Element | null>(null)
+  const animateOnMount = hasLoadedConfigSidebar
+
+  useEffect(() => {
+    hasLoadedConfigSidebar = true
+  }, [])
 
   // Capture trigger element when opening
   useEffect(() => {
@@ -178,7 +185,7 @@ export function ConfigSidebar({ open, onClose }: ConfigSidebarProps) {
 
   const handleSave = useCallback(() => {
     if (cfg) {
-      fetch('/api/config', {
+      authFetch('/api/config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(cfg),
@@ -210,14 +217,14 @@ export function ConfigSidebar({ open, onClose }: ConfigSidebarProps) {
                   cfg?.tx.uplink_mode === 'Mode 6'
 
   return (
-    <AnimatePresence>
+    <AnimatePresence initial={false}>
       {open && (
         <div className="fixed inset-0 z-50 flex">
           {/* Backdrop */}
           <motion.div
             className="flex-1"
             style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}
-            initial={{ opacity: 0 }}
+            initial={animateOnMount ? { opacity: 0 } : false}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
@@ -229,7 +236,7 @@ export function ConfigSidebar({ open, onClose }: ConfigSidebarProps) {
             ref={panelRef}
             className="w-96 h-full overflow-y-auto p-4 border-l shadow-overlay"
             style={{ backgroundColor: colors.bgPanelRaised, borderColor: colors.borderStrong }}
-            initial={{ x: 384 }}
+            initial={animateOnMount ? { x: 384 } : false}
             animate={{ x: 0 }}
             exit={{ x: 384 }}
             transition={springConfig}
@@ -335,7 +342,7 @@ export function ConfigSidebar({ open, onClose }: ConfigSidebarProps) {
                     placeholder="Session tag (optional)"
                     onSubmit={(tag) => {
                       setPromptMode(null)
-                      fetch('/api/logs/new', {
+                      authFetch('/api/logs/new', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ tag }),
@@ -355,7 +362,7 @@ export function ConfigSidebar({ open, onClose }: ConfigSidebarProps) {
                     required
                     onSubmit={(tag) => {
                       setPromptMode(null)
-                      fetch('/api/logs/tag', {
+                      authFetch('/api/logs/tag', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ tag }),

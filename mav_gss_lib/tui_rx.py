@@ -64,7 +64,8 @@ class RxHeader(Widget):
             ("", ul_t, None),
             ("", q_t, None),
         ]
-        t, _ = build_header("MAVERIC DOWNLINK", S_LABEL, items, w)
+        title = getattr(s, "rx_title", "Mission Downlink")
+        t, _ = build_header(title, S_LABEL, items, w)
         return t
 
 

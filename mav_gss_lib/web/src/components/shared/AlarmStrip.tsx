@@ -1,13 +1,14 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, Info, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { colors } from '@/lib/colors'
-import type { Alarm } from '@/hooks/useAlarms'
+import { useAlarms } from '@/hooks/useAlarms'
+import type { RxPacket, RxStatus } from '@/lib/types'
 
 interface AlarmStripProps {
-  alarms: Alarm[]
-  onAckAll: () => void
-  onAckOne: (id: string) => void
+  status: RxStatus
+  packets: RxPacket[]
+  replayMode: boolean
 }
 
 const severityColor: Record<string, string> = {
@@ -16,7 +17,46 @@ const severityColor: Record<string, string> = {
   advisory: colors.info,
 }
 
-export function AlarmStrip({ alarms, onAckAll, onAckOne }: AlarmStripProps) {
+const severityFill: Record<string, string> = {
+  danger: colors.dangerFill,
+  warning: colors.warningFill,
+  advisory: colors.infoFill,
+}
+
+const severityPulse: Record<string, string> = {
+  danger: 'animate-pulse-danger',
+  warning: 'animate-pulse-warning',
+  advisory: '',
+}
+
+const severityIcon: Record<string, typeof AlertTriangle> = {
+  danger: AlertCircle,
+  warning: AlertTriangle,
+  advisory: Info,
+}
+
+function formatAge(firstSeen: number): string {
+  const s = Math.floor((Date.now() - firstSeen) / 1000)
+  if (s < 5) return 'now'
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m}m`
+  return `${Math.floor(m / 60)}h${m % 60}m`
+}
+
+export function AlarmStrip({ status, packets, replayMode }: AlarmStripProps) {
+  const { alarms, ackAll, ackOne } = useAlarms(status, packets, replayMode)
+
+  // Highest severity drives the strip chrome
+  const maxSeverity = alarms.length > 0
+    ? (['danger', 'warning', 'advisory'] as const).find(s => alarms.some(a => a.severity === s)) ?? 'advisory'
+    : 'advisory'
+
+  const stripColor = severityColor[maxSeverity]
+  const stripFill = severityFill[maxSeverity]
+  const stripPulse = severityPulse[maxSeverity]
+  const StripIcon = severityIcon[maxSeverity]
+
   return (
     <AnimatePresence>
       {alarms.length > 0 && (
@@ -28,40 +68,46 @@ export function AlarmStrip({ alarms, onAckAll, onAckOne }: AlarmStripProps) {
           className="overflow-hidden shrink-0"
         >
           <div
-            className="flex items-center gap-3 px-4 py-1.5 text-xs font-mono animate-pulse-danger"
+            className={`flex items-center gap-3 px-4 py-1.5 text-xs font-mono ${stripPulse}`}
             style={{
-              backgroundColor: colors.dangerFill,
-              borderBottom: `1px solid ${colors.danger}40`,
+              backgroundColor: stripFill,
+              borderBottom: `1px solid ${stripColor}40`,
             }}
           >
             <div className="flex items-center gap-1.5 shrink-0">
-              <AlertTriangle className="size-3.5" style={{ color: colors.danger }} />
-              <span className="font-bold" style={{ color: colors.danger, fontFamily: 'Inter Variable, Inter, sans-serif' }}>
+              <StripIcon className="size-3.5" style={{ color: stripColor }} />
+              <span className="font-bold" style={{ color: stripColor, fontFamily: 'Inter Variable, Inter, sans-serif' }}>
                 {alarms.length} {alarms.length === 1 ? 'ALARM' : 'ALARMS'}
               </span>
             </div>
 
-            <div className="w-px h-3.5 shrink-0" style={{ backgroundColor: `${colors.danger}30` }} />
+            <div className="w-px h-3.5 shrink-0" style={{ backgroundColor: `${stripColor}30` }} />
 
             <div className="flex items-center gap-3 flex-1 min-w-0 overflow-x-auto">
-              {alarms.map(a => (
-                <button
-                  key={a.id}
-                  onClick={() => onAckOne(a.id)}
-                  className="flex items-center gap-1.5 shrink-0 hover:opacity-70 transition-opacity cursor-pointer"
-                  title={`Click to acknowledge: ${a.label}`}
-                >
-                  <span className="text-[9px]" style={{ color: severityColor[a.severity] }}>●</span>
-                  <span className="font-semibold" style={{ color: severityColor[a.severity] }}>{a.label}</span>
-                  <span style={{ color: `${severityColor[a.severity]}CC` }}>{a.detail}</span>
-                </button>
-              ))}
+              {alarms.map(a => {
+                const c = severityColor[a.severity]
+                return (
+                  <button
+                    key={a.id}
+                    onClick={() => ackOne(a.id)}
+                    className="flex items-center gap-1.5 shrink-0 hover:opacity-70 transition-opacity cursor-pointer"
+                    style={{ opacity: a.lingering ? 0.45 : a.acked ? 0.7 : 1 }}
+                    title={`Click to acknowledge: ${a.label}`}
+                  >
+                    <span className="text-[9px]" style={{ color: c }}>●</span>
+                    <span className="font-semibold" style={{ color: c }}>{a.label}</span>
+                    <span style={{ color: `${c}CC` }}>{a.detail}</span>
+                    {a.acked && !a.lingering && <span className="text-[10px]" style={{ color: `${c}99` }}>ACK</span>}
+                    {a.id !== 'stale' && <span className="text-[10px]" style={{ color: `${c}88` }}>{formatAge(a.firstSeen)}</span>}
+                  </button>
+                )
+              })}
             </div>
 
             <Button
               variant="ghost"
               size="sm"
-              onClick={onAckAll}
+              onClick={ackAll}
               className="shrink-0 h-6 px-2 text-[11px] font-medium"
               style={{ color: colors.textMuted, border: `1px solid ${colors.borderStrong}` }}
             >

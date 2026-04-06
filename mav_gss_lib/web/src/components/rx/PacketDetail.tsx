@@ -3,11 +3,12 @@ import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Clock, Radio, ArrowRightLeft, Shield, AlertTriangle, Binary, Satellite } from 'lucide-react'
 import { colors, ptypeColor, frameColor } from '@/lib/colors'
-import { nodeFullName } from '@/lib/nodes'
-import type { RxPacket } from '@/lib/types'
+import { getNodeFullName } from '@/lib/nodes'
+import type { GssConfig, RxPacket } from '@/lib/types'
 
 interface PacketDetailProps {
   packet: RxPacket
+  nodeDescriptions?: GssConfig['node_descriptions']
   showHex: boolean
   showWrapper: boolean
   showFrame: boolean
@@ -33,7 +34,7 @@ function F({ icon: Icon, label, value, color, tooltip }: { icon?: React.ElementT
 
 const hasEcho = (echo: string) => echo && echo !== 'NONE' && echo !== '0' && echo !== ''
 
-export function PacketDetail({ packet: p, showHex, showWrapper, showFrame }: PacketDetailProps) {
+export function PacketDetail({ packet: p, nodeDescriptions, showHex, showWrapper, showFrame }: PacketDetailProps) {
   const crc16 = p.crc16_ok === null ? null : p.crc16_ok
   const crc32 = p.crc32_ok === null ? null : p.crc32_ok
 
@@ -60,9 +61,9 @@ export function PacketDetail({ packet: p, showHex, showWrapper, showFrame }: Pac
 
       {/* Routing */}
       <div className="flex items-center gap-4">
-        <F label="Src" value={p.src} color={colors.label} tooltip={nodeFullName[p.src]} />
-        <F label="Dest" value={p.dest} color={colors.label} tooltip={nodeFullName[p.dest]} />
-        {hasEcho(p.echo) && <F label="Echo" value={p.echo} color={colors.warning} tooltip={nodeFullName[p.echo]} />}
+        <F label="Src" value={p.src} color={colors.label} tooltip={getNodeFullName(p.src, nodeDescriptions)} />
+        <F label="Dest" value={p.dest} color={colors.label} tooltip={getNodeFullName(p.dest, nodeDescriptions)} />
+        {hasEcho(p.echo) && <F label="Echo" value={p.echo} color={colors.warning} tooltip={getNodeFullName(p.echo, nodeDescriptions)} />}
         <F label="Type" value={p.ptype} color={ptypeColor(p.ptype)} />
       </div>
       <div className="flex items-center gap-4">

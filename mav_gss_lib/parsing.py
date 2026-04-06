@@ -14,12 +14,8 @@ from collections import OrderedDict, deque
 from dataclasses import dataclass, field
 from datetime import datetime
 
-import mav_gss_lib.protocol as protocol
-from mav_gss_lib.protocol import (
-    detect_frame_type, normalize_frame,
-    try_parse_csp_v1, try_parse_command, apply_schema,
-    verify_csp_crc32, clean_text,
-)
+from mav_gss_lib.mission_adapter import MavericMissionAdapter
+from mav_gss_lib.protocol import clean_text
 
 DUP_WINDOW = 1.0  # seconds -- only flag as duplicate if same fingerprint seen within this window
 
@@ -65,14 +61,22 @@ class RxPipeline:
     for each received PDU -- counters update automatically.
     """
 
-    def __init__(self, cmd_defs, tx_freq_map, max_seen_fps=10_000):
-        self.cmd_defs = cmd_defs
+    def __init__(self, adapter_or_cmd_defs, tx_freq_map, max_seen_fps=10_000):
+        # Backward-compatible constructor:
+        #   RxPipeline(cmd_defs, tx_freq_map)
+        # New constructor:
+        #   RxPipeline(adapter, tx_freq_map)
+        if hasattr(adapter_or_cmd_defs, "detect_frame_type"):
+            self.adapter = adapter_or_cmd_defs
+        else:
+            self.adapter = MavericMissionAdapter(adapter_or_cmd_defs)
         self.tx_freq_map = tx_freq_map
         self.max_seen_fps = max_seen_fps
 
         # Counters and state
         self.seen_fps = OrderedDict()
-        self.pkt_times = deque(maxlen=600)
+        self.pkt_times = deque(maxlen=3600)
+        self.total_count = 0
         self.packet_count = 0
         self.unknown_count = 0
         self.uplink_echo_count = 0
@@ -81,6 +85,7 @@ class RxPipeline:
 
     def reset_counts(self):
         """Reset counters for a new log session."""
+        self.total_count = 0
         self.packet_count = 0
         self.unknown_count = 0
         self.uplink_echo_count = 0
@@ -97,21 +102,26 @@ class RxPipeline:
         now_dt = datetime.now().astimezone()
 
         # Frame detection and normalization
-        frame_type = detect_frame_type(meta)
+        frame_type = self.adapter.detect_frame_type(meta)
         self._update_frequency(meta)
-        inner_payload, stripped_hdr, warnings = normalize_frame(frame_type, raw)
+        inner_payload, stripped_hdr, warnings = self.adapter.normalize_frame(frame_type, raw)
 
-        # CSP + Command parsing
-        csp, csp_plausible = try_parse_csp_v1(inner_payload)
-        cmd, cmd_tail, ts_result = self._parse_command(inner_payload)
-
-        # CRC-32C verification
-        crc_status = self._verify_crc(cmd, inner_payload, warnings)
+        parsed = self.adapter.parse_packet(inner_payload, warnings)
+        csp = parsed.csp
+        csp_plausible = parsed.csp_plausible
+        cmd = parsed.cmd
+        cmd_tail = parsed.cmd_tail
+        ts_result = parsed.ts_result
+        warnings = parsed.warnings
+        crc_status = parsed.crc_status
 
         # Classification
-        is_dup = self._check_duplicate(cmd, now)
+        is_dup = self._check_duplicate(parsed, now)
         is_unknown, unknown_num = self._classify_unknown(cmd)
-        is_uplink_echo = self._check_uplink_echo(cmd)
+        is_uplink_echo = self.adapter.is_uplink_echo(parsed)
+
+        # Monotonic packet number — all packets get a unique sequential number
+        self.total_count += 1
 
         # Rate tracking — exclude uplink echoes and unknown packets
         self._update_rate(now, is_uplink_echo, is_unknown)
@@ -123,7 +133,7 @@ class RxPipeline:
         gs_ts_short = f"{now_dt.hour:02d}:{now_dt.minute:02d}:{now_dt.second:02d}"
 
         return Packet(
-            pkt_num=self.packet_count,
+            pkt_num=self.total_count,
             gs_ts=gs_ts,
             gs_ts_short=gs_ts_short,
             frame_type=frame_type,
@@ -153,32 +163,11 @@ class RxPipeline:
         if freq is not None:
             self.frequency = freq
 
-    def _parse_command(self, inner_payload):
-        """Parse command from inner payload. Returns (cmd, tail, ts_result)."""
-        if len(inner_payload) <= 4:
-            return None, None, None
-        cmd, cmd_tail = try_parse_command(inner_payload[4:])
-        ts_result = None
-        if cmd:
-            apply_schema(cmd, self.cmd_defs)
-            if cmd.get("sat_time"):
-                ts_result = cmd["sat_time"]
-        return cmd, cmd_tail, ts_result
-
-    def _verify_crc(self, cmd, inner_payload, warnings):
-        """Verify CRC-32C and return status dict."""
-        crc_valid, crc_rx, crc_comp = None, None, None
-        if cmd and cmd.get("csp_crc32") is not None:
-            crc_valid, crc_rx, crc_comp = verify_csp_crc32(inner_payload)
-            if crc_valid is False:
-                warnings.append(f"CRC-32C mismatch: rx 0x{crc_rx:08x} != computed 0x{crc_comp:08x}")
-        return {"csp_crc32_valid": crc_valid, "csp_crc32_rx": crc_rx, "csp_crc32_comp": crc_comp}
-
-    def _check_duplicate(self, cmd, now):
-        """Check for duplicate using CRC fingerprint with time window."""
-        if not (cmd and cmd.get("crc") is not None and cmd.get("csp_crc32") is not None):
+    def _check_duplicate(self, parsed, now):
+        """Check for duplicate using a mission-provided fingerprint."""
+        fp = self.adapter.duplicate_fingerprint(parsed)
+        if fp is None:
             return False
-        fp = (cmd["crc"], cmd["csp_crc32"])
         prev = self.seen_fps.get(fp)
         is_dup = prev is not None and (now - prev) < DUP_WINDOW
         self.seen_fps[fp] = now
@@ -195,16 +184,6 @@ class RxPipeline:
             return True, self.unknown_count
         self.packet_count += 1
         return False, None
-
-    def _check_uplink_echo(self, cmd):
-        """Detect uplink echoes and update counter."""
-        is_echo = bool(cmd and (
-            cmd.get("src") == protocol.GS_NODE
-            or (cmd.get("dest") != protocol.GS_NODE and cmd.get("echo") != protocol.GS_NODE)
-        ))
-        if is_echo:
-            self.uplink_echo_count += 1
-        return is_echo
 
     def _update_rate(self, now, is_uplink_echo, is_unknown):
         """Track packet rate, excluding uplink echoes and unknown packets."""
@@ -255,6 +234,8 @@ def build_rx_log_record(pkt, version, meta):
             for ta in cmd["typed_args"]:
                 if ta["type"] == "epoch_ms" and "ms" in ta["value"]:
                     typed_log[ta["name"]] = ta["value"]["ms"]
+                elif ta["type"] == "blob" and isinstance(ta["value"], (bytes, bytearray)):
+                    typed_log[ta["name"]] = ta["value"].hex()
                 else:
                     typed_log[ta["name"]] = ta["value"]
             cmd_log["args"] = typed_log

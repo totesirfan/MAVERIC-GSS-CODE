@@ -1,8 +1,42 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "@fontsource-variable/inter";
-@import "@fontsource-variable/jetbrains-mono";
+
+@font-face {
+  font-family: 'Inter Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("@fontsource-variable/inter/files/inter-latin-ext-wght-normal.woff2") format('woff2-variations');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+
+@font-face {
+  font-family: 'Inter Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("@fontsource-variable/inter/files/inter-latin-wght-normal.woff2") format('woff2-variations');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 800;
+  src: url("@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-ext-wght-normal.woff2") format('woff2-variations');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 800;
+  src: url("@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2") format('woff2-variations');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
 
 @custom-variant dark (&:is(.dark *));
 
@@ -97,11 +131,11 @@ body {
 /* Flash rates per NASA-STD-3001 F.5.11: max 3 Hz */
 
 /* Advisory / success — 3 Hz (333ms) */
-@keyframes pulse-glow {
-  0%, 100% { border-color: rgba(60, 201, 142, 0.2); }
-  50% { border-color: rgba(60, 201, 142, 0.4); }
+@keyframes flash-glow {
+  0% { border-color: rgba(60, 201, 142, 0.5); }
+  100% { border-color: rgba(60, 201, 142, 0.08); }
 }
-.animate-pulse-glow { animation: pulse-glow 333ms ease-in-out infinite; }
+.animate-flash-glow { animation: flash-glow 2s ease-out forwards; }
 
 @keyframes pulse-text {
   0%, 100% { opacity: 1; }
@@ -109,12 +143,12 @@ body {
 }
 .animate-pulse-text { animation: pulse-text 333ms ease-in-out infinite; }
 
-/* Caution / warning — 3 Hz (333ms), subtle pulse */
+/* Caution / warning — slower than critical to preserve distinction */
 @keyframes pulse-warning {
   0%, 100% { background-color: rgba(232, 184, 58, 0.04); border-color: rgba(232, 184, 58, 0.2); }
   50% { background-color: rgba(232, 184, 58, 0.1); border-color: rgba(232, 184, 58, 0.35); }
 }
-.animate-pulse-warning { animation: pulse-warning 333ms ease-in-out infinite; }
+.animate-pulse-warning { animation: pulse-warning 900ms ease-in-out infinite; }
 
 /* Danger — 3 Hz (333ms), aggressive pulse */
 @keyframes pulse-danger {
