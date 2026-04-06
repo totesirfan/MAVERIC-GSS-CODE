@@ -150,5 +150,41 @@ class TestMissionBoundary(unittest.TestCase):
         self.assertIn("row", result["_rendering"])
 
 
+    def test_shared_loader_loads_maveric(self):
+        """load_mission_adapter() loads MAVERIC by default config."""
+        from mav_gss_lib.mission_adapter import load_mission_adapter
+        from mav_gss_lib.config import load_gss_config, get_command_defs_path
+        from mav_gss_lib.protocol import init_nodes, load_command_defs
+
+        cfg = load_gss_config()
+        init_nodes(cfg)
+        cmd_defs, _ = load_command_defs(get_command_defs_path(cfg))
+        adapter = load_mission_adapter(cfg, cmd_defs)
+        self.assertEqual(type(adapter).__name__, "MavericMissionAdapter")
+        self.assertIsInstance(adapter, MissionAdapter)
+
+    def test_shared_loader_loads_echo_mission(self):
+        """load_mission_adapter() successfully loads the echo mission fixture."""
+        from mav_gss_lib.mission_adapter import load_mission_adapter, _MISSION_REGISTRY
+
+        _MISSION_REGISTRY["echo_test"] = "tests.echo_mission"
+        try:
+            cfg = {"general": {"mission": "echo_test"}}
+            adapter = load_mission_adapter(cfg, {})
+            self.assertEqual(type(adapter).__name__, "EchoMissionAdapter")
+            self.assertIsInstance(adapter, MissionAdapter)
+        finally:
+            del _MISSION_REGISTRY["echo_test"]
+
+    def test_shared_loader_rejects_unknown_mission(self):
+        """load_mission_adapter() raises ValueError for unknown mission."""
+        from mav_gss_lib.mission_adapter import load_mission_adapter
+        cfg = {"general": {"mission": "nonexistent"}}
+        with self.assertRaises(ValueError) as ctx:
+            load_mission_adapter(cfg, {})
+        self.assertIn("nonexistent", str(ctx.exception))
+        self.assertIn("Supported", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

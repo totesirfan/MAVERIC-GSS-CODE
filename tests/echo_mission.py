@@ -124,3 +124,7 @@ class EchoMissionAdapter:
             "args": item.get("args", ""),
             "size": payload_len,
         }
+
+
+# Explicit entry point for shared mission loader
+ADAPTER_CLASS = EchoMissionAdapter

@@ -777,6 +777,22 @@ Validation:
 - test suite
 - config validation tests
 
+## Follow-On Phases
+
+Phase 6 is the end of the initial migration track, not the end of platform work.
+
+The next migration track is defined in:
+
+- [phase7_11_platform_spec.md](phase7_11_platform_spec.md)
+
+That document covers:
+
+- Phase 7: runtime mission loading
+- Phase 8: config and mission package cleanup
+- Phase 9: transitional semantics cleanup
+- Phase 10: legacy surface decision
+- Phase 11: facade removal and final cleanup
+
 ## Acceptance Criteria
 
 The migration is successful when:

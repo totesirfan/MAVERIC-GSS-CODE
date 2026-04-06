@@ -14,7 +14,7 @@ from collections import OrderedDict, deque
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from mav_gss_lib.mission_adapter import MavericMissionAdapter
+from mav_gss_lib.mission_adapter import load_mission_adapter
 from mav_gss_lib.protocol import clean_text
 
 DUP_WINDOW = 1.0  # seconds -- only flag as duplicate if same fingerprint seen within this window
@@ -69,7 +69,10 @@ class RxPipeline:
         if hasattr(adapter_or_cmd_defs, "detect_frame_type"):
             self.adapter = adapter_or_cmd_defs
         else:
-            self.adapter = MavericMissionAdapter(adapter_or_cmd_defs)
+            # Fallback: cmd_defs dict passed directly — load via shared loader
+            from mav_gss_lib.config import load_gss_config
+            cfg = load_gss_config()
+            self.adapter = load_mission_adapter(cfg, adapter_or_cmd_defs)
         self.tx_freq_map = tx_freq_map
         self.max_seen_fps = max_seen_fps
 

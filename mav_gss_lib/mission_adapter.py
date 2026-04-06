@@ -147,6 +147,69 @@ def validate_adapter(adapter, api_version: int, mission_name: str) -> None:
 
 
 # =============================================================================
+#  PLATFORM CORE -- Mission Loader
+# =============================================================================
+
+# Registry of known mission packages: mission_id -> module path
+_MISSION_REGISTRY = {
+    "maveric": "mav_gss_lib.missions.maveric",
+}
+
+
+def load_mission_adapter(cfg: dict, cmd_defs: dict):
+    """Load, instantiate, and validate a mission adapter from config.
+
+    Reads general.mission from cfg (default: "maveric"), imports the
+    corresponding mission package, and returns a validated adapter.
+
+    This is the single shared mission-loading path used by all runtime
+    construction flows.
+
+    Raises ValueError with a clear message if:
+      - mission ID is not in the registry
+      - mission package has no ADAPTER_API_VERSION or ADAPTER_CLASS
+      - adapter does not satisfy MissionAdapter interface
+      - ADAPTER_API_VERSION is unsupported
+    """
+    import importlib
+    import logging
+
+    mission = cfg.get("general", {}).get("mission", "maveric")
+    mission_name = cfg.get("general", {}).get("mission_name", mission.upper())
+
+    module_path = _MISSION_REGISTRY.get(mission)
+    if module_path is None:
+        raise ValueError(
+            f"Unknown mission '{mission}' in general.mission config. "
+            f"Supported: {', '.join(sorted(_MISSION_REGISTRY))}"
+        )
+
+    try:
+        mission_pkg = importlib.import_module(module_path)
+    except ImportError as exc:
+        raise ValueError(
+            f"Mission '{mission}' package '{module_path}' could not be imported: {exc}"
+        ) from exc
+
+    api_version = getattr(mission_pkg, "ADAPTER_API_VERSION", None)
+    if api_version is None:
+        raise ValueError(
+            f"Mission '{mission}' package '{module_path}' has no ADAPTER_API_VERSION"
+        )
+
+    adapter_cls = getattr(mission_pkg, "ADAPTER_CLASS", None)
+    if adapter_cls is None:
+        raise ValueError(
+            f"Mission '{mission}' package '{module_path}' has no ADAPTER_CLASS"
+        )
+
+    adapter = adapter_cls(cmd_defs=cmd_defs)
+    validate_adapter(adapter, api_version, mission_name)
+    logging.info("Mission loaded: %s (adapter API v%d)", mission_name, api_version)
+    return adapter
+
+
+# =============================================================================
 #  FACADE -- re-export MAVERIC adapter
 # =============================================================================
 

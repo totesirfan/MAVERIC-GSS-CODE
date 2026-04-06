@@ -28,7 +28,7 @@ from mav_gss_lib.config import (
     get_generated_commands_dir,
     load_gss_config,
 )
-from mav_gss_lib.mission_adapter import MavericMissionAdapter, validate_adapter
+from mav_gss_lib.mission_adapter import load_mission_adapter
 from mav_gss_lib.protocol import AX25Config, CSPConfig, init_nodes, load_command_defs
 from .services import RxService, TxService
 
@@ -74,20 +74,8 @@ class WebRuntime:
         self.tx = TxService(self)
 
     def _load_adapter(self):
-        """Instantiate and validate the mission adapter based on config."""
-        import logging
-        mission = self.cfg.get("general", {}).get("mission", "maveric")
-        mission_name = self.cfg.get("general", {}).get("mission_name", mission.upper())
-        if mission == "maveric":
-            from mav_gss_lib.missions.maveric import ADAPTER_API_VERSION
-            adapter = MavericMissionAdapter(self.cmd_defs)
-            validate_adapter(adapter, ADAPTER_API_VERSION, mission_name)
-            logging.info("Mission loaded: %s (adapter API v%d)", mission_name, ADAPTER_API_VERSION)
-            return adapter
-        raise ValueError(
-            f"Unknown mission '{mission}' in general.mission config. "
-            f"Supported: maveric"
-        )
+        """Instantiate and validate the mission adapter via the shared loader."""
+        return load_mission_adapter(self.cfg, self.cmd_defs)
 
     def queue_file(self) -> Path:
         return Path(self.cfg.get("general", {}).get("log_dir", "logs")) / ".pending_queue.jsonl"
