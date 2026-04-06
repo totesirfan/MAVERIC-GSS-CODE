@@ -86,6 +86,42 @@ class EchoMissionAdapter:
     def is_unknown_packet(self, parsed) -> bool:
         return True
 
+    # -- Resolution contract (Phase 11) --
+
+    @property
+    def gs_node(self) -> int:
+        return 0
+
+    def node_name(self, node_id: int) -> str:
+        return str(node_id)
+
+    def ptype_name(self, ptype_id: int) -> str:
+        return str(ptype_id)
+
+    def node_label(self, node_id: int) -> str:
+        return str(node_id)
+
+    def ptype_label(self, ptype_id: int) -> str:
+        return str(ptype_id)
+
+    def resolve_node(self, s: str) -> int | None:
+        try:
+            return int(s)
+        except ValueError:
+            return None
+
+    def resolve_ptype(self, s: str) -> int | None:
+        try:
+            return int(s)
+        except ValueError:
+            return None
+
+    def parse_cmd_line(self, line: str) -> tuple:
+        parts = line.split()
+        cmd = parts[0] if parts else ""
+        args = " ".join(parts[1:])
+        return (0, 0, 0, 0, cmd, args)
+
     # -- Transitional compatibility (Phase 5a) --
 
     def packet_to_json(self, pkt) -> dict:

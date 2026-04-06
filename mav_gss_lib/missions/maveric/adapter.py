@@ -20,8 +20,8 @@ from mav_gss_lib.missions.maveric.wire_format import (
     GS_NODE,
     apply_schema,
     build_cmd_raw,
-    node_name,
-    ptype_name,
+    node_name as _wire_node_name,
+    ptype_name as _wire_ptype_name,
     try_parse_command,
     validate_args,
 )
@@ -150,10 +150,10 @@ class MavericMissionAdapter:
             "time": pkt.gs_ts_short,
             "time_utc": pkt.gs_ts,
             "frame": pkt.frame_type,
-            "src": node_name(cmd["src"]) if cmd else "",
-            "dest": node_name(cmd["dest"]) if cmd else "",
-            "echo": node_name(cmd["echo"]) if cmd else "",
-            "ptype": ptype_name(cmd["pkt_type"]) if cmd else "",
+            "src": _wire_node_name(cmd["src"]) if cmd else "",
+            "dest": _wire_node_name(cmd["dest"]) if cmd else "",
+            "echo": _wire_node_name(cmd["echo"]) if cmd else "",
+            "ptype": _wire_ptype_name(cmd["pkt_type"]) if cmd else "",
             "cmd": cmd["cmd_id"] if cmd else "",
             "args_named": args_named,
             "args_extra": args_extra,
@@ -183,10 +183,10 @@ class MavericMissionAdapter:
         return {
             "type": "cmd",
             "num": item.get("num", 0),
-            "src": node_name(item["src"]),
-            "dest": node_name(item["dest"]),
-            "echo": node_name(item["echo"]),
-            "ptype": ptype_name(item["ptype"]),
+            "src": _wire_node_name(item["src"]),
+            "dest": _wire_node_name(item["dest"]),
+            "echo": _wire_node_name(item["echo"]),
+            "ptype": _wire_ptype_name(item["ptype"]),
             "cmd": item["cmd"],
             "args": item.get("args", ""),
             "args_named": match_tx_args(item["cmd"], item.get("args", "")),
@@ -204,10 +204,10 @@ class MavericMissionAdapter:
         return {
             "n": count,
             "ts": datetime.now().strftime("%H:%M:%S"),
-            "src": node_name(item["src"]),
-            "dest": node_name(item["dest"]),
-            "echo": node_name(item["echo"]),
-            "ptype": ptype_name(item["ptype"]),
+            "src": _wire_node_name(item["src"]),
+            "dest": _wire_node_name(item["dest"]),
+            "echo": _wire_node_name(item["echo"]),
+            "ptype": _wire_ptype_name(item["ptype"]),
             "cmd": item["cmd"],
             "args": item.get("args", ""),
             "size": payload_len,
@@ -264,9 +264,9 @@ class MavericMissionAdapter:
                 "num": pkt.pkt_num,
                 "time": pkt.gs_ts_short,
                 "frame": pkt.frame_type,
-                "src": node_name(cmd["src"]) if cmd else "",
-                "echo": node_name(cmd["echo"]) if cmd else "",
-                "ptype": ptype_name(cmd["pkt_type"]) if cmd else "",
+                "src": _wire_node_name(cmd["src"]) if cmd else "",
+                "echo": _wire_node_name(cmd["echo"]) if cmd else "",
+                "ptype": _wire_ptype_name(cmd["pkt_type"]) if cmd else "",
                 "cmd": ((cmd["cmd_id"] + " " + args_str).strip() if args_str else cmd["cmd_id"]) if cmd else "",
                 "flags": flags,
                 "size": len(pkt.raw),
@@ -335,10 +335,10 @@ class MavericMissionAdapter:
 
         if cmd:
             blocks.append({"kind": "routing", "label": "Routing", "fields": [
-                {"name": "Src", "value": node_name(cmd["src"])},
-                {"name": "Dest", "value": node_name(cmd["dest"])},
-                {"name": "Echo", "value": node_name(cmd["echo"])},
-                {"name": "Type", "value": ptype_name(cmd["pkt_type"])},
+                {"name": "Src", "value": _wire_node_name(cmd["src"])},
+                {"name": "Dest", "value": _wire_node_name(cmd["dest"])},
+                {"name": "Echo", "value": _wire_node_name(cmd["echo"])},
+                {"name": "Type", "value": _wire_ptype_name(cmd["pkt_type"])},
                 {"name": "Cmd", "value": cmd["cmd_id"]},
             ]})
 
@@ -448,8 +448,8 @@ class MavericMissionAdapter:
         cmd = pkt.cmd
         if cmd:
             lines.append(f"  {'CMD':<12}"
-                f"Src:{node_name(cmd['src'])}  Dest:{node_name(cmd['dest'])}  "
-                f"Echo:{node_name(cmd['echo'])}  Type:{ptype_name(cmd['pkt_type'])}")
+                f"Src:{_wire_node_name(cmd['src'])}  Dest:{_wire_node_name(cmd['dest'])}  "
+                f"Echo:{_wire_node_name(cmd['echo'])}  Type:{_wire_ptype_name(cmd['pkt_type'])}")
             lines.append(f"  {'CMD ID':<12}{cmd['cmd_id']}")
 
             if cmd.get("schema_match"):
@@ -478,3 +478,35 @@ class MavericMissionAdapter:
         """MAVERIC: a packet is unknown when no command was decoded."""
         cmd = parsed.cmd if hasattr(parsed, 'cmd') else None
         return cmd is None
+
+    # -- Resolution contract (Phase 11) --
+
+    @property
+    def gs_node(self) -> int:
+        return GS_NODE
+
+    def node_name(self, node_id: int) -> str:
+        return _wire_node_name(node_id)
+
+    def ptype_name(self, ptype_id: int) -> str:
+        return _wire_ptype_name(ptype_id)
+
+    def node_label(self, node_id: int) -> str:
+        from mav_gss_lib.missions.maveric.wire_format import node_label
+        return node_label(node_id)
+
+    def ptype_label(self, ptype_id: int) -> str:
+        from mav_gss_lib.missions.maveric.wire_format import ptype_label
+        return ptype_label(ptype_id)
+
+    def resolve_node(self, s: str) -> int | None:
+        from mav_gss_lib.missions.maveric.wire_format import resolve_node
+        return resolve_node(s)
+
+    def resolve_ptype(self, s: str) -> int | None:
+        from mav_gss_lib.missions.maveric.wire_format import resolve_ptype
+        return resolve_ptype(s)
+
+    def parse_cmd_line(self, line: str) -> tuple:
+        from mav_gss_lib.missions.maveric.wire_format import parse_cmd_line
+        return parse_cmd_line(line)

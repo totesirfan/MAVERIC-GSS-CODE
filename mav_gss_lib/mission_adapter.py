@@ -113,6 +113,17 @@ class MissionAdapter(Protocol):
     def format_log_lines(self, pkt) -> list[str]: ...
     def is_unknown_packet(self, parsed: ParsedPacket) -> bool: ...
 
+    # -- Resolution contract (Phase 11) --
+    @property
+    def gs_node(self) -> int: ...
+    def node_name(self, node_id: int) -> str: ...
+    def ptype_name(self, ptype_id: int) -> str: ...
+    def node_label(self, node_id: int) -> str: ...
+    def ptype_label(self, ptype_id: int) -> str: ...
+    def resolve_node(self, s: str) -> int | None: ...
+    def resolve_ptype(self, s: str) -> int | None: ...
+    def parse_cmd_line(self, line: str) -> tuple: ...
+
 
 # =============================================================================
 #  PLATFORM CORE -- Adapter Validation
@@ -137,6 +148,8 @@ def validate_adapter(adapter, api_version: int, mission_name: str) -> None:
             'packet_list_columns', 'packet_list_row',
             'packet_detail_blocks', 'protocol_blocks', 'integrity_blocks',
             'build_log_mission_data', 'format_log_lines', 'is_unknown_packet',
+            'node_name', 'ptype_name', 'node_label', 'ptype_label',
+            'resolve_node', 'resolve_ptype', 'parse_cmd_line',
         ):
             if not hasattr(adapter, method_name):
                 missing.append(method_name)
@@ -144,6 +157,11 @@ def validate_adapter(adapter, api_version: int, mission_name: str) -> None:
             f"Mission '{mission_name}' adapter {type(adapter).__name__} "
             f"does not satisfy MissionAdapter interface. "
             f"Missing methods: {', '.join(missing) if missing else 'unknown'}"
+        )
+    if not hasattr(adapter, 'gs_node'):
+        raise ValueError(
+            f"Mission '{mission_name}' adapter {type(adapter).__name__} "
+            f"missing required property: gs_node"
         )
     if api_version not in SUPPORTED_API_VERSIONS:
         raise ValueError(

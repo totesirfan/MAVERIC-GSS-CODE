@@ -65,5 +65,84 @@ class TestInitMission(unittest.TestCase):
             del _MISSION_REGISTRY["echo_test"]
 
 
+class TestEchoResolution(unittest.TestCase):
+    """Verify echo adapter resolution stubs."""
+
+    def setUp(self):
+        from tests.echo_mission import EchoMissionAdapter
+        self.adapter = EchoMissionAdapter(cmd_defs={})
+
+    def test_echo_satisfies_protocol(self):
+        self.assertIsInstance(self.adapter, MissionAdapter)
+        validate_adapter(self.adapter, 1, "echo")
+
+    def test_node_name(self):
+        self.assertEqual(self.adapter.node_name(0), "0")
+
+    def test_ptype_name(self):
+        self.assertEqual(self.adapter.ptype_name(1), "1")
+
+    def test_resolve_node_numeric(self):
+        self.assertEqual(self.adapter.resolve_node("5"), 5)
+
+    def test_resolve_node_non_numeric(self):
+        self.assertIsNone(self.adapter.resolve_node("GS"))
+
+    def test_resolve_ptype_numeric(self):
+        self.assertEqual(self.adapter.resolve_ptype("2"), 2)
+
+    def test_gs_node(self):
+        self.assertEqual(self.adapter.gs_node, 0)
+
+    def test_parse_cmd_line(self):
+        result = self.adapter.parse_cmd_line("test arg1 arg2")
+        self.assertIsInstance(result, tuple)
+        self.assertEqual(len(result), 6)
+
+    def test_node_label(self):
+        self.assertIn("5", self.adapter.node_label(5))
+
+    def test_ptype_label(self):
+        self.assertIn("1", self.adapter.ptype_label(1))
+
+
+class TestMavericResolution(unittest.TestCase):
+    """Verify MAVERIC adapter resolves correctly."""
+
+    def setUp(self):
+        from mav_gss_lib.config import load_gss_config
+        from mav_gss_lib.mission_adapter import load_mission_adapter
+        cfg = load_gss_config()
+        self.adapter = load_mission_adapter(cfg)
+
+    def test_node_name_known(self):
+        self.assertEqual(self.adapter.node_name(6), "GS")
+
+    def test_ptype_name_known(self):
+        self.assertEqual(self.adapter.ptype_name(1), "REQ")
+
+    def test_resolve_node_by_name(self):
+        self.assertEqual(self.adapter.resolve_node("GS"), 6)
+
+    def test_resolve_node_by_id(self):
+        self.assertEqual(self.adapter.resolve_node("6"), 6)
+
+    def test_resolve_ptype_by_name(self):
+        self.assertEqual(self.adapter.resolve_ptype("REQ"), 1)
+
+    def test_gs_node_is_6(self):
+        self.assertEqual(self.adapter.gs_node, 6)
+
+    def test_parse_cmd_line_full(self):
+        src, dest, echo, ptype, cmd_id, args = self.adapter.parse_cmd_line("6 1 0 1 ping REQ")
+        self.assertEqual(cmd_id, "ping")
+
+    def test_node_label_known(self):
+        self.assertIn("GS", self.adapter.node_label(6))
+
+    def test_ptype_label_known(self):
+        self.assertIn("REQ", self.adapter.ptype_label(1))
+
+
 if __name__ == "__main__":
     unittest.main()
