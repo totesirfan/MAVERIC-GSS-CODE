@@ -92,7 +92,8 @@ class TestProtocolCore(unittest.TestCase):
         self.assertIsNotNone(stripped)
         self.assertEqual(warnings, [])
 
-        cmd, tail, ts_result = self.adapter.parse_command(inner)
+        parsed = self.adapter.parse_packet(inner)
+        cmd, tail, ts_result = parsed.cmd, parsed.cmd_tail, parsed.ts_result
         self.assertEqual(cmd["cmd_id"], "set_mode")
         self.assertEqual(cmd["args"], ["NOMINAL"])
         self.assertTrue(cmd["schema_match"])
@@ -101,16 +102,18 @@ class TestProtocolCore(unittest.TestCase):
 
     def test_adapter_crc_and_uplink_echo_behavior(self):
         inner = CSPConfig().wrap(build_cmd_raw(2, "ping", "REQ"))
-        cmd, _tail, _ts = self.adapter.parse_command(inner)
         warnings = []
-        clean = self.adapter.verify_crc(cmd, inner, warnings)
+        parsed = self.adapter.parse_packet(inner, warnings)
+        cmd = parsed.cmd
+        clean = parsed.crc_status
         self.assertTrue(clean["csp_crc32_valid"])
         self.assertEqual(warnings, [])
 
         corrupted = bytearray(inner)
         corrupted[-1] ^= 0xFF
         warnings = []
-        bad = self.adapter.verify_crc(cmd, bytes(corrupted), warnings)
+        bad_parsed = self.adapter.parse_packet(bytes(corrupted), warnings)
+        bad = bad_parsed.crc_status
         self.assertFalse(bad["csp_crc32_valid"])
         self.assertTrue(any("CRC-32C mismatch" in msg for msg in warnings))
         self.assertTrue(self.adapter.is_uplink_echo({"src": 6}))

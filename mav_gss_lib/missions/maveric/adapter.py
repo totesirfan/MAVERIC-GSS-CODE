@@ -89,16 +89,6 @@ class MavericMissionAdapter:
             },
         )
 
-    def parse_command(self, inner_payload: bytes):
-        """Backward-compatible wrapper around parse_packet()."""
-        parsed = self.parse_packet(inner_payload)
-        return parsed.cmd, parsed.cmd_tail, parsed.ts_result
-
-    def verify_crc(self, cmd, inner_payload: bytes, warnings: list[str]):
-        """Backward-compatible CRC wrapper around parse_packet()."""
-        parsed = self.parse_packet(inner_payload, warnings)
-        return parsed.crc_status
-
     def duplicate_fingerprint(self, parsed):
         """Return a mission-specific duplicate fingerprint or None."""
         cmd = parsed.cmd
