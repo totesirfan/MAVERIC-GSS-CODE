@@ -74,8 +74,6 @@ async def ws_tx(websocket: WebSocket):
                     parts = line.split()
                     candidate = parts[0].lower()
                     defn = runtime.cmd_defs.get(candidate)
-                    if runtime.cmd_defs and defn is None:
-                        raise ValueError(f"'{candidate}' not in schema")
                     if defn and not defn.get("rx_only") and defn.get("dest") is not None:
                         cmd_id = candidate
                         args = " ".join(parts[1:])
