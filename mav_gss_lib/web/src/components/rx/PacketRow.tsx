@@ -27,7 +27,7 @@ function NodeName({ name, color }: { name: string; color: string }) {
   return (
     <TooltipProvider delay={300}>
       <Tooltip>
-        <TooltipTrigger render={<span />} style={{ color, cursor: 'help' }}>{name}</TooltipTrigger>
+        <TooltipTrigger render={<span />} style={{ color }}>{name}</TooltipTrigger>
         <TooltipContent side="top" className="text-xs">
           {full}
         </TooltipContent>

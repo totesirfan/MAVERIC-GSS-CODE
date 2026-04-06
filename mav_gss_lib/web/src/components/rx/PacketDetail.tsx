@@ -22,7 +22,7 @@ function F({ icon: Icon, label, value, color, tooltip }: { icon?: React.ElementT
       {tooltip ? (
         <TooltipProvider delay={300}>
           <Tooltip>
-            <TooltipTrigger render={<span />} style={{ color: color ?? colors.value, cursor: 'help' }}>{value}</TooltipTrigger>
+            <TooltipTrigger render={<span />} style={{ color: color ?? colors.value }}>{value}</TooltipTrigger>
             <TooltipContent side="top" className="text-xs">{tooltip}</TooltipContent>
           </Tooltip>
         </TooltipProvider>

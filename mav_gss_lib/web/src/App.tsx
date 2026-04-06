@@ -15,6 +15,7 @@ import { showToast } from '@/components/shared/StatusToast'
 import { Toaster } from '@/components/ui/sonner'
 import { useAlarms } from '@/hooks/useAlarms'
 import { AlarmStrip } from '@/components/shared/AlarmStrip'
+import { PromptDialog } from '@/components/shared/PromptDialog'
 import type { GssConfig } from '@/lib/types'
 
 function isInputFocused(): boolean {
@@ -46,6 +47,7 @@ export default function App() {
   const [replaySession, setReplaySession] = useState<string | null>(null)
   const [confirmSendSignal, setConfirmSendSignal] = useState(0)
   const [confirmClearSignal, setConfirmClearSignal] = useState(0)
+  const [sessionPrompt, setSessionPrompt] = useState<'new' | 'tag' | null>(null)
 
   const startReplay = useCallback((sessionId: string) => {
     rx.enterReplay()
@@ -214,30 +216,44 @@ export default function App() {
           openConfig: () => setShowConfig(true),
           openLogs: () => setShowLogs(true),
           openHelp: () => setShowHelp(true),
-          newSession: () => {
-            const tag = prompt('Session tag (optional):') ?? ''
-            fetch('/api/logs/new', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ tag }),
-            }).then(r => r.json()).then(d => {
-              if (d.ok) showToast('New log session started', 'success')
-            }).catch(() => showToast('Failed to start new session', 'error'))
-          },
-          tagSession: () => {
-            const tag = prompt('Tag name:')
-            if (!tag) return
-            fetch('/api/logs/tag', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ tag }),
-            }).then(r => r.json()).then(d => {
-              if (d.ok) showToast(`Session tagged: ${tag}`, 'success')
-            }).catch(() => showToast('Failed to tag session', 'error'))
-          },
+          newSession: () => setSessionPrompt('new'),
+          tagSession: () => setSessionPrompt('tag'),
         }}
       />
       <KeyboardHintBar />
+      <PromptDialog
+        open={sessionPrompt === 'new'}
+        title="New Log Session"
+        placeholder="Session tag (optional)"
+        onSubmit={(tag) => {
+          setSessionPrompt(null)
+          fetch('/api/logs/new', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tag }),
+          }).then(r => r.json()).then(d => {
+            if (d.ok) showToast('New log session started', 'success')
+          }).catch(() => showToast('Failed to start new session', 'error'))
+        }}
+        onCancel={() => setSessionPrompt(null)}
+      />
+      <PromptDialog
+        open={sessionPrompt === 'tag'}
+        title="Tag Session"
+        placeholder="Tag name"
+        required
+        onSubmit={(tag) => {
+          setSessionPrompt(null)
+          fetch('/api/logs/tag', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tag }),
+          }).then(r => r.json()).then(d => {
+            if (d.ok) showToast(`Session tagged: ${tag}`, 'success')
+          }).catch(() => showToast('Failed to tag session', 'error'))
+        }}
+        onCancel={() => setSessionPrompt(null)}
+      />
       <Toaster position="top-center" />
     </div>
   )

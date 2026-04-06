@@ -70,7 +70,7 @@ export function QueueItem({ item, index, sortId, expanded, isNext, isSending, is
               {nodeFullName[item.dest] ? (
                 <TooltipProvider delay={300}>
                   <Tooltip>
-                    <TooltipTrigger render={<span />} style={{ color: colors.label, cursor: 'help' }}>{item.dest}</TooltipTrigger>
+                    <TooltipTrigger render={<span />} style={{ color: colors.label, cursor: 'default' }}>{item.dest}</TooltipTrigger>
                     <TooltipContent side="top" className="text-xs">{nodeFullName[item.dest]}</TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
@@ -118,7 +118,7 @@ export function QueueItem({ item, index, sortId, expanded, isNext, isSending, is
                   {nodeFullName[item.src] ? (
                     <TooltipProvider delay={300}>
                       <Tooltip>
-                        <TooltipTrigger render={<span />} style={{ color: colors.label, cursor: 'help' }}>{item.src}</TooltipTrigger>
+                        <TooltipTrigger render={<span />} style={{ color: colors.label, cursor: 'default' }}>{item.src}</TooltipTrigger>
                         <TooltipContent side="top" className="text-xs">{nodeFullName[item.src]}</TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
@@ -128,7 +128,7 @@ export function QueueItem({ item, index, sortId, expanded, isNext, isSending, is
                   {nodeFullName[item.dest] ? (
                     <TooltipProvider delay={300}>
                       <Tooltip>
-                        <TooltipTrigger render={<span />} style={{ color: colors.label, cursor: 'help' }}>{item.dest}</TooltipTrigger>
+                        <TooltipTrigger render={<span />} style={{ color: colors.label, cursor: 'default' }}>{item.dest}</TooltipTrigger>
                         <TooltipContent side="top" className="text-xs">{nodeFullName[item.dest]}</TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
@@ -139,7 +139,7 @@ export function QueueItem({ item, index, sortId, expanded, isNext, isSending, is
                     {nodeFullName[item.echo] ? (
                       <TooltipProvider delay={300}>
                         <Tooltip>
-                          <TooltipTrigger render={<span />} style={{ color: colors.warning, cursor: 'help' }}>{item.echo}</TooltipTrigger>
+                          <TooltipTrigger render={<span />} style={{ color: colors.warning, cursor: 'default' }}>{item.echo}</TooltipTrigger>
                           <TooltipContent side="top" className="text-xs">{nodeFullName[item.echo]}</TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
