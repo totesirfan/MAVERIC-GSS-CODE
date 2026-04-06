@@ -123,8 +123,8 @@ class MavericMissionAdapter:
     def packet_to_json(self, pkt) -> dict:
         """Transitional: convert Packet to the JSON shape the current frontend expects.
 
-        This method will be replaced by the architecture spec's rendering-slot
-        contract (packet_list_columns, packet_list_row, etc.) in Phase 5b.
+        STATUS: Phase 11 removal candidate. Will be replaced when the frontend
+        consumes rendering-slot data exclusively and the flat JSON shape is retired.
         """
         cmd = pkt.cmd
         args_named = []
@@ -186,7 +186,10 @@ class MavericMissionAdapter:
         return payload
 
     def queue_item_to_json(self, item: dict, match_tx_args, extra_tx_args) -> dict:
-        """Transitional: convert TX queue item to the JSON shape the current frontend expects."""
+        """Transitional: convert TX queue item to the JSON shape the current frontend expects.
+
+        STATUS: Phase 11 removal candidate.
+        """
         return {
             "type": "cmd",
             "num": item.get("num", 0),
@@ -203,7 +206,10 @@ class MavericMissionAdapter:
         }
 
     def history_entry(self, count: int, item: dict, payload_len: int) -> dict:
-        """Transitional: build sent-command history entry for the current frontend."""
+        """Transitional: build sent-command history entry for the current frontend.
+
+        STATUS: Phase 11 removal candidate.
+        """
         from datetime import datetime
         return {
             "n": count,

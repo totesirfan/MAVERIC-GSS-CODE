@@ -46,11 +46,11 @@ class Packet:
     unknown_num: int | None = None
 
     def get(self, key, default=None):
-        """Dict-style access for backward compatibility during migration."""
+        """Dict-style access — TUI-only backward compat (Phase 11 removal candidate)."""
         return getattr(self, key, default)
 
     def __getitem__(self, key):
-        """Dict-style access for backward compatibility during migration."""
+        """Dict-style access — TUI-only backward compat (Phase 11 removal candidate)."""
         return getattr(self, key)
 
 

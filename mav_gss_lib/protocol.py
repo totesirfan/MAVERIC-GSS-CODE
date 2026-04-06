@@ -1,11 +1,11 @@
 """
 mav_gss_lib.protocol -- Compatibility Facade
 
-Re-exports from:
+STATUS: Phase 11 removal candidate. Re-exports from canonical locations
+for backward compatibility with TUI modules, backup_control/, external
+tests, and logging.py. New code should import directly from:
   - mav_gss_lib.protocols.*          (CRC, CSP, KISS, AX.25, frame detect)
   - mav_gss_lib.missions.maveric.*   (node tables, command wire format, schema)
-
-New code should import directly from the canonical locations.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
