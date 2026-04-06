@@ -1,18 +1,11 @@
 """
-mav_gss_lib.protocol -- MAVERIC Mission Protocol Definitions
+mav_gss_lib.protocol -- MAVERIC Mission Protocol + Compatibility Facade
 
-Node addressing, packet types, CSP v1 header (build and parse),
-KISS framing, CRC-16 XMODEM, CRC-32C (CSP integrity), command wire
-format (build and parse), and command schema
-for deterministic parsing.
+MAVERIC-specific: node addressing, packet types, command wire format
+(build and parse), and command schema for deterministic parsing.
 
-Mirrors the wire format of Commands.py (satellite side) without
-importing it. Both build_cmd_raw() and try_parse_command() operate
-on the same byte layout -- one encodes, the other decodes.
-
-When a command schema is loaded from maveric_commands.yml, the parser
-maps args directly by position and type. Commands not in the schema
-display raw args with a warning.
+Re-exports from protocols/: CRC, CSP, KISS, AX25Config, frame detection.
+New code should import directly from mav_gss_lib.protocols instead.
 
 Author:  Irfan Annuar - USC ISI SERC
 """

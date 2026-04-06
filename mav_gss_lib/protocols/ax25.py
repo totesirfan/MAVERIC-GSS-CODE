@@ -28,9 +28,9 @@ class AX25Config:
 
     def __init__(self):
         self.enabled   = True
-        self.dest_call = "WS9XSW"
+        self.dest_call = "NOCALL"
         self.dest_ssid = 0
-        self.src_call  = "WM2XBB"
+        self.src_call  = "NOCALL"
         self.src_ssid  = 0
 
     @staticmethod

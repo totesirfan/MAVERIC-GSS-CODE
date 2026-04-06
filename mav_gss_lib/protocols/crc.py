@@ -1,7 +1,7 @@
 """
 mav_gss_lib.protocols.crc -- CRC-16 XMODEM & CRC-32C (Castagnoli)
 
-CRC-16 XMODEM: used in MAVERIC command wire format integrity.
+CRC-16 XMODEM: general-purpose checksum used in command wire formats.
 CRC-32C (Castagnoli): used in CSP v1 packet integrity.
 
 Both use C-accelerated crcmod for performance.
