@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useMemo } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import type { RxPacket, RxStatus } from '@/lib/types'
 
 export interface Alarm {
@@ -108,14 +108,6 @@ export function useAlarms(
       })
     }
 
-    // Track cleared alarms for re-trigger logic
-    const activeIds = new Set(candidates.map(a => a.id))
-    for (const id of ackedSet) {
-      if (!activeIds.has(id)) {
-        clearedSinceAck.current.add(id)
-      }
-    }
-
     // Filter: remove acked alarms that haven't cleared and re-triggered
     const filtered = candidates.filter(a => {
       if (!ackedSet.has(a.id)) return true
@@ -128,6 +120,17 @@ export function useAlarms(
     return filtered
   }, [status.silence_s, status.zmq, packets.length, replayMode, ackedSet])
 
+  // Track which acked alarms have cleared (side-effect outside useMemo)
+  useEffect(() => {
+    if (replayMode) return
+    const activeIds = new Set(alarms.map(a => a.id))
+    for (const id of ackedSet) {
+      if (!activeIds.has(id)) {
+        clearedSinceAck.current.add(id)
+      }
+    }
+  }, [alarms, ackedSet, replayMode])
+
   const ackAll = useCallback(() => {
     const ids = alarms.map(a => a.id)
     setAckedSet(prev => {
@@ -135,7 +138,10 @@ export function useAlarms(
       ids.forEach(id => next.add(id))
       return next
     })
-    clearedSinceAck.current = new Set()
+    // Only clear the specific alarms being acked, not all
+    for (const id of ids) {
+      clearedSinceAck.current.delete(id)
+    }
   }, [alarms])
 
   const ackOne = useCallback((id: string) => {
