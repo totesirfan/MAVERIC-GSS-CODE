@@ -28,7 +28,7 @@ from mav_gss_lib.config import (
     get_generated_commands_dir,
     load_gss_config,
 )
-from mav_gss_lib.mission_adapter import load_mission_adapter
+from mav_gss_lib.mission_adapter import load_mission_adapter, load_mission_metadata
 from mav_gss_lib.protocol import AX25Config, CSPConfig, init_nodes, load_command_defs
 from .services import RxService, TxService
 
@@ -55,6 +55,7 @@ class WebRuntime:
         self.max_queue = MAX_QUEUE
 
         self.cfg = load_gss_config()
+        load_mission_metadata(self.cfg)    # merge mission.yml BEFORE init_nodes
         init_nodes(self.cfg)
         self.cmd_defs, self.cmd_warn = load_command_defs(get_command_defs_path(self.cfg))
         self.adapter = self._load_adapter()

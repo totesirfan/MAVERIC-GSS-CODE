@@ -1,7 +1,13 @@
 """
 mav_gss_lib.missions.maveric -- MAVERIC CubeSat Mission Implementation
 
-Wire format, command schema, adapter, and imaging for the MAVERIC mission.
+Mission package contract:
+  - ADAPTER_API_VERSION: int — adapter contract version
+  - ADAPTER_CLASS: type — adapter class (MavericMissionAdapter)
+  - mission.yml: mission metadata (nodes, ptypes, callsigns, schema path, UI labels)
+  - adapter.py: MissionAdapter implementation
+  - wire_format.py: command wire format, schema, node tables
+  - imaging.py: image chunk reassembly
 """
 
 ADAPTER_API_VERSION = 1

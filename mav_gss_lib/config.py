@@ -20,37 +20,27 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 _DEFAULTS = {
-    "nodes": {
-        0: "NONE", 1: "LPPM", 2: "EPS", 3: "UPPM",
-        4: "HOLONAV", 5: "ASTROBOARD", 6: "GS", 7: "FTDI",
-    },
-    "ptypes": {
-        1: "CMD", 2: "RES", 3: "ACK", 4: "TLM", 5: "FILE",
-    },
-    "node_descriptions": {
-        "LPPM": "Lower Pluggable Processor Module",
-        "UPPM": "Upper Pluggable Processor Module",
-        "EPS": "Electrical Power System",
-        "GS": "Ground Station",
-    },
+    "nodes": {},
+    "ptypes": {},
+    "node_descriptions": {},
     "ax25": {
-        "src_call":  "WM2XBB",
+        "src_call":  "NOCALL",
         "src_ssid":  0,
-        "dest_call": "WS9XSW",
+        "dest_call": "NOCALL",
         "dest_ssid": 0,
     },
     "csp": {
         "priority":    2,
         "source":      0,
-        "destination": 8,
-        "dest_port":   24,
+        "destination": 0,
+        "dest_port":   0,
         "src_port":    0,
         "flags":       0x00,
         "csp_crc":     True,
     },
     "tx": {
         "zmq_addr":  "tcp://127.0.0.1:52002",
-        "frequency": "437.6 MHz",
+        "frequency": "",
         "delay_ms":  500,
         "uplink_mode": "AX.25",
     },
@@ -59,16 +49,9 @@ _DEFAULTS = {
         "zmq_addr": "tcp://127.0.0.1:52001",
     },
     "general": {
-        "mission_name": "MAVERIC",
         "version":      "4.3.1",
         "log_dir":      "logs",
-        "command_defs": str(_CONFIG_DIR / "maveric_commands.yml"),
-        "decoder_yml":  "maveric_decoder.yml",
-        "gs_node":      "GS",
         "generated_commands_dir": "generated_commands",
-        "rx_title":     "Mission Downlink",
-        "tx_title":     "Mission Uplink",
-        "splash_subtitle": "Mission Ground Station",
     },
 }
 

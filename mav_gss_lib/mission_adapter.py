@@ -156,6 +156,85 @@ _MISSION_REGISTRY = {
 }
 
 
+def _merge_mission_metadata(cfg: dict, mission_meta: dict) -> None:
+    """Merge mission.yml metadata into the runtime config dict in place.
+
+    Mission metadata provides defaults. The operator's maveric_gss.yml
+    values take precedence (they were already merged into cfg by
+    load_gss_config).
+    """
+    for key in ("nodes", "ptypes", "node_descriptions", "ax25", "csp"):
+        if key in mission_meta:
+            existing = cfg.get(key, {})
+            if isinstance(existing, dict) and existing:
+                merged = dict(mission_meta[key])
+                merged.update(existing)
+                cfg[key] = merged
+            else:
+                cfg[key] = mission_meta[key]
+
+    general = cfg.setdefault("general", {})
+    if "mission_name" in mission_meta:
+        general.setdefault("mission_name", mission_meta["mission_name"])
+    if "gs_node" in mission_meta:
+        general.setdefault("gs_node", mission_meta["gs_node"])
+    if "command_defs" in mission_meta:
+        general.setdefault("command_defs", mission_meta["command_defs"])
+
+    ui = mission_meta.get("ui", {})
+    for key in ("rx_title", "tx_title", "splash_subtitle"):
+        if key in ui:
+            general.setdefault(key, ui[key])
+
+    tx_meta = mission_meta.get("tx", {})
+    tx_cfg = cfg.setdefault("tx", {})
+    for key in ("frequency", "uplink_mode"):
+        if key in tx_meta:
+            tx_cfg.setdefault(key, tx_meta[key])
+
+
+def load_mission_metadata(cfg: dict) -> dict:
+    """Read mission.yml and merge metadata into cfg. Returns the raw metadata dict.
+
+    Must be called BEFORE init_nodes() and load_command_defs() so those
+    see mission-provided values (nodes, ptypes, command_defs path).
+
+    If the mission package has no mission.yml, returns empty dict and
+    continues without error.
+    """
+    import importlib
+    import logging
+    import os
+
+    mission = cfg.get("general", {}).get("mission", "maveric")
+    module_path = _MISSION_REGISTRY.get(mission)
+    if module_path is None:
+        return {}
+
+    try:
+        mission_pkg = importlib.import_module(module_path)
+    except ImportError:
+        return {}
+
+    pkg_dir = os.path.dirname(os.path.abspath(mission_pkg.__file__))
+    mission_yml_path = os.path.join(pkg_dir, "mission.yml")
+
+    if not os.path.isfile(mission_yml_path):
+        logging.debug("No mission.yml found for '%s' at %s", mission, mission_yml_path)
+        return {}
+
+    try:
+        import yaml
+        with open(mission_yml_path) as f:
+            mission_meta = yaml.safe_load(f) or {}
+    except Exception as exc:
+        logging.warning("Could not read %s: %s", mission_yml_path, exc)
+        return {}
+
+    _merge_mission_metadata(cfg, mission_meta)
+    return mission_meta
+
+
 def load_mission_adapter(cfg: dict, cmd_defs: dict):
     """Load, instantiate, and validate a mission adapter from config.
 
@@ -176,6 +255,9 @@ def load_mission_adapter(cfg: dict, cmd_defs: dict):
 
     mission = cfg.get("general", {}).get("mission", "maveric")
     mission_name = cfg.get("general", {}).get("mission_name", mission.upper())
+
+    # Ensure mission metadata is merged (idempotent — safe if already called)
+    load_mission_metadata(cfg)
 
     module_path = _MISSION_REGISTRY.get(mission)
     if module_path is None:
@@ -205,7 +287,11 @@ def load_mission_adapter(cfg: dict, cmd_defs: dict):
 
     adapter = adapter_cls(cmd_defs=cmd_defs)
     validate_adapter(adapter, api_version, mission_name)
-    logging.info("Mission loaded: %s (adapter API v%d)", mission_name, api_version)
+    cmd_path = cfg.get("general", {}).get("command_defs", "")
+    logging.info(
+        "Mission loaded: %s [id=%s, adapter API v%d, schema=%s]",
+        mission_name, mission, api_version, cmd_path,
+    )
     return adapter
 
 
