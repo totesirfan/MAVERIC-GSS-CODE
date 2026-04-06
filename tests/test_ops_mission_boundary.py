@@ -185,6 +185,23 @@ class TestMissionBoundary(unittest.TestCase):
         self.assertIn("nonexistent", str(ctx.exception))
         self.assertIn("Supported", str(ctx.exception))
 
+    def test_shared_loader_rejects_bad_api_version(self):
+        """load_mission_adapter() rejects a mission with unsupported API version."""
+        from mav_gss_lib.mission_adapter import load_mission_adapter, _MISSION_REGISTRY
+        from tests import echo_mission
+
+        _MISSION_REGISTRY["echo_bad_ver"] = "tests.echo_mission"
+        original_version = echo_mission.ADAPTER_API_VERSION
+        echo_mission.ADAPTER_API_VERSION = 99
+        try:
+            cfg = {"general": {"mission": "echo_bad_ver"}}
+            with self.assertRaises(ValueError) as ctx:
+                load_mission_adapter(cfg, {})
+            self.assertIn("ADAPTER_API_VERSION=99", str(ctx.exception))
+        finally:
+            echo_mission.ADAPTER_API_VERSION = original_version
+            del _MISSION_REGISTRY["echo_bad_ver"]
+
 
 if __name__ == "__main__":
     unittest.main()
