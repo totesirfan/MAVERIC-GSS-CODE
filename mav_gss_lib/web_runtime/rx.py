@@ -19,6 +19,9 @@ async def ws_rx(websocket: WebSocket):
         return
     await websocket.accept()
     runtime.had_clients = True
+    # Send column definitions before any packet data
+    columns = runtime.adapter.packet_list_columns()
+    await websocket.send_text(json.dumps({"type": "columns", "data": columns}))
     for pkt_json in list(runtime.rx.packets):
         try:
             await websocket.send_text(json.dumps({"type": "packet", "data": pkt_json}))

@@ -48,6 +48,35 @@ class ParsedPacket:
 
 
 # =============================================================================
+#  PLATFORM CORE -- Rendering Contracts
+# =============================================================================
+
+@dataclass
+class ProtocolBlock:
+    """Standardized protocol/wrapper information for the detail view.
+
+    The platform owns how these are rendered. Missions provide the data.
+    """
+    kind: str        # e.g. "csp", "ax25"
+    label: str       # e.g. "CSP V1", "AX.25"
+    fields: list     # list of {"name": str, "value": str}
+
+
+@dataclass
+class IntegrityBlock:
+    """Standardized integrity check result for the detail view.
+
+    The platform owns how these are rendered. Missions provide the data.
+    """
+    kind: str                    # e.g. "crc16", "crc32c"
+    label: str                   # e.g. "CRC-16", "CRC-32C"
+    scope: str                   # e.g. "command", "csp"
+    ok: bool | None              # True/False/None (unknown)
+    received: str | None = None  # e.g. "0x1234"
+    computed: str | None = None  # e.g. "0x1234"
+
+
+# =============================================================================
 #  PLATFORM CORE -- MissionAdapter Protocol
 # =============================================================================
 
@@ -71,6 +100,13 @@ class MissionAdapter(Protocol):
     def build_raw_command(self, src: int, dest: int, echo: int, ptype: int,
                           cmd_id: str, args: str) -> bytes: ...
     def validate_tx_args(self, cmd_id: str, args: str) -> tuple[bool, list[str]]: ...
+
+    # -- Rendering-slot contract (architecture spec §4) --
+    def packet_list_columns(self) -> list[dict]: ...
+    def packet_list_row(self, pkt) -> dict: ...
+    def packet_detail_blocks(self, pkt) -> list[dict]: ...
+    def protocol_blocks(self, pkt) -> list: ...
+    def integrity_blocks(self, pkt) -> list: ...
 
 
 # =============================================================================

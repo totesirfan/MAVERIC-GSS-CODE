@@ -98,6 +98,17 @@ class RxService:
     def packet_to_json(self, pkt) -> dict:
         return self.runtime.adapter.packet_to_json(pkt)
 
+    def _build_rendering(self, pkt) -> dict:
+        """Build structured rendering-slot data for one packet."""
+        from dataclasses import asdict
+        adapter = self.runtime.adapter
+        return {
+            "row": adapter.packet_list_row(pkt),
+            "detail_blocks": adapter.packet_detail_blocks(pkt),
+            "protocol_blocks": [asdict(b) for b in adapter.protocol_blocks(pkt)],
+            "integrity_blocks": [asdict(b) for b in adapter.integrity_blocks(pkt)],
+        }
+
     async def broadcast_loop(self) -> None:
         """Drain received packets and push packet/status updates to clients."""
         version = self.runtime.cfg.get("general", {}).get("version", "")
@@ -117,6 +128,7 @@ class RxService:
                 except Exception as exc:
                     logging.warning("RX log write failed: %s", exc)
                 pkt_json = self.packet_to_json(pkt)
+                pkt_json["_rendering"] = self._build_rendering(pkt)
                 self.packets.append(pkt_json)
                 msg = json.dumps({"type": "packet", "data": pkt_json})
                 with self.lock:
