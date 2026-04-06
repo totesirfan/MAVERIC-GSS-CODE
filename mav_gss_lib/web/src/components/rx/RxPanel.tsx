@@ -1,11 +1,12 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { ExternalLink, SlidersHorizontal, ArrowDownToLine, Download, X, ClipboardCopy, Binary } from 'lucide-react'
+import { ExternalLink, SlidersHorizontal, Download, X, ClipboardCopy, Binary } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { TogglePill } from '@/components/shared/TogglePill'
 import { StatusDot } from '@/components/shared/StatusDot'
 import { PacketList } from './PacketList'
 import { PacketDetail } from './PacketDetail'
+import { RxStatusBar } from './RxStatusBar'
 import { ReplayPanel } from '@/components/logs/ReplayPanel'
 import { colors } from '@/lib/colors'
 import { PanelToasts } from '@/components/shared/StatusToast'
@@ -205,17 +206,15 @@ export function RxPanel({ packets, status, replayMode, replaySession, replacePac
           scrollSignal={detailOpen ? detailHeight : -1}
         />
 
-        {!autoScroll && (
-          <button
-            onClick={scrollToBottom}
-            className="flex items-center justify-center gap-1.5 px-3 py-1 text-[11px] font-medium shrink-0 color-transition hover:bg-white/[0.04] btn-feedback"
-            style={{ color: colors.warning, backgroundColor: `${colors.warning}08`, borderTop: `1px solid ${colors.warning}22` }}
-          >
-            <ArrowDownToLine className="size-3" />
-            Scroll unlocked — click to resume
-          </button>
-        )}
       </div>
+
+      <RxStatusBar
+        status={status}
+        packets={packets}
+        autoScroll={autoScroll}
+        onLiveClick={scrollToBottom}
+        replayMode={replayMode}
+      />
 
       {selectedPacket && (
         <div
