@@ -1,12 +1,11 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { ExternalLink, SlidersHorizontal, Download, X, ClipboardCopy, Binary } from 'lucide-react'
+import { ExternalLink, SlidersHorizontal, ArrowDownToLine, Download, X, ClipboardCopy, Binary } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { TogglePill } from '@/components/shared/TogglePill'
 import { StatusDot } from '@/components/shared/StatusDot'
 import { PacketList } from './PacketList'
 import { PacketDetail } from './PacketDetail'
-import { RxStatusBar } from './RxStatusBar'
 import { ReplayPanel } from '@/components/logs/ReplayPanel'
 import { colors } from '@/lib/colors'
 import { PanelToasts } from '@/components/shared/StatusToast'
@@ -54,6 +53,12 @@ interface RxPanelProps {
 }
 
 const RECEIVE_TIMEOUT_MS = 2000
+
+function ageColor(s: number): string {
+  if (s >= 60) return colors.danger
+  if (s >= 30) return colors.warning
+  return colors.textMuted
+}
 
 export function RxPanel({ packets, status, replayMode, replaySession, replacePackets, onStopReplay }: RxPanelProps) {
   const [showHex, setShowHex] = useState(false)
@@ -163,7 +168,23 @@ export function RxPanel({ packets, status, replayMode, replaySession, replacePac
                 Received
               </span>
             ) : (
-              <span className="text-[11px] font-light" style={{ color: colors.dim }}>Idle</span>
+              <span className="text-[11px] font-light" style={{ color: colors.textMuted }}>
+                Idle — last packet{' '}
+                <span className="tabular-nums" style={{ color: ageColor(status.silence_s) }}>
+                  {status.silence_s.toFixed(0)}s ago
+                </span>
+              </span>
+            )}
+            {!replayMode && packets.length > 0 && (
+              <span className="text-[11px] font-mono tabular-nums flex items-center gap-2 ml-auto mr-2" style={{ color: colors.textMuted }}>
+                {packets.length} pkts
+                {packets.filter(p => p.crc16_ok === false).length > 0 && (
+                  <span style={{ color: `${colors.danger}99` }}>{packets.filter(p => p.crc16_ok === false).length} CRC</span>
+                )}
+                {packets.filter(p => p.is_dup).length > 0 && (
+                  <span style={{ color: `${colors.warning}99` }}>{packets.filter(p => p.is_dup).length} dup</span>
+                )}
+              </span>
             )}
           </div>
           <div className="flex items-center gap-1 group/toggles">
@@ -206,15 +227,17 @@ export function RxPanel({ packets, status, replayMode, replaySession, replacePac
           scrollSignal={detailOpen ? detailHeight : -1}
         />
 
+        {!autoScroll && (
+          <button
+            onClick={scrollToBottom}
+            className="flex items-center justify-center gap-1.5 px-3 py-1 text-[11px] font-medium shrink-0 color-transition hover:bg-white/[0.04] btn-feedback"
+            style={{ color: colors.warning, backgroundColor: `${colors.warning}08`, borderTop: `1px solid ${colors.warning}22` }}
+          >
+            <ArrowDownToLine className="size-3" />
+            Scroll unlocked — click to resume
+          </button>
+        )}
       </div>
-
-      <RxStatusBar
-        status={status}
-        packets={packets}
-        autoScroll={autoScroll}
-        onLiveClick={scrollToBottom}
-        replayMode={replayMode}
-      />
 
       {selectedPacket && (
         <div

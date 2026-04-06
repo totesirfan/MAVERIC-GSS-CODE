@@ -28,7 +28,7 @@ export function AlarmStrip({ alarms, onAckAll, onAckOne }: AlarmStripProps) {
           className="overflow-hidden shrink-0"
         >
           <div
-            className="flex items-center gap-3 px-4 py-1.5 text-xs font-mono"
+            className="flex items-center gap-3 px-4 py-1.5 text-xs font-mono animate-pulse-danger"
             style={{
               backgroundColor: colors.dangerFill,
               borderBottom: `1px solid ${colors.danger}40`,
