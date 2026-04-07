@@ -4,10 +4,9 @@ __pycache__/
 *.pyo
 .pytest_cache/
 
-# === Node / Web Build ===
+# === Node (dependency state only — dist/ is committed) ===
 node_modules/
 mav_gss_lib/web/node_modules/
-mav_gss_lib/web/dist/
 
 # === Logs & Runtime Outputs ===
 /logs/
