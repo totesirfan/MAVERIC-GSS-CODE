@@ -163,6 +163,8 @@ The platform owns WebSocket serialization. Mission adapters provide structured r
 
 **TX queue/history:** All queue items are `mission_cmd` type. The platform serializes `display` metadata from the adapter's `build_tx_command()`: `display.row` (column-keyed values), `display.detail_blocks` (structured blocks for expanded view), `display.title`, `display.subtitle`. The adapter also provides `tx_queue_columns()` with column definitions and `hide_if_all` auto-hide metadata.
 
+**Queue import/export format:** Import/export files under `generated_commands/` are newline-delimited JSON objects only. Supported records are `{ "type": "mission_cmd", "payload": { ... } }` and `{ "type": "delay", "delay_ms": 500 }`. Legacy list-style command lines are no longer accepted.
+
 **Log viewer:** RX entries pass `_rendering` through from the stored log. TX entries build `_rendering` from persisted `display`. Both use the same column-driven `CellValue` rendering. RX uses `/api/columns`, TX uses `/api/tx-columns`.
 
 ### TX Command Model

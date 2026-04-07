@@ -81,7 +81,7 @@ class TestWebRuntimeWorkflows(unittest.TestCase):
     def test_parse_import_file_produces_mission_cmd_items(self):
         payload = """
         // comment
-        ["GS", "EPS", "NONE", "CMD", "ping", "REQ", "guard": true] // trailing
+        {"type": "mission_cmd", "payload": {"cmd_id": "ping", "args": "REQ", "dest": "EPS", "echo": "NONE", "ptype": "CMD", "guard": true}} // trailing
         {"type": "delay", "delay_ms": 250}
         """.strip()
         path = self.generated_dir / "sample.jsonl"
@@ -103,7 +103,7 @@ class TestWebRuntimeWorkflows(unittest.TestCase):
 
     def test_preview_returns_display_metadata(self):
         path = self.generated_dir / "queue.jsonl"
-        path.write_text('["GS", "EPS", "NONE", "CMD", "ping", "REQ"]\n')
+        path.write_text('{"type": "mission_cmd", "payload": {"cmd_id": "ping", "args": "REQ", "dest": "EPS", "echo": "NONE", "ptype": "CMD"}}\n')
         preview = asyncio.run(preview_import("queue.jsonl", _request_for(self.runtime)))
         self.assertEqual(preview["skipped"], 0)
         self.assertEqual(len(preview["items"]), 1)
@@ -114,12 +114,19 @@ class TestWebRuntimeWorkflows(unittest.TestCase):
 
     def test_import_produces_mission_cmd_queue_items(self):
         path = self.generated_dir / "queue.jsonl"
-        path.write_text('["GS", "EPS", "NONE", "CMD", "ping", "REQ"]\n')
+        path.write_text('{"type": "mission_cmd", "payload": {"cmd_id": "ping", "args": "REQ", "dest": "EPS", "echo": "NONE", "ptype": "CMD"}}\n')
         result = asyncio.run(import_file("queue.jsonl", _request_for(self.runtime)))
         self.assertEqual(result["loaded"], 1)
         item = self.runtime.tx.queue[0]
         self.assertEqual(item["type"], "mission_cmd")
         self.assertEqual(item["display"]["title"], "ping")
+
+    def test_import_preserves_delay_and_mission_command(self):
+        path = self.generated_dir / "command_and_delay.jsonl"
+        path.write_text('{"type": "mission_cmd", "payload": {"cmd_id": "ping", "args": "REQ", "dest": "EPS", "echo": "NONE", "ptype": "CMD"}}\n{"type": "delay", "delay_ms": 500}\n')
+        result = asyncio.run(import_file("command_and_delay.jsonl", _request_for(self.runtime)))
+        self.assertEqual(result["loaded"], 2)
+        self.assertEqual([item["type"] for item in self.runtime.tx.queue], ["mission_cmd", "delay"])
 
     def test_export_queue_writes_to_configured_directory(self):
         self.runtime.tx.queue.extend(

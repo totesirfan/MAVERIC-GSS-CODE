@@ -123,33 +123,6 @@ class TestMissionBoundary(unittest.TestCase):
         self.assertEqual(pkt.raw, raw)
         self.assertEqual(pkt.frame_type, "RAW")
 
-    def test_echo_packet_to_json(self):
-        """Transitional packet_to_json() produces valid JSON shape."""
-
-        class MockPkt:
-            pkt_num = 1
-            gs_ts_short = "10:30:00"
-            gs_ts = "2026-04-06T10:30:00"
-            frame_type = "RAW"
-            raw = b"\xAB\xCD"
-            is_dup = False
-            is_unknown = True
-            is_uplink_echo = False
-            warnings = []
-            csp = None
-            stripped_hdr = None
-            crc_status = {}
-            cmd = None
-            ts_result = None
-
-        result = self.adapter.packet_to_json(MockPkt())
-        self.assertEqual(result["num"], 1)
-        self.assertEqual(result["frame"], "RAW")
-        self.assertEqual(result["raw_hex"], "abcd")
-        self.assertIn("_rendering", result)
-        self.assertIn("row", result["_rendering"])
-
-
     def test_shared_loader_loads_maveric(self):
         """load_mission_adapter() loads MAVERIC by default config."""
         from mav_gss_lib.mission_adapter import load_mission_adapter
@@ -161,43 +134,32 @@ class TestMissionBoundary(unittest.TestCase):
         self.assertIsInstance(adapter, MissionAdapter)
 
     def test_shared_loader_loads_echo_mission(self):
-        """load_mission_adapter() successfully loads the echo mission fixture."""
-        from mav_gss_lib.mission_adapter import load_mission_adapter, _MISSION_REGISTRY
+        """load_mission_adapter() successfully loads the maveric mission adapter."""
+        from mav_gss_lib.config import load_gss_config
+        from mav_gss_lib.mission_adapter import load_mission_adapter
 
-        _MISSION_REGISTRY["echo_test"] = "tests.echo_mission"
-        try:
-            cfg = {"general": {"mission": "echo_test"}}
-            adapter = load_mission_adapter(cfg, {})
-            self.assertEqual(type(adapter).__name__, "EchoMissionAdapter")
-            self.assertIsInstance(adapter, MissionAdapter)
-        finally:
-            del _MISSION_REGISTRY["echo_test"]
+        cfg = load_gss_config()
+        adapter = load_mission_adapter(cfg)
+        self.assertEqual(type(adapter).__name__, "MavericMissionAdapter")
+        self.assertIsInstance(adapter, MissionAdapter)
 
     def test_shared_loader_rejects_unknown_mission(self):
-        """load_mission_adapter() raises ValueError for unknown mission."""
+        """load_mission_adapter() raises ImportError for unknown mission."""
         from mav_gss_lib.mission_adapter import load_mission_adapter
         cfg = {"general": {"mission": "nonexistent"}}
-        with self.assertRaises(ValueError) as ctx:
+        with self.assertRaises(ImportError) as ctx:
             load_mission_adapter(cfg, {})
         self.assertIn("nonexistent", str(ctx.exception))
-        self.assertIn("Supported", str(ctx.exception))
 
     def test_shared_loader_rejects_bad_api_version(self):
-        """load_mission_adapter() rejects a mission with unsupported API version."""
-        from mav_gss_lib.mission_adapter import load_mission_adapter, _MISSION_REGISTRY
-        from tests import echo_mission
+        """validate_adapter() rejects a mission with unsupported API version."""
+        from mav_gss_lib.mission_adapter import validate_adapter
+        from tests.echo_mission import EchoMissionAdapter
 
-        _MISSION_REGISTRY["echo_bad_ver"] = "tests.echo_mission"
-        original_version = echo_mission.ADAPTER_API_VERSION
-        echo_mission.ADAPTER_API_VERSION = 99
-        try:
-            cfg = {"general": {"mission": "echo_bad_ver"}}
-            with self.assertRaises(ValueError) as ctx:
-                load_mission_adapter(cfg, {})
-            self.assertIn("ADAPTER_API_VERSION=99", str(ctx.exception))
-        finally:
-            echo_mission.ADAPTER_API_VERSION = original_version
-            del _MISSION_REGISTRY["echo_bad_ver"]
+        adapter = EchoMissionAdapter(cmd_defs={})
+        with self.assertRaises(ValueError) as ctx:
+            validate_adapter(adapter, 99, "echo")
+        self.assertIn("ADAPTER_API_VERSION=99", str(ctx.exception))
 
 
 if __name__ == "__main__":

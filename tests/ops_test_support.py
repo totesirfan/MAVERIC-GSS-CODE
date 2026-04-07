@@ -15,12 +15,12 @@ ROOT_DIR = CODE_DIR.parent
 sys.path.insert(0, str(CODE_DIR))
 
 from mav_gss_lib.config import load_gss_config
-from mav_gss_lib.missions.maveric.wire_format import init_nodes, load_command_defs
+from mav_gss_lib.mission_adapter import load_mission_adapter
 
 
 CFG = load_gss_config()
-init_nodes(CFG)
-CMD_DEFS, CMD_WARN = load_command_defs(str(CODE_DIR / "mav_gss_lib" / "config" / "maveric_commands.yml"))
+_ADAPTER = load_mission_adapter(CFG)
+CMD_DEFS = _ADAPTER.cmd_defs
 GNURADIO_PYTHON = os.environ.get(
     "MAVERIC_GNURADIO_PYTHON",
     "/Users/irfan/radioconda/envs/gnuradio/bin/python3",
