@@ -86,45 +86,6 @@ async def ws_tx(websocket: WebSocket):
                 except ValueError as exc:
                     await websocket.send_text(json.dumps({"type": "error", "error": str(exc)}))
 
-            elif action == "queue_built":
-                if sending():
-                    await websocket.send_text(json.dumps({"type": "error", "error": "cannot modify queue during send"}))
-                    continue
-                if len(runtime.tx.queue) >= MAX_QUEUE:
-                    await websocket.send_text(
-                        json.dumps({"type": "error", "error": f"queue full ({MAX_QUEUE} items max)"})
-                    )
-                    continue
-                try:
-                    cmd_id = msg["cmd"].lower()
-                    defn = runtime.cmd_defs.get(cmd_id, {})
-                    if runtime.cmd_defs and cmd_id not in runtime.cmd_defs:
-                        raise ValueError(f"'{cmd_id}' not in schema")
-                    if defn.get("rx_only"):
-                        raise ValueError(f"{cmd_id} is rx_only (downlink only)")
-                    src = runtime.adapter.resolve_node(str(msg.get("src", "GS")))
-                    dest = runtime.adapter.resolve_node(str(msg["dest"]))
-                    echo = runtime.adapter.resolve_node(str(msg.get("echo", "NONE")))
-                    ptype_val = runtime.adapter.resolve_ptype(str(msg.get("ptype", "CMD")))
-                    if None in (src, dest, echo, ptype_val):
-                        raise ValueError("unresolvable node/ptype")
-                    item = validate_cmd_item(
-                        src,
-                        dest,
-                        echo,
-                        ptype_val,
-                        cmd_id,
-                        msg.get("args", ""),
-                        guard=bool(msg.get("guard", False)),
-                        runtime=runtime,
-                    )
-                    runtime.tx.queue.append(item)
-                    runtime.tx.renumber_queue()
-                    runtime.tx.save_queue()
-                    await runtime.tx.send_queue_update()
-                except (ValueError, KeyError) as exc:
-                    await websocket.send_text(json.dumps({"type": "error", "error": str(exc)}))
-
             elif action == "queue_mission_cmd":
                 if sending():
                     await websocket.send_text(json.dumps({"type": "error", "error": "cannot modify queue during send"}))

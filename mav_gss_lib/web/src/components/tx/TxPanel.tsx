@@ -9,7 +9,6 @@ import { colors } from '@/lib/colors'
 import { TxQueue } from './TxQueue'
 import { SentHistory } from './SentHistory'
 import { CommandInput } from './CommandInput'
-import { CommandBuilder } from './CommandBuilder'
 import { ImportDialog } from './ImportDialog'
 import { getMissionBuilder } from '@/missions/registry'
 import type {
@@ -27,7 +26,6 @@ interface TxPanelProps {
   uplinkMode: string
   connected: boolean
   queueCommand: (line: string) => void
-  queueBuilt: (cmd: string, args: Record<string, string>, dest?: string, echo?: string, ptype?: string) => void
   deleteItem: (index: number) => void
   clearQueue: () => void
   undoLast: () => void
@@ -46,7 +44,7 @@ interface TxPanelProps {
 
 export function TxPanel({
   config, queue, summary, history, sendProgress, guardConfirm, uplinkMode, connected,
-  queueCommand, queueBuilt, deleteItem, clearQueue,
+  queueCommand, deleteItem, clearQueue,
   toggleGuard, reorder, editDelay, addDelay,
   sendAll, abortSend, approveGuard, rejectGuard,
   queueTemplate,
@@ -57,15 +55,13 @@ export function TxPanel({
 
   const missionId = config?.general?.mission ?? ''
   const MissionBuilder = getMissionBuilder(missionId)
-  const [hasCommandBuilder, setHasCommandBuilder] = useState(true)
-  const [isLegacyBuilder, setIsLegacyBuilder] = useState(true)
+  const [hasCommandBuilder, setHasCommandBuilder] = useState(false)
 
   useEffect(() => {
     fetch('/api/tx/capabilities')
       .then((r) => r.json())
-      .then((caps: { command_builder?: boolean; legacy_builder?: boolean }) => {
+      .then((caps: { command_builder?: boolean }) => {
         setHasCommandBuilder(caps.command_builder ?? false)
-        setIsLegacyBuilder(caps.legacy_builder ?? false)
       })
       .catch(() => {})
   }, [])
@@ -174,18 +170,12 @@ export function TxPanel({
           animate={{ height: showBuilder ? '50vh' : 62 }}
           transition={{ type: 'spring', stiffness: 400, damping: 30, mass: 0.8 }}
         >
-          {showBuilder && hasCommandBuilder ? (
-            MissionBuilder ? (
-              <Suspense fallback={<div className="p-4 text-xs" style={{ color: colors.dim }}>Loading builder...</div>}>
-                <MissionBuilder onQueue={queueTemplate} onClose={() => setShowBuilder(false)} />
-              </Suspense>
-            ) : isLegacyBuilder ? (
-              <CommandBuilder config={config} onQueue={queueBuilt} onClose={() => setShowBuilder(false)} />
-            ) : (
-              <CommandInput onSubmit={queueCommand} onBuilderToggle={undefined} />
-            )
+          {showBuilder && hasCommandBuilder && MissionBuilder ? (
+            <Suspense fallback={<div className="p-4 text-xs" style={{ color: colors.dim }}>Loading builder...</div>}>
+              <MissionBuilder onQueue={queueTemplate} onClose={() => setShowBuilder(false)} />
+            </Suspense>
           ) : (
-            <CommandInput onSubmit={queueCommand} onBuilderToggle={hasCommandBuilder ? () => setShowBuilder(true) : undefined} />
+            <CommandInput onSubmit={queueCommand} onBuilderToggle={hasCommandBuilder && MissionBuilder ? () => setShowBuilder(true) : undefined} />
           )}
         </motion.div>
       )}

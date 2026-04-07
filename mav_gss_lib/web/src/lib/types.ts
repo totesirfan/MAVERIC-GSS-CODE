@@ -164,27 +164,6 @@ export interface MissionBuilderProps {
   onClose: () => void
 }
 
-// ---- Commands ----
-
-export interface CommandArg {
-  name: string
-  type: string
-  important?: boolean
-}
-
-export interface CommandDef {
-  dest?: string
-  echo?: string
-  ptype?: string
-  nodes?: string[]
-  tx_args?: CommandArg[]
-  rx_args?: CommandArg[]
-  rx_only?: boolean
-  variadic?: boolean
-}
-
-export type CommandSchema = Record<string, CommandDef>
-
 // ---- Config ----
 
 export interface GssConfig {

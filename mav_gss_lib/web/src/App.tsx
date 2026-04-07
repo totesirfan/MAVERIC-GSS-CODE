@@ -219,7 +219,7 @@ export default function App() {
           queue={tx.queue} summary={tx.summary} history={tx.history}
           sendProgress={tx.sendProgress} guardConfirm={tx.guardConfirm}
           uplinkMode={uplinkMode} connected={tx.connected}
-          queueCommand={tx.queueCommand} queueBuilt={tx.queueBuilt}
+          queueCommand={tx.queueCommand}
           deleteItem={tx.deleteItem} clearQueue={tx.clearQueue}
           undoLast={tx.undoLast} toggleGuard={tx.toggleGuard}
           reorder={tx.reorder} addDelay={tx.addDelay}
@@ -271,7 +271,7 @@ export default function App() {
               queue={tx.queue} summary={tx.summary} history={tx.history}
               sendProgress={tx.sendProgress} guardConfirm={tx.guardConfirm}
               uplinkMode={uplinkMode} connected={tx.connected}
-              queueCommand={tx.queueCommand} queueBuilt={tx.queueBuilt}
+              queueCommand={tx.queueCommand}
               deleteItem={tx.deleteItem} clearQueue={tx.clearQueue}
               undoLast={tx.undoLast} toggleGuard={tx.toggleGuard}
               reorder={tx.reorder} addDelay={tx.addDelay}

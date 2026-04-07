@@ -116,17 +116,6 @@ export function useTxSocket() {
     send('queue', { input })
   }, [send])
 
-  // queueBuilt: from visual builder — component passes (cmd, args, dest?, echo?, ptype?)
-  const queueBuilt = useCallback((cmd: string, args: Record<string, string>, dest?: string, echo?: string, ptype?: string) => {
-    send('queue_built', {
-      cmd,
-      args: Object.values(args).filter(Boolean).join(' '),
-      dest: dest ?? 'GS',
-      echo: echo ?? 'NONE',
-      ptype: ptype ?? 'CMD',
-    })
-  }, [send])
-
   const queueMissionCmd = useCallback((payload: Record<string, unknown>) => {
     send('queue_mission_cmd', { payload })
   }, [send])
@@ -149,7 +138,6 @@ export function useTxSocket() {
   return {
     queue, summary, history, sendProgress, guardConfirm, error, connected,
     queueCommand,
-    queueBuilt,
     queueMissionCmd,
     deleteItem: useCallback((index: number) => send('delete', { index }), [send]),
     clearQueue: useCallback(() => send('clear'), [send]),
