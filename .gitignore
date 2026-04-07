@@ -1,24 +1,48 @@
+# === Python ===
 __pycache__/
 *.pyc
 *.pyo
-.DS_Store
-/logs/
-backup_control/logs/
-legacy/
-perf_bench.py
-maveric_commands.yml
-maveric_gss.yml
-maveric_decoder.yml
-mav_gss_lib/config/maveric_commands.yml
-mav_gss_lib/missions/maveric/commands.yml
-mav_gss_lib/config/maveric_gss.yml
-generated_commands/
+.pytest_cache/
+
+# === Node / Web Build ===
 node_modules/
 mav_gss_lib/web/node_modules/
 mav_gss_lib/web/dist/
-.pytest_cache/
-.mcp.json
-skills-lock.json
+
+# === Logs & Runtime Outputs ===
+/logs/
+backup_control/logs/
+generated_commands/
+.pending_queue.jsonl
+
+# === Mission-Sensitive (NEVER track) ===
+# Command schema contains mission command definitions — security sensitive
+mav_gss_lib/missions/maveric/commands.yml
+# Local mission config overrides — operator-specific, may contain sensitive params
+mav_gss_lib/missions/*/mission.yml
+!mav_gss_lib/missions/*/mission.example.yml
+
+# === Operator-Local Config ===
+# Main station config — operator ZMQ addresses, local paths
+mav_gss_lib/gss.yml
+# Legacy config names (pre-consolidation)
+maveric_commands.yml
+maveric_gss.yml
+maveric_decoder.yml
+
+# === OS / Editor ===
+.DS_Store
+*.swp
+*.swo
+*~
+
+# === AI Tooling (local-only) ===
 .claude/
 CLAUDE.md
 .superpowers/
+.mcp.json
+skills-lock.json
+
+# === Legacy / Retired ===
+legacy/
+perf_bench.py

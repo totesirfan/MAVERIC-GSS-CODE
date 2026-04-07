@@ -424,7 +424,7 @@ class MavericMissionAdapter:
 
         return blocks
 
-    # -- Logging-slot contract (Phase 9) --
+    # -- Logging-slot contract --
 
     def build_log_mission_data(self, pkt) -> dict:
         """Return MAVERIC-specific fields for the JSONL log mission block.
@@ -555,7 +555,7 @@ class MavericMissionAdapter:
         cmd = self._md(parsed).get("cmd")
         return cmd is None
 
-    # -- Resolution contract (Phase 11) --
+    # -- Resolution contract --
 
     @property
     def gs_node(self) -> int:

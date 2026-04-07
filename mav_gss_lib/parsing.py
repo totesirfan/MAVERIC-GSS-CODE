@@ -205,7 +205,7 @@ def build_rx_log_record(pkt, version, meta, adapter):
         "integrity_blocks": integrity_blocks,
     }
 
-    # Keep top-level copies for backward compatibility with older replay code
+    # Top-level copies for direct access by log viewer
     record["protocol_blocks"] = protocol_blocks
     record["integrity_blocks"] = integrity_blocks
 
