@@ -1,41 +1,35 @@
 # MAVERIC Ground Station Software
 
-MAVERIC Ground Station Software is the ground-station runtime and operator console for the **MAVERIC CubeSat**, developed at the **University of Southern California (USC)** through the **Space Engineering Research Center (SERC)**.
+MAVERIC GSS was originally built as the ground-station runtime for the **MAVERIC CubeSat** at the **University of Southern California (USC) Space Engineering Research Center (SERC)**. It has since evolved into a **multi-mission-capable ground station platform** — the core runtime, transport, logging, and UI are mission-agnostic, while mission-specific semantics (packet parsing, command encoding, operator rendering) live in pluggable mission packages.
 
-It is a web-based system for live telemetry monitoring, command uplink operations, and operator-facing session control across the full ground-station workflow.
+MAVERIC is the first and primary mission package. New missions can be added under `mav_gss_lib/missions/<name>/` without changing platform code.
 
-This repository is public-facing by design: the implementation is visible, the architecture is documented, and the operationally sensitive mission-specific files stay local.
-
-## Ground Segment at a Glance
-
-- **Mission Role:** ground-station runtime for the MAVERIC CubeSat
-- **Institutional Context:** developed at USC through SERC
-- **Primary Interface:** browser-based operator console (FastAPI + React)
-- **Core Functions:** receive telemetry, review packets, validate commands, execute uplink queues, record sessions
-- **System Position:** operational layer between GNU Radio and the operator
+This repository is public-facing by design: the implementation is visible, the architecture is documented, and operationally sensitive mission-specific files stay local.
 
 ---
 
-## System Architecture
+## Architecture
+
+The platform sits between the operator and GNU Radio. It receives decoded traffic via ZMQ, passes it through a mission adapter for parsing and rendering, and exposes live state to browser clients over WebSocket. Outbound commands are built by the mission adapter, framed by the platform's protocol toolkit, and published to GNU Radio via ZMQ.
 
 ```mermaid
 flowchart LR
     OP["Operator"] --> UI["Web Console"]
-    UI --> CORE["MAVERIC GSS Runtime"]
+    UI --> CORE["GSS Platform"]
     CORE --> RX["RX Parse / Classify / Log"]
-    CORE --> TX["TX Validate / Queue / Frame"]
+    CORE --> TX["TX Build / Queue / Frame"]
     RX <-->|ZMQ SUB| GR["GNU Radio Flowgraph"]
     TX <-->|ZMQ PUB| GR
+    MISSION["Mission Package"] -.->|adapter| CORE
 ```
-
-MAVERIC GSS sits between the operator and GNU Radio. It receives decoded traffic over a ZMQ SUB socket, parses and classifies packets through a mission adapter, and exposes live state to browser clients over WebSocket. Outbound commands are validated against a local schema, framed for the selected uplink mode, and published to GNU Radio over a ZMQ PUB socket.
 
 ### Layers
 
-1. **Browser UI** — React SPA for live RX/TX work
-2. **Web Runtime** — FastAPI backend: REST API, WebSocket endpoints, queue control, session management
-3. **Shared Library** — Protocol support, mission adapter, transport helpers, logging
-4. **Radio Integration** — GNU Radio flowgraph connected via ZMQ
+1. **Browser UI** — React SPA for live RX/TX operations. Renders mission-provided structured data (columns, detail blocks, badges) generically.
+2. **Web Runtime** — FastAPI backend: REST API, WebSocket endpoints, queue control, session management. Mission-agnostic — delegates semantics to the adapter.
+3. **Shared Library** — Reusable protocol toolkit (AX.25, CSP, CRC, Golay, KISS), mission adapter loader, transport helpers, session logging.
+4. **Mission Package** — Pluggable package owning all mission-specific semantics: packet parsing, command building, operator rendering, wire format, metadata.
+5. **Radio Integration** — GNU Radio flowgraph connected via ZMQ PUB/SUB sockets.
 
 ```mermaid
 flowchart TD
@@ -44,9 +38,9 @@ flowchart TD
     API --> RX["RX Service"]
     API --> TX["TX Service"]
     RX --> PARSE["Mission Adapter + RX Pipeline"]
-    TX --> FRAME["Protocol Framing"]
+    TX --> BUILD["Mission Adapter + Protocol Framing"]
     PARSE <-->|ZMQ SUB| GR["GNU Radio"]
-    FRAME <-->|ZMQ PUB| GR
+    BUILD <-->|ZMQ PUB| GR
 ```
 
 ---
