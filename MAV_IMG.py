@@ -24,13 +24,13 @@ import tkinter as tk
 from PIL import Image, ImageFile, ImageTk
 
 from mav_gss_lib.config import load_gss_config
-from mav_gss_lib.protocol import (init_nodes, load_command_defs,
-                                  try_parse_command, apply_schema,
-                                  resolve_ptype)
+from mav_gss_lib.missions.maveric.wire_format import (init_nodes, load_command_defs,
+                                                      try_parse_command, apply_schema,
+                                                      resolve_ptype)
 from mav_gss_lib.transport import (init_zmq_sub, receive_pdu,
                                    poll_monitor, SUB_STATUS, zmq_cleanup)
 from mav_gss_lib.parsing import RxPipeline
-from mav_gss_lib.imaging import ImageAssembler
+from mav_gss_lib.missions.maveric.imaging import ImageAssembler
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 

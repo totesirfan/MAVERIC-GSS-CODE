@@ -8,7 +8,8 @@ from ops_test_support import CMD_DEFS, decode_golay_via_flowgraph, decode_golay_
 
 from mav_gss_lib.golay import MAX_PAYLOAD, build_asm_golay_frame
 from mav_gss_lib.parsing import RxPipeline
-from mav_gss_lib.protocol import CSPConfig, build_cmd_raw
+from mav_gss_lib.protocols.csp import CSPConfig
+from mav_gss_lib.missions.maveric.wire_format import build_cmd_raw
 
 
 META_GOLAY = {"transmitter": "4k8 FSK AX100 ASM+Golay downlink"}

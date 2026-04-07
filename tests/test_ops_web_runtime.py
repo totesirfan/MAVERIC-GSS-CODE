@@ -9,12 +9,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from mav_gss_lib.config import (
-    get_command_defs_path,
     get_decoder_yml_path,
     get_generated_commands_dir,
     load_gss_config,
 )
-from mav_gss_lib.protocol import resolve_ptype
+from mav_gss_lib.missions.maveric.wire_format import resolve_ptype
 from mav_gss_lib.web_runtime.api import (
     export_queue,
     import_file,
@@ -57,21 +56,16 @@ class TestWebRuntimeWorkflows(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_config_paths_resolve_expected_locations(self):
-        command_defs = Path(get_command_defs_path(self.cfg))
         decoder_yml = Path(get_decoder_yml_path(self.cfg))
         generated_dir = get_generated_commands_dir(self.cfg)
-        self.assertTrue(command_defs.is_absolute())
-        self.assertTrue(command_defs.exists())
         self.assertTrue(decoder_yml.is_absolute())
         self.assertEqual(generated_dir.name, "generated_commands")
 
     def test_config_paths_preserve_absolute_overrides(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
-            self.cfg["general"]["command_defs"] = str(tmp_path / "cmds.yml")
             self.cfg["general"]["decoder_yml"] = str(tmp_path / "decoder.yml")
             self.cfg["general"]["generated_commands_dir"] = str(tmp_path / "exports")
-            self.assertEqual(Path(get_command_defs_path(self.cfg)), tmp_path / "cmds.yml")
             self.assertEqual(Path(get_decoder_yml_path(self.cfg)), tmp_path / "decoder.yml")
             self.assertEqual(get_generated_commands_dir(self.cfg), tmp_path / "exports")
 

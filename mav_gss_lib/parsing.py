@@ -45,13 +45,6 @@ class Packet:
     is_unknown: bool = False
     unknown_num: int | None = None
 
-    def get(self, key, default=None):
-        """Dict-style access — TUI-only backward compat (Phase 11 removal candidate)."""
-        return getattr(self, key, default)
-
-    def __getitem__(self, key):
-        """Dict-style access — TUI-only backward compat (Phase 11 removal candidate)."""
-        return getattr(self, key)
 
 
 class RxPipeline:

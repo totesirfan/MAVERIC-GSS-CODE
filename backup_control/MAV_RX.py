@@ -27,7 +27,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Input
 
-from mav_gss_lib.protocol import init_nodes, load_command_defs, resolve_ptype
+from mav_gss_lib.missions.maveric.wire_format import init_nodes, load_command_defs, resolve_ptype
 from mav_gss_lib.transport import (init_zmq_sub, receive_pdu,
                                    poll_monitor, SUB_STATUS, zmq_cleanup)
 from mav_gss_lib.parsing import RxPipeline, build_rx_log_record
@@ -37,7 +37,7 @@ from mav_gss_lib.tui_common import (StatusMessage, SplashScreen,
                                     dispatch_common, TS_FULL,
                                     STATUS_BRIEF, STATUS_NORMAL, STATUS_LONG, STATUS_STARTUP)
 from mav_gss_lib.config import load_gss_config, get_command_defs_path, get_decoder_yml_path
-from mav_gss_lib.imaging import ImageAssembler
+from mav_gss_lib.missions.maveric.imaging import ImageAssembler
 from mav_gss_lib.tui_rx import (
     RxHeader, PacketList, PacketDetail,
     RX_HELP_LINES, RX_CONFIG_FIELDS, rx_config_get_values, rx_help_info,

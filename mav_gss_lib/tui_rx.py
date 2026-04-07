@@ -2,10 +2,8 @@
 mav_gss_lib.tui_rx -- RX Monitor Widgets (Textual)
 
 STATUS: MAVERIC-only legacy. This module is part of the backup Textual TUI
-and is not on the platform/adapter migration path. It accesses Packet fields
-directly via dict-compat methods (pkt.get(), pkt[key]) and imports from the
-protocol.py compatibility facade. The web UI (MAV_WEB.py) is the primary
-operational interface.
+and is not on the platform/adapter migration path. The web UI (MAV_WEB.py)
+is the primary operational interface.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -16,8 +14,8 @@ from rich.style import Style
 from rich.text import Text
 from mav_gss_lib.tui_common import Widget
 
-import mav_gss_lib.protocol as protocol
-from mav_gss_lib.protocol import node_label, ptype_label, format_arg_value
+import mav_gss_lib.missions.maveric.wire_format as protocol
+from mav_gss_lib.missions.maveric.wire_format import node_label, ptype_label, format_arg_value
 from mav_gss_lib.tui_common import (
     S_LABEL, S_VALUE, S_SUCCESS, S_WARNING, S_ERROR, S_DIM, S_SEP, lr_line,
     scrollbar_styles, append_wrapped_args, build_header, build_col_hdr,
@@ -86,7 +84,7 @@ class _FilteredCache:
         if pkt_gen == self._last_gen and hide_uplink == self._last_hide:
             return self._cache
         if hide_uplink:
-            self._cache = [(i, p) for i, p in enumerate(packets) if not p.get("is_uplink_echo")]
+            self._cache = [(i, p) for i, p in enumerate(packets) if not p.is_uplink_echo]
         else:
             self._cache = list(enumerate(packets))
         self._last_gen = pkt_gen
@@ -108,7 +106,7 @@ class PacketList(Widget):
     # -- Mouse wheel -----------------------------------------------------------
 
     def _is_visible(self, idx):
-        return not self.s.hide_uplink or not self.s.packets[idx].get("is_uplink_echo")
+        return not self.s.hide_uplink or not self.s.packets[idx].is_uplink_echo
 
     def _find_prev_visible(self, from_idx):
         """Find the previous visible packet index, skipping hidden uplink echoes."""
@@ -241,18 +239,18 @@ class PacketList(Widget):
     def _compute_col_widths(visible):
         """Pre-scan visible packets to compute dynamic column widths."""
         def _num(p):
-            if p.get("is_unknown") and p.get("unknown_num") is not None:
-                return [f"U-{p['unknown_num']}"]
-            return [f"#{p.get('pkt_num', 0)}"]
+            if p.is_unknown and p.unknown_num is not None:
+                return [f"U-{p.unknown_num}"]
+            return [f"#{p.pkt_num}"]
         def _cmd_field(p, key):
-            cmd = p.get("cmd")
+            cmd = p.cmd
             return [node_label(cmd[key])] if cmd else []
         def _ptype(p):
-            cmd = p.get("cmd")
+            cmd = p.cmd
             return [protocol.PTYPE_NAMES.get(cmd['pkt_type'], '?')] if cmd else []
         def _frame(p):
-            if p.get("is_unknown"): return ["UNKNOWN"]
-            return [p.get("frame_type", "???")]
+            if p.is_unknown: return ["UNKNOWN"]
+            return [p.frame_type or "???"]
         result = compute_col_widths(visible, {
             "num": _num,
             "frame": _frame,
@@ -261,7 +259,7 @@ class PacketList(Widget):
             "echo": lambda p: _cmd_field(p, 'echo'),
             "ptype": _ptype,
         }, defaults={"num": 2, "frame": 5, "src": 3, "dest": 4, "echo": 4, "ptype": 4})
-        hide_echo_if_all_none(result, [p["cmd"]["echo"] for p in visible if p.get("cmd")])
+        hide_echo_if_all_none(result, [p.cmd["echo"] for p in visible if p.cmd])
         return result
 
     def _spinner_line(self, s, w):
@@ -295,26 +293,26 @@ class PacketList(Widget):
     def _pkt_line(self, pkt, is_sel, w, col_w):
         """Render one packet as a single-line Text with dynamic column alignment."""
         b = "reverse bold" if is_sel else ""
-        cmd = pkt.get("cmd")
+        cmd = pkt.cmd
         left = Text(style=b)
         pending_args = None
-        is_unk = pkt.get("is_unknown")
-        if is_unk and pkt.get("unknown_num") is not None:
-            num_str = "U-" + str(pkt["unknown_num"])
+        is_unk = pkt.is_unknown
+        if is_unk and pkt.unknown_num is not None:
+            num_str = "U-" + str(pkt.unknown_num)
         else:
-            num_str = "#" + str(pkt.get("pkt_num", 0))
+            num_str = "#" + str(pkt.pkt_num)
         if is_unk:
             # Unknown: just num + time + "UNKNOWN" frame label
             fw = col_w.get("frame", 5)
             left.append(f" {num_str:<{col_w['num']}} ", style=f"{b} #ffd700")
-            left.append(f" {pkt.get('gs_ts_short','??:??:??')} ", style=f"{b} #ffffff")
+            left.append(f" {pkt.gs_ts_short or '??:??:??'} ", style=f"{b} #ffffff")
             left.append(f" {'UNKNOWN':<{fw}} ", style=f"{b} bold #ffd700")
         elif cmd:
             build_cmd_columns(left, col_w, num_str=num_str,
                 src=cmd["src"], dest=cmd["dest"], echo=cmd["echo"],
                 ptype_id=cmd["pkt_type"], cmd_name=cmd["cmd_id"][:14],
-                time_str=pkt.get("gs_ts_short", "??:??:??"),
-                frame_str=pkt.get("frame_type", "???"), b=b)
+                time_str=pkt.gs_ts_short or "??:??:??",
+                frame_str=pkt.frame_type or "???", b=b)
             args = (" ".join(format_arg_value(ta) for ta in cmd.get("typed_args",[])
                              if ta.get("important"))
                     if cmd.get("schema_match")
@@ -323,23 +321,23 @@ class PacketList(Widget):
                 pending_args = (" " + args + " ", left.cell_len, f"{b} #ffffff")
         else:
             # Known frame but no parsed command — just num + time + frame
-            ft = pkt.get("frame_type", "???")
+            ft = pkt.frame_type or "???"
             fw = col_w.get("frame", 5)
             left.append(f" {num_str:<{col_w['num']}} ", style=f"{b} #ffffff")
-            left.append(f" {pkt.get('gs_ts_short','??:??:??')} ", style=f"{b} #ffffff")
+            left.append(f" {pkt.gs_ts_short or '??:??:??'} ", style=f"{b} #ffffff")
             left.append(f" {ft:<{fw}} ", style=f"{b} {frame_color(ft)}")
         right = Text(style=b)
-        crc_v = pkt.get("crc_status",{}).get("csp_crc32_valid")
+        crc_v = pkt.crc_status.get("csp_crc32_valid")
         if crc_v is None and cmd:
             crc_v = cmd.get("crc_valid")
         if crc_v is False:
             right.append("CRC:FAIL  ", style=f"{b} bold #ff4444")
-        if pkt.get("is_uplink_echo"):
+        if pkt.is_uplink_echo:
             right.append("UL  ", style=f"{b} bold #ffd700")
-        if pkt.get("is_dup"):
+        if pkt.is_dup:
             right.append("DUP  ", style=f"{b} bold #ff4444")
         sz_style = f"{b} #555555" if is_sel else f"{b} #999999"
-        right.append(f" {len(pkt.get('inner_payload',b''))}B ", style=sz_style)
+        right.append(f" {len(pkt.inner_payload)}B ", style=sz_style)
         if pending_args:
             args_text, indent, args_style = pending_args
             avail = w - left.cell_len - right.cell_len
@@ -355,22 +353,22 @@ def _build_detail_lines(pkt, is_unk, show_hex, show_wrapper):
     def f(lbl, val, st=S_VALUE): lines.append((lbl, str(val), st))
     if is_unk:
         if show_hex:
-            raw = pkt.get("raw", b"")
+            raw = pkt.raw
             if raw: f("HEX", raw.hex(" "), S_DIM)
-            if pkt.get("text"): f("ASCII", pkt["text"], S_DIM)
-            inner = pkt.get("inner_payload", b"")
+            if pkt.text: f("ASCII", pkt.text, S_DIM)
+            inner = pkt.inner_payload
             if inner: f("SIZE", f"{len(inner)}B (raw {len(raw)}B)", S_DIM)
         return lines
-    for wm in pkt.get("warnings", []): lines.append(("⚠", wm, S_ERROR))
-    if pkt.get("is_uplink_echo"): f("UL ECHO", "Uplink echo — dest/echo not addressed to GS", S_WARNING)
-    if show_wrapper and pkt.get("stripped_hdr"):
-        ft = pkt.get("frame_type", "")
-        f("AX.25 HDR", pkt["stripped_hdr"], Style(color=frame_color(ft)))
-    csp = pkt.get("csp")
+    for wm in pkt.warnings: lines.append(("⚠", wm, S_ERROR))
+    if pkt.is_uplink_echo: f("UL ECHO", "Uplink echo — dest/echo not addressed to GS", S_WARNING)
+    if show_wrapper and pkt.stripped_hdr:
+        ft = pkt.frame_type
+        f("AX.25 HDR", pkt.stripped_hdr, Style(color=frame_color(ft)))
+    csp = pkt.csp
     if show_wrapper and csp:
-        tag = "CSP V1" if pkt.get("csp_plausible") else "CSP V1 [?]"
+        tag = "CSP V1" if pkt.csp_plausible else "CSP V1 [?]"
         f(tag, f"Prio:{csp['prio']}  Src:{csp['src']}  Dest:{csp['dest']}  DPort:{csp['dport']}  SPort:{csp['sport']}  Flags:0x{csp['flags']:02x}")
-    cmd = pkt.get("cmd")
+    cmd = pkt.cmd
     if cmd:
         route = Text()
         route.append("Src:", style="#ffffff"); route.append(f"{node_label(cmd['src'])}  ", style=node_color(cmd['src']))
@@ -387,7 +385,7 @@ def _build_detail_lines(pkt, is_unk, show_hex, show_wrapper):
             if cmd.get("schema_warning"): lines.append(("⚠", cmd["schema_warning"], S_WARNING))
             for i, a in enumerate(cmd.get("args", [])): f(f"ARG {i}", str(a))
     # CRC: always show if FAIL, otherwise only with wrapper
-    crc_st = pkt.get("crc_status", {})
+    crc_st = pkt.crc_status
     for label, val, valid, fmt in [
         ("CRC-16", cmd.get("crc") if cmd else None, cmd.get("crc_valid") if cmd else None, "04x"),
         ("CRC-32C", crc_st.get("csp_crc32_rx"), crc_st.get("csp_crc32_valid"), "08x"),
@@ -395,9 +393,9 @@ def _build_detail_lines(pkt, is_unk, show_hex, show_wrapper):
         if val is not None and (show_wrapper or not valid):
             f(label, f"0x{val:{fmt}}  [{'OK' if valid else 'FAIL'}]", S_SUCCESS if valid else S_ERROR)
     if show_hex:
-        raw = pkt.get("raw", b"")
+        raw = pkt.raw
         if raw: f("HEX", raw.hex(" "), S_DIM)
-        if pkt.get("text"): f("ASCII", pkt["text"], S_DIM)
+        if pkt.text: f("ASCII", pkt.text, S_DIM)
     return lines
 
 
@@ -419,24 +417,24 @@ class PacketDetail(Widget):
             actual = len(s.packets) - 1
             if s.hide_uplink:
                 for i in range(len(s.packets) - 1, -1, -1):
-                    if not s.packets[i].get("is_uplink_echo"):
+                    if not s.packets[i].is_uplink_echo:
                         actual = i; break
         else:
             actual = s.selected_idx
         pkt = s.packets[actual] if 0 <= actual < len(s.packets) else None
         # Skip uplink echoes in detail
-        if pkt and s.hide_uplink and pkt.get("is_uplink_echo"):
+        if pkt and s.hide_uplink and pkt.is_uplink_echo:
             pkt = None
         if not pkt:
             self.styles.height = 10
             return Text()
-        is_unk = pkt.get("is_unknown", False)
-        ts_r = pkt.get("ts_result")
+        is_unk = pkt.is_unknown
+        ts_r = pkt.ts_result
         title = Text()
-        if is_unk and pkt.get("unknown_num") is not None:
-            title.append(f" UNKNOWN U-{pkt['unknown_num']} ", style=S_WARNING)
+        if is_unk and pkt.unknown_num is not None:
+            title.append(f" UNKNOWN U-{pkt.unknown_num} ", style=S_WARNING)
         else:
-            title.append(f" PACKET #{pkt.get('pkt_num',0)} DETAIL ", style="reverse bold #ffffff")
+            title.append(f" PACKET #{pkt.pkt_num} DETAIL ", style="reverse bold #ffffff")
         if ts_r:
             title.append(f" {ts_r[0].strftime('%Y-%m-%d %H:%M:%S')} UTC  {ts_r[1].strftime('%Y-%m-%d %H:%M:%S %Z')}", style="#ffffff")
         lines = _build_detail_lines(pkt, is_unk, s.show_hex, s.show_wrapper)

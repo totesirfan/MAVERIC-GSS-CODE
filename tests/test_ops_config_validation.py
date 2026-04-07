@@ -23,8 +23,7 @@ from mav_gss_lib.mission_adapter import (
     _MISSION_REGISTRY,
     MissionAdapter,
 )
-from mav_gss_lib.protocol import init_nodes, load_command_defs
-from mav_gss_lib.config import get_command_defs_path
+from mav_gss_lib.missions.maveric.wire_format import init_nodes, load_command_defs
 
 
 class TestMissionYml(unittest.TestCase):
@@ -87,14 +86,10 @@ class TestStartupDiagnostics(unittest.TestCase):
 
     def test_startup_log_includes_mission_info(self):
         """load_mission_adapter() logs mission name, id, API version."""
-        from mav_gss_lib.mission_adapter import load_mission_metadata
         cfg = load_gss_config()
-        load_mission_metadata(cfg)
-        init_nodes(cfg)
-        cmd_defs, _ = load_command_defs(get_command_defs_path(cfg))
 
         with self.assertLogs(level=logging.INFO) as cm:
-            load_mission_adapter(cfg, cmd_defs)
+            load_mission_adapter(cfg)
 
         log_output = "\n".join(cm.output)
         self.assertIn("Mission loaded", log_output)

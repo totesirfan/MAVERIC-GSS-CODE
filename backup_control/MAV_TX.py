@@ -28,11 +28,12 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Input
 
-import mav_gss_lib.protocol as protocol
-from mav_gss_lib.protocol import (
-    init_nodes, node_label, build_cmd_raw, AX25Config, CSPConfig,
-    load_command_defs, validate_args, parse_cmd_line,
+import mav_gss_lib.missions.maveric.wire_format as protocol
+from mav_gss_lib.missions.maveric.wire_format import (
+    init_nodes, node_label, build_cmd_raw, load_command_defs, validate_args, parse_cmd_line,
 )
+from mav_gss_lib.protocols.ax25 import AX25Config
+from mav_gss_lib.protocols.csp import CSPConfig
 from mav_gss_lib.transport import (init_zmq_pub, send_pdu,
                                    poll_monitor, PUB_STATUS, zmq_cleanup)
 from mav_gss_lib.logging import TXLog

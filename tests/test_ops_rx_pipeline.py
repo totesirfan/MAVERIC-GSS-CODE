@@ -7,7 +7,9 @@ import unittest
 from ops_test_support import CMD_DEFS
 
 from mav_gss_lib.parsing import RxPipeline, build_rx_log_record
-from mav_gss_lib.protocol import AX25Config, CSPConfig, build_cmd_raw
+from mav_gss_lib.protocols.ax25 import AX25Config
+from mav_gss_lib.protocols.csp import CSPConfig
+from mav_gss_lib.missions.maveric.wire_format import build_cmd_raw
 
 
 META_AX25 = {"transmitter": "9k6 FSK AX.25 downlink"}

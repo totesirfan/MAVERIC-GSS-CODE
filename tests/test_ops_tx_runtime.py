@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 import mav_gss_lib.web_runtime.services as services
-from mav_gss_lib.protocol import resolve_ptype
+from mav_gss_lib.missions.maveric.wire_format import resolve_ptype
 from mav_gss_lib.web_runtime.runtime import make_cmd, sanitize_queue_items, validate_cmd_item
 from mav_gss_lib.web_runtime.state import create_runtime
 
