@@ -56,16 +56,7 @@ export function TxPanel({
 
   const missionId = config?.general?.mission ?? ''
   const MissionBuilder = getMissionBuilder(missionId)
-  const [hasCommandBuilder, setHasCommandBuilder] = useState(false)
-
-  useEffect(() => {
-    fetch('/api/tx/capabilities')
-      .then((r) => r.json())
-      .then((caps: { command_builder?: boolean }) => {
-        setHasCommandBuilder(caps.command_builder ?? false)
-      })
-      .catch(() => {})
-  }, [])
+  const hasCommandBuilder = MissionBuilder !== null
 
   useEffect(() => {
     fetch('/api/tx-columns').then(r => r.json()).then(setTxColumns).catch(() => {})

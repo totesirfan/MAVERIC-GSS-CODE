@@ -161,28 +161,12 @@ def validate_adapter(adapter, api_version: int, mission_name: str) -> None:
 # =============================================================================
 
 
-def has_custom_tx_ui(adapter) -> bool:
-    """Check whether a mission provides an optional custom TX input UI.
-
-    All missions implement build_tx_command() — that is the mission TX
-    contract, not what this checks. This checks whether the mission also
-    registers a custom frontend component for collecting structured
-    command input (e.g. MAVERIC's command picker). If not, only raw
-    CLI input is available.
-    """
-    return hasattr(adapter, 'tx_builder_id') and bool(adapter.tx_builder_id)
-
-
 def get_tx_capabilities(adapter) -> dict:
-    """Return TX capabilities for the loaded adapter.
-
-    Adapters may override tx_capabilities() to declare support.
-    Default: raw_send always True, command_builder True if
-    the mission provides a custom frontend builder component.
-    """
+    """Return backend TX capabilities. Builder UI availability is
+    determined by the frontend from convention-based discovery."""
     if hasattr(adapter, 'tx_capabilities') and callable(adapter.tx_capabilities):
         return adapter.tx_capabilities()
-    return {"raw_send": True, "command_builder": has_custom_tx_ui(adapter)}
+    return {"raw_send": True}
 
 
 # =============================================================================

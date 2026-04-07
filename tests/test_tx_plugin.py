@@ -8,15 +8,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
-class FakeAdapterNoBuilder:
-    """Adapter without a custom TX builder UI (no tx_builder_id)."""
+class FakeAdapter:
+    """Minimal adapter stub for TX capability tests."""
     pass
 
 
-class FakeAdapterWithBuilder:
-    """Adapter with a custom TX builder UI (has tx_builder_id)."""
-
-    tx_builder_id = "fake_builder"
+class FakeBuildAdapter:
+    """Adapter stub with build_tx_command for make_mission_cmd tests."""
 
     def build_tx_command(self, payload):
         """Validate, encode, and return queue-ready command."""
@@ -36,23 +34,21 @@ class FakeAdapterWithBuilder:
 
 class TestTxPluginHelpers(unittest.TestCase):
 
-    def test_has_custom_tx_ui_false_when_no_tx_builder_id(self):
-        from mav_gss_lib.mission_adapter import has_custom_tx_ui
-        self.assertFalse(has_custom_tx_ui(FakeAdapterNoBuilder()))
-
-    def test_has_custom_tx_ui_true_when_tx_builder_id_present(self):
-        from mav_gss_lib.mission_adapter import has_custom_tx_ui
-        self.assertTrue(has_custom_tx_ui(FakeAdapterWithBuilder()))
-
-    def test_get_tx_capabilities_default_no_builder(self):
+    def test_get_tx_capabilities_default(self):
         from mav_gss_lib.mission_adapter import get_tx_capabilities
-        caps = get_tx_capabilities(FakeAdapterNoBuilder())
-        self.assertEqual(caps, {"raw_send": True, "command_builder": False})
+        caps = get_tx_capabilities(FakeAdapter())
+        self.assertEqual(caps, {"raw_send": True})
 
-    def test_get_tx_capabilities_with_builder(self):
+    def test_get_tx_capabilities_custom_override(self):
+        """Adapters can override tx_capabilities() to declare support."""
         from mav_gss_lib.mission_adapter import get_tx_capabilities
-        caps = get_tx_capabilities(FakeAdapterWithBuilder())
-        self.assertEqual(caps, {"raw_send": True, "command_builder": True})
+
+        class CustomAdapter:
+            def tx_capabilities(self):
+                return {"raw_send": True, "extra_feature": True}
+
+        caps = get_tx_capabilities(CustomAdapter())
+        self.assertEqual(caps, {"raw_send": True, "extra_feature": True})
 
 
 import threading
@@ -101,7 +97,7 @@ class TestMakeMissionCmd(unittest.TestCase):
 
     def test_make_mission_cmd_builds_item(self):
         from mav_gss_lib.web_runtime.runtime import make_mission_cmd
-        adapter = FakeAdapterWithBuilder()
+        adapter = FakeBuildAdapter()
         payload = {"cmd_id": "ping", "target": "obc"}
         item = make_mission_cmd(payload, adapter=adapter)
         self.assertEqual(item["type"], "mission_cmd")
@@ -112,21 +108,21 @@ class TestMakeMissionCmd(unittest.TestCase):
 
     def test_make_mission_cmd_with_guard(self):
         from mav_gss_lib.web_runtime.runtime import make_mission_cmd
-        adapter = FakeAdapterWithBuilder()
+        adapter = FakeBuildAdapter()
         payload = {"cmd_id": "reboot", "guard": True}
         item = make_mission_cmd(payload, adapter=adapter)
         self.assertTrue(item["guard"])
 
     def test_validate_mission_cmd_passes(self):
         from mav_gss_lib.web_runtime.runtime import validate_mission_cmd
-        adapter = FakeAdapterWithBuilder()
+        adapter = FakeBuildAdapter()
         rt = FakeRuntime(adapter)
         item = validate_mission_cmd({"cmd_id": "ping"}, runtime=rt)
         self.assertEqual(item["type"], "mission_cmd")
 
     def test_validate_mission_cmd_rejects_invalid(self):
         from mav_gss_lib.web_runtime.runtime import validate_mission_cmd
-        adapter = FakeAdapterWithBuilder()
+        adapter = FakeBuildAdapter()
         rt = FakeRuntime(adapter)
         with self.assertRaises(ValueError) as ctx:
             validate_mission_cmd({}, runtime=rt)
@@ -257,11 +253,6 @@ class TestMavericBuildTxCommand(unittest.TestCase):
         })
         self.assertIn("guard", result)
         self.assertIsInstance(result["guard"], bool)
-
-    def test_has_custom_tx_ui_true_for_maveric(self):
-        from mav_gss_lib.mission_adapter import has_custom_tx_ui
-        adapter = self._make_adapter()
-        self.assertTrue(has_custom_tx_ui(adapter))
 
     def test_build_tx_command_rejects_invalid_node_for_cmd(self):
         """com_ping is only valid for LPPM/EPS/UPPM/HLNV/ASTR, not FTDI."""

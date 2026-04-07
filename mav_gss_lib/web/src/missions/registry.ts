@@ -1,23 +1,37 @@
 /**
- * Mission TX Builder Registry
+ * Mission TX Builder Registry — Convention-Based Discovery
  *
- * Maps mission IDs to lazy-loaded builder components. A mission builder
- * receives the queueMissionCmd callback and renders its own command-building UI.
+ * Auto-discovers mission builder components by convention:
+ *   missions/<mission_id>/TxBuilder.tsx
  *
- * To register a mission builder, add one entry:
- *   '<mission_id>': () => import('./<mission_id>/TxBuilder'),
- *
- * The component must satisfy MissionBuilderProps from '@/lib/types'.
+ * Each component must satisfy MissionBuilderProps from '@/lib/types'.
+ * No manual registration needed — just create the file.
  */
 import { lazy, type ComponentType } from 'react'
 import type { MissionBuilderProps } from '@/lib/types'
 
-const builders: Record<string, () => Promise<{ default: ComponentType<MissionBuilderProps> }>> = {
-  'maveric': () => import('./maveric/TxBuilder'),
+const modules = import.meta.glob<{ default: ComponentType<MissionBuilderProps> }>(
+  './**/TxBuilder.tsx',
+)
+
+const builders: Record<string, () => Promise<{ default: ComponentType<MissionBuilderProps> }>> = {}
+for (const path of Object.keys(modules)) {
+  const match = path.match(/^\.\/([^/]+)\/TxBuilder\.tsx$/)
+  if (match) {
+    builders[match[1].toLowerCase()] = modules[path]
+  }
 }
 
+const cache = new Map<string, ComponentType<MissionBuilderProps>>()
+
 export function getMissionBuilder(missionId: string): ComponentType<MissionBuilderProps> | null {
-  const loader = builders[missionId.toLowerCase()]
+  const key = missionId.toLowerCase()
+  const loader = builders[key]
   if (!loader) return null
-  return lazy(loader)
+  let component = cache.get(key)
+  if (!component) {
+    component = lazy(loader)
+    cache.set(key, component)
+  }
+  return component
 }

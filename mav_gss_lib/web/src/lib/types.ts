@@ -138,7 +138,6 @@ export interface GuardConfirm {
 
 export interface TxCapabilities {
   raw_send: boolean
-  command_builder: boolean
 }
 
 export interface MissionBuilderProps {

@@ -111,6 +111,16 @@ The web UI build (`mav_gss_lib/web/dist/`) is committed to the repo — no build
 
 The web UI auto-opens at `http://127.0.0.1:8080`. The server shuts down 15 seconds after all browser tabs disconnect.
 
+### Preflight Check
+
+Before first launch, verify the environment:
+
+```bash
+python3 scripts/preflight.py
+```
+
+Reports pass/fail for Python dependencies, GNU Radio/PMT availability, config files, command schema, web build, and ZMQ addresses.
+
 ### Web UI Development
 
 ```bash

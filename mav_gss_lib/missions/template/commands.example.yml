@@ -1,0 +1,47 @@
+# Mission Template — Command Schema Example
+#
+# Copy and rename this file to commands.yml, then populate with your
+# mission's real commands.
+#
+# If commands.yml contains operationally sensitive information (IDs,
+# routing details, undocumented behaviors), add it to .gitignore:
+#
+#   mav_gss_lib/missions/<name>/commands.yml
+#
+# The platform never interprets this schema directly — your adapter's
+# build_tx_command() and init_mission() load and use it.
+#
+# See mav_gss_lib/missions/maveric/commands.example.yml for a more
+# complete example with all field types documented.
+#
+
+# ── Minimal example — replace with your mission's commands ─────────────────
+
+ping:
+  dest: 1          # Destination node ID
+  echo: 0          # Echo node (0 = NONE)
+  ptype: 1         # Packet type ID
+  guard: false
+  nodes: [SAT]     # Node names this command is valid for
+  tx_args: []
+  rx_args:
+    - name: status
+      type: str
+      important: true
+
+set_value:
+  dest: 1
+  echo: 0
+  ptype: 1
+  guard: false
+  nodes: [SAT]
+  tx_args:
+    - name: key
+      type: str
+      important: true
+    - name: value
+      type: str
+      important: true
+  rx_args:
+    - name: result
+      type: str

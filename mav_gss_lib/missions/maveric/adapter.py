@@ -43,10 +43,6 @@ class MavericMissionAdapter:
 
     cmd_defs: dict
 
-    # Identifies the frontend builder component registered in missions/registry.ts.
-    # Presence of this attribute signals that a custom TX input UI is available.
-    tx_builder_id: str = "maveric"
-
     def detect_frame_type(self, meta) -> str:
         """Classify outer framing from GNU Radio/gr-satellites metadata."""
         return detect_frame_type(meta)

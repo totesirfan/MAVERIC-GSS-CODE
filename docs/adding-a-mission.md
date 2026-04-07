@@ -17,7 +17,7 @@ To add a mission: create a package under `mav_gss_lib/missions/<name>/`, impleme
 ## What Your Mission Provides
 
 - How to parse received bytes into meaningful data
-- How to encode operator commands into transmit bytes
+- How to parse operator commands into transmit bytes
 - How to present parsed data and queued commands to operators
 - Mission metadata (node names, packet types, protocol defaults — whatever your mission needs)
 - How to interpret raw CLI text input from operators
@@ -185,7 +185,7 @@ def integrity_blocks(self, pkt):
 
 ### TX — Command Input and Encoding
 
-The mission owns all command parsing, validation, and encoding. The platform passes raw operator input through and renders the result.
+The mission owns all command parsing, validation, and TX Parsing. The platform passes raw operator input through and renders the result.
 
 | Method | What it does |
 |--------|-------------|
@@ -304,6 +304,8 @@ Here's how a command goes from operator input to transmission:
 
 For the custom builder UI path (if registered), step 1-2 are replaced by the frontend component collecting a structured payload dict and sending it directly to `build_tx_command` via `queue_mission_cmd`.
 
+Queue import/export files use the same payload contract. Each JSONL line must be either `{ "type": "mission_cmd", "payload": { ... } }` or `{ "type": "delay", "delay_ms": ... }`. The platform no longer accepts legacy list-style command records.
+
 ---
 
 ## Optional: Custom TX Input UI
@@ -316,17 +318,16 @@ The platform always provides raw CLI input. If your mission wants a visual comma
 
 To add a custom TX input UI:
 
-1. Create a React component in `mav_gss_lib/web/src/missions/<name>/`
-2. Register it in `mav_gss_lib/web/src/missions/registry.ts`
-3. Set `tx_builder_id` on your adapter class:
+1. Create `mav_gss_lib/web/src/missions/<name>/TxBuilder.tsx`
+2. Export a default component satisfying `MissionBuilderProps`
+3. Run `npm run build` and commit `dist/`
 
-```python
-tx_builder_id: str = "mymission"  # matches the registry key
-```
+The frontend auto-discovers builder components by convention — any file at
+`missions/<name>/TxBuilder.tsx` is automatically registered. No manual
+registry edit, no backend attribute, no separate configuration step.
+The directory name must match the `general.mission` value in `gss.yml`.
 
-The platform checks `has_custom_tx_ui(adapter)` (looks for `tx_builder_id`) to decide whether to show the custom input panel. See `missions/maveric/TxBuilder.tsx` for an example.
-
-If you add a frontend component: run `npm run build` in `mav_gss_lib/web` and commit the updated `dist/`.
+See `missions/maveric/TxBuilder.tsx` for an example implementation.
 
 ---
 
@@ -374,6 +375,18 @@ These are optional — your adapter's `node_name()` / `resolve_node()` methods c
 If your mission has a structured command schema, provide it as `commands.yml` alongside the adapter. The `init_mission()` function loads it and returns `cmd_defs`. Add `commands.yml` to `.gitignore` if it contains operationally sensitive information.
 
 The command schema is mission-defined — the platform stores it but doesn't interpret it. Your adapter's `build_tx_command` uses it for validation and encoding.
+
+Example files are provided as a starting point and reference:
+
+- `mav_gss_lib/missions/maveric/commands.example.yml` — fully annotated MAVERIC example with all field types, routing fields, guard, nodes constraint, rx_only, and argument types documented
+- `mav_gss_lib/missions/template/commands.example.yml` — minimal starter with `ping` and `set_value`
+
+Copy workflow:
+
+```bash
+cp mav_gss_lib/missions/<name>/commands.example.yml mav_gss_lib/missions/<name>/commands.yml
+# then edit commands.yml with real command IDs and routing
+```
 
 ---
 
@@ -448,5 +461,5 @@ validate_adapter(self.adapter, 1, "mymission")  # raises on missing methods
 - [ ] `commands.yml` + gitignore entry if security-sensitive
 - [ ] Protocol metadata in `mission.example.yml` (AX.25, CSP, nodes, ptypes)
 - [ ] Local `mission.yml` override + gitignore entry
-- [ ] Custom TX input UI component (registry + `tx_builder_id` on adapter)
+- [ ] Custom TX input UI component (`missions/<name>/TxBuilder.tsx` — auto-discovered)
 - [ ] If frontend changes: `npm run build` and commit `dist/`
