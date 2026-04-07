@@ -1,9 +1,10 @@
 """
 mav_gss_lib.config -- Shared Configuration Loader
 
-Reads maveric_gss.yml from the project root and returns a dict with
-all configurable values.  Falls back to hardcoded defaults if the
-file is missing so the scripts still work without it.
+Reads gss.yml from the mav_gss_lib package directory and returns a dict with
+platform-level settings. Mission-specific defaults are provided by
+the active mission package's mission.yml via the mission loader.
+Falls back to hardcoded defaults if the file is missing.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -14,41 +15,28 @@ from pathlib import Path
 
 import yaml
 
-# Resolve config directory relative to this file, not CWD
-_CONFIG_DIR = Path(__file__).resolve().parent / "config"
+# Resolve library/project directories relative to this file, not CWD
+_LIB_DIR = Path(__file__).resolve().parent
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_DEFAULT_GSS_PATH = _LIB_DIR / "gss.yml"
 
 
 _DEFAULTS = {
     "nodes": {},
     "ptypes": {},
     "node_descriptions": {},
-    "ax25": {
-        "src_call":  "NOCALL",
-        "src_ssid":  0,
-        "dest_call": "NOCALL",
-        "dest_ssid": 0,
-    },
-    "csp": {
-        "priority":    2,
-        "source":      0,
-        "destination": 0,
-        "dest_port":   0,
-        "src_port":    0,
-        "flags":       0x00,
-        "csp_crc":     True,
-    },
+    "ax25": {},
+    "csp": {},
     "tx": {
         "zmq_addr":  "tcp://127.0.0.1:52002",
-        "frequency": "",
         "delay_ms":  500,
-        "uplink_mode": "AX.25",
     },
     "rx": {
         "zmq_port": 52001,
         "zmq_addr": "tcp://127.0.0.1:52001",
     },
     "general": {
+        "mission":      "maveric",
         "version":      "4.3.1",
         "log_dir":      "logs",
         "generated_commands_dir": "generated_commands",
@@ -70,7 +58,7 @@ def _deep_merge(base, override):
 def load_gss_config(path=None):
     """Load config from YAML, falling back to defaults for missing keys."""
     if path is None:
-        path = str(_CONFIG_DIR / "maveric_gss.yml")
+        path = str(_DEFAULT_GSS_PATH)
     user = {}
     if os.path.isfile(path):
         with open(path, "r") as f:
@@ -90,10 +78,12 @@ def resolve_project_path(path_value, *, base_dir=None):
 
 
 def get_decoder_yml_path(cfg):
-    """Return the resolved decoder YAML path from config."""
+    """Return the resolved decoder YAML path from config, or empty string if unset."""
     general = cfg.get("general", {})
-    raw = general.get("decoder_yml", "maveric_decoder.yml")
-    return str(resolve_project_path(raw, base_dir=_CONFIG_DIR))
+    raw = general.get("decoder_yml", "")
+    if not raw:
+        return ""
+    return str(resolve_project_path(raw, base_dir=_LIB_DIR))
 
 
 def get_generated_commands_dir(cfg):
@@ -110,7 +100,7 @@ def save_gss_config(cfg, path=None):
     if the process is killed mid-write.
     """
     if path is None:
-        path = str(_CONFIG_DIR / "maveric_gss.yml")
+        path = str(_DEFAULT_GSS_PATH)
     dir_name = os.path.dirname(path) or "."
     fd, tmp = tempfile.mkstemp(suffix=".tmp", dir=dir_name)
     try:

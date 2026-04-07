@@ -5,26 +5,12 @@ export interface RxPacket {
   time: string
   time_utc: string
   frame: string
-  src: string
-  dest: string
-  echo: string
-  ptype: string
-  cmd: string
-  args_named: { name: string; value: string; important?: boolean }[]
-  args_extra: string[]
   size: number
-  crc16_ok: boolean | null
-  crc32_ok: boolean | null
+  raw_hex: string
+  warnings: string[]
   is_echo: boolean
   is_dup: boolean
   is_unknown: boolean
-  raw_hex: string
-  warnings: string[]
-  csp_header: Record<string, number> | null
-  ax25_header: string | null
-  sat_time_utc?: string | null
-  sat_time_local?: string | null
-  sat_time_ms?: number | null
   _rendering?: RenderingData
 }
 
@@ -110,7 +96,29 @@ export interface TxQueueDelay {
   delay_ms: number
 }
 
-export type TxQueueItem = TxQueueCmd | TxQueueDelay
+export interface MissionCmdDisplay {
+  title: string
+  subtitle?: string
+  fields?: { name: string; value: string }[]
+}
+
+export interface MissionQueueCmd {
+  type: 'mission_cmd'
+  num: number
+  display: MissionCmdDisplay
+  guard: boolean
+  size: number
+}
+
+export interface MissionHistoryItem {
+  n: number
+  ts: string
+  type: 'mission_cmd'
+  display: MissionCmdDisplay
+  size: number
+}
+
+export type TxQueueItem = TxQueueCmd | TxQueueDelay | MissionQueueCmd
 
 export interface TxQueueSummary {
   cmds: number
@@ -130,6 +138,8 @@ export interface TxHistoryItem {
   size: number
 }
 
+export type TxHistoryEntry = TxHistoryItem | MissionHistoryItem
+
 export interface SendProgress {
   sent: number
   total: number
@@ -142,6 +152,16 @@ export interface GuardConfirm {
   cmd: string
   args: string
   dest: string
+}
+
+export interface TxCapabilities {
+  raw_send: boolean
+  command_builder: boolean
+}
+
+export interface MissionBuilderProps {
+  onQueue: (payload: Record<string, unknown>) => void
+  onClose: () => void
 }
 
 // ---- Commands ----
@@ -197,10 +217,13 @@ export interface GssConfig {
     zmq_port: number
   }
   general: {
+    mission?: string
     mission_name?: string
+    rx_title?: string
+    tx_title?: string
     version: string
     log_dir: string
-    gs_node: number
+    gs_node: string
   }
 }
 

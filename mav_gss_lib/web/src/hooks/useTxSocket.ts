@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { createSocket } from '@/lib/ws'
 import type {
-  TxQueueItem, TxQueueSummary, TxHistoryItem,
+  TxQueueItem, TxQueueSummary, TxHistoryItem, MissionHistoryItem,
   SendProgress, GuardConfirm,
 } from '@/lib/types'
+
+type TxHistoryEntry = TxHistoryItem | MissionHistoryItem
 
 interface SendingSnapshot {
   active?: boolean
@@ -16,7 +18,7 @@ interface SendingSnapshot {
 export function useTxSocket() {
   const [queue, setQueue] = useState<TxQueueItem[]>([])
   const [summary, setSummary] = useState<TxQueueSummary>({ cmds: 0, guards: 0, est_time_s: 0 })
-  const [history, setHistory] = useState<TxHistoryItem[]>([])
+  const [history, setHistory] = useState<TxHistoryEntry[]>([])
   const [sendProgress, setSendProgress] = useState<SendProgress | null>(null)
   const [guardConfirm, setGuardConfirm] = useState<GuardConfirm | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -53,10 +55,10 @@ export function useTxSocket() {
             }
             break
           case 'history':
-            if (msg.items) setHistory(msg.items as TxHistoryItem[])
+            if (msg.items) setHistory(msg.items as TxHistoryEntry[])
             break
           case 'sent':
-            if (msg.data) setHistory(prev => [...prev, msg.data as TxHistoryItem])
+            if (msg.data) setHistory(prev => [...prev, msg.data as TxHistoryEntry])
             break
           case 'send_progress':
             setSendProgress({
@@ -125,6 +127,10 @@ export function useTxSocket() {
     })
   }, [send])
 
+  const queueMissionCmd = useCallback((payload: Record<string, unknown>) => {
+    send('queue_mission_cmd', { payload })
+  }, [send])
+
   // reorder: component passes (oldIndex, newIndex), backend expects {order: [...]}
   const reorder = useCallback((oldIndex: number, newIndex: number) => {
     const q = queueRef.current
@@ -144,6 +150,7 @@ export function useTxSocket() {
     queue, summary, history, sendProgress, guardConfirm, error, connected,
     queueCommand,
     queueBuilt,
+    queueMissionCmd,
     deleteItem: useCallback((index: number) => send('delete', { index }), [send]),
     clearQueue: useCallback(() => send('clear'), [send]),
     undoLast: useCallback(() => send('undo'), [send]),

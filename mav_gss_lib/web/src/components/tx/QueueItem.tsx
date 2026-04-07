@@ -12,10 +12,10 @@ import {
   ContextMenuRoot, ContextMenuTrigger, ContextMenuContent,
   ContextMenuItem, ContextMenuSeparator,
 } from '@/components/shared/ContextMenu'
-import type { GssConfig, TxQueueCmd } from '@/lib/types'
+import type { GssConfig, TxQueueCmd, MissionQueueCmd } from '@/lib/types'
 
 interface QueueItemProps {
-  item: TxQueueCmd
+  item: TxQueueCmd | MissionQueueCmd
   nodeDescriptions?: GssConfig['node_descriptions']
   index: number
   sortId: string
@@ -44,13 +44,23 @@ export function QueueItem({ item, nodeDescriptions, index, sortId, expanded, isN
     isDragging,
   } = useSortable({ id: sortId })
 
+  const isMission = item.type === 'mission_cmd'
+  const mItem = item as MissionQueueCmd
+  const cItem = item as TxQueueCmd
+  const displayDest = isMission ? (mItem.display?.subtitle ?? '') : cItem.dest
+  const displayPtype = isMission ? '' : cItem.ptype
+  const displayCmd = isMission ? (mItem.display?.title ?? '?') : cItem.cmd
+  const displayArgs = isMission
+    ? (mItem.display?.fields?.map(f => f.value).join(' ') ?? '')
+    : cItem.args
+
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
   }
 
-  const borderColor = isGuarding ? colors.warning : isSending ? colors.info : item.guard ? colors.warning : colors.borderStrong
+  const borderColor = isGuarding ? colors.warning : isSending ? colors.info : (item as TxQueueCmd).guard ? colors.warning : colors.borderStrong
 
   return (
     <ContextMenuRoot>
@@ -68,20 +78,22 @@ export function QueueItem({ item, nodeDescriptions, index, sortId, expanded, isN
             </span>
             <span className={`${col.num} text-right shrink-0 tabular-nums`} style={{ color: colors.dim }}>{item.num}</span>
             <span className={`${col.node} shrink-0 truncate`}>
-              {getNodeFullName(item.dest, nodeDescriptions) ? (
+              {!isMission && getNodeFullName(displayDest, nodeDescriptions) ? (
                 <TooltipProvider delay={300}>
                   <Tooltip>
-                    <TooltipTrigger render={<span />} style={{ color: colors.label, cursor: 'default' }}>{item.dest}</TooltipTrigger>
-                    <TooltipContent side="top" className="text-xs">{getNodeFullName(item.dest, nodeDescriptions)}</TooltipContent>
+                    <TooltipTrigger render={<span />} style={{ color: colors.label, cursor: 'default' }}>{displayDest}</TooltipTrigger>
+                    <TooltipContent side="top" className="text-xs">{getNodeFullName(displayDest, nodeDescriptions)}</TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
               ) : (
-                <span style={{ color: colors.label }}>{item.dest}</span>
+                <span style={{ color: colors.label }}>{displayDest}</span>
               )}
             </span>
-            <PtypeBadge ptype={item.ptype} />
-            <span className="shrink-0 px-2 py-0.5 rounded text-[11px] font-semibold" style={{ color: colors.value, backgroundColor: 'rgba(255,255,255,0.06)' }}>{item.cmd}</span>
-            <span className="flex-1 min-w-0 truncate" style={{ color: colors.dim }}>{item.args}</span>
+            <span className={`${col.ptype} shrink-0`}>{displayPtype && <PtypeBadge ptype={displayPtype} />}</span>
+            <span className="flex-1 min-w-0 truncate">
+              <span className="inline-block px-1.5 py-0 rounded-sm text-[11px] font-semibold" style={{ color: colors.value, backgroundColor: 'rgba(255,255,255,0.06)' }}>{displayCmd}</span>
+              {displayArgs && <span className="ml-2" style={{ color: colors.dim }}>{displayArgs}</span>}
+            </span>
             {isGuarding && (
               <Badge className="text-[11px] px-1.5 py-0 h-5 shrink-0 animate-pulse-warning" style={{ backgroundColor: `${colors.warning}22`, color: colors.warning }}>GUARD</Badge>
             )}
@@ -114,61 +126,74 @@ export function QueueItem({ item, nodeDescriptions, index, sortId, expanded, isN
           {/* Expanded detail */}
           {expanded && (
             <div className="px-3 pb-2 pt-1 ml-6 space-y-1 animate-slide-in" style={{ borderTop: `1px solid ${colors.borderSubtle}` }}>
-              <div className="flex items-center gap-4">
-                  <span className="text-xs"><span style={{ color: colors.sep }}>Src:</span>{' '}
-                  {getNodeFullName(item.src, nodeDescriptions) ? (
-                    <TooltipProvider delay={300}>
-                      <Tooltip>
-                        <TooltipTrigger render={<span />} style={{ color: colors.label, cursor: 'default' }}>{item.src}</TooltipTrigger>
-                        <TooltipContent side="top" className="text-xs">{getNodeFullName(item.src, nodeDescriptions)}</TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  ) : <span style={{ color: colors.label }}>{item.src}</span>}
-                </span>
-                <span className="text-xs"><span style={{ color: colors.sep }}>Dest:</span>{' '}
-                  {getNodeFullName(item.dest, nodeDescriptions) ? (
-                    <TooltipProvider delay={300}>
-                      <Tooltip>
-                        <TooltipTrigger render={<span />} style={{ color: colors.label, cursor: 'default' }}>{item.dest}</TooltipTrigger>
-                        <TooltipContent side="top" className="text-xs">{getNodeFullName(item.dest, nodeDescriptions)}</TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  ) : <span style={{ color: colors.label }}>{item.dest}</span>}
-                </span>
-                {hasEcho(item.echo) && (
-                  <span className="text-xs"><span style={{ color: colors.sep }}>Echo:</span>{' '}
-                    {getNodeFullName(item.echo, nodeDescriptions) ? (
-                      <TooltipProvider delay={300}>
-                        <Tooltip>
-                          <TooltipTrigger render={<span />} style={{ color: colors.warning, cursor: 'default' }}>{item.echo}</TooltipTrigger>
-                          <TooltipContent side="top" className="text-xs">{getNodeFullName(item.echo, nodeDescriptions)}</TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    ) : <span style={{ color: colors.warning }}>{item.echo}</span>}
-                  </span>
-                )}
-                <span className="text-xs"><span style={{ color: colors.sep }}>Type:</span> <span style={{ color: ptypeColor(item.ptype) }}>{item.ptype}</span></span>
-                <span className="text-xs"><span style={{ color: colors.sep }}>Size:</span> <span style={{ color: colors.value }}>{item.size}B</span></span>
-              </div>
-              {/* Named args from tx_args schema */}
-              {(item.args_named?.length || item.args_extra?.length) ? (
+              {isMission ? (
                 <div className="space-y-0.5">
-                  {item.args_named?.map((a, i) => (
+                  {mItem.display?.fields?.map((f, i) => (
                     <div key={i} className="flex items-center gap-2 text-xs">
-                      <span style={{ color: colors.label }}>{a.name}</span>
+                      <span style={{ color: colors.label }}>{f.name}</span>
                       <span style={{ color: colors.sep }}>=</span>
-                      <span style={{ color: colors.value }}>{a.value}</span>
-                    </div>
-                  ))}
-                  {item.args_extra?.map((val, i) => (
-                    <div key={`x-${i}`} className="flex items-center gap-2 text-xs">
-                      <span style={{ color: colors.dim }}>arg{(item.args_named?.length ?? 0) + i}</span>
-                      <span style={{ color: colors.sep }}>=</span>
-                      <span style={{ color: colors.value }}>{val}</span>
+                      <span style={{ color: colors.value }}>{f.value}</span>
                     </div>
                   ))}
                 </div>
-              ) : null}
+              ) : (
+                <>
+                  <div className="flex items-center gap-4">
+                    <span className="text-xs"><span style={{ color: colors.sep }}>Src:</span>{' '}
+                    {getNodeFullName(cItem.src, nodeDescriptions) ? (
+                      <TooltipProvider delay={300}>
+                        <Tooltip>
+                          <TooltipTrigger render={<span />} style={{ color: colors.label, cursor: 'default' }}>{cItem.src}</TooltipTrigger>
+                          <TooltipContent side="top" className="text-xs">{getNodeFullName(cItem.src, nodeDescriptions)}</TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    ) : <span style={{ color: colors.label }}>{cItem.src}</span>}
+                  </span>
+                  <span className="text-xs"><span style={{ color: colors.sep }}>Dest:</span>{' '}
+                    {getNodeFullName(cItem.dest, nodeDescriptions) ? (
+                      <TooltipProvider delay={300}>
+                        <Tooltip>
+                          <TooltipTrigger render={<span />} style={{ color: colors.label, cursor: 'default' }}>{cItem.dest}</TooltipTrigger>
+                          <TooltipContent side="top" className="text-xs">{getNodeFullName(cItem.dest, nodeDescriptions)}</TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    ) : <span style={{ color: colors.label }}>{cItem.dest}</span>}
+                  </span>
+                  {hasEcho(cItem.echo) && (
+                    <span className="text-xs"><span style={{ color: colors.sep }}>Echo:</span>{' '}
+                      {getNodeFullName(cItem.echo, nodeDescriptions) ? (
+                        <TooltipProvider delay={300}>
+                          <Tooltip>
+                            <TooltipTrigger render={<span />} style={{ color: colors.warning, cursor: 'default' }}>{cItem.echo}</TooltipTrigger>
+                            <TooltipContent side="top" className="text-xs">{getNodeFullName(cItem.echo, nodeDescriptions)}</TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      ) : <span style={{ color: colors.warning }}>{cItem.echo}</span>}
+                    </span>
+                  )}
+                  <span className="text-xs"><span style={{ color: colors.sep }}>Type:</span> <span style={{ color: ptypeColor(cItem.ptype) }}>{cItem.ptype}</span></span>
+                  <span className="text-xs"><span style={{ color: colors.sep }}>Size:</span> <span style={{ color: colors.value }}>{cItem.size}B</span></span>
+                  </div>
+                  {(cItem.args_named?.length || cItem.args_extra?.length) ? (
+                    <div className="space-y-0.5">
+                      {cItem.args_named?.map((a, i) => (
+                        <div key={i} className="flex items-center gap-2 text-xs">
+                          <span style={{ color: colors.label }}>{a.name}</span>
+                          <span style={{ color: colors.sep }}>=</span>
+                          <span style={{ color: colors.value }}>{a.value}</span>
+                        </div>
+                      ))}
+                      {cItem.args_extra?.map((val, i) => (
+                        <div key={`x-${i}`} className="flex items-center gap-2 text-xs">
+                          <span style={{ color: colors.dim }}>arg{(cItem.args_named?.length ?? 0) + i}</span>
+                          <span style={{ color: colors.sep }}>=</span>
+                          <span style={{ color: colors.value }}>{val}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </>
+              )}
               {item.guard && <div style={{ color: colors.warning }} className="text-[11px]">Guarded — requires confirmation</div>}
             </div>
           )}

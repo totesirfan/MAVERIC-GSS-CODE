@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, Suspense } from 'react'
 import { useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { FileUp, StopCircle, Send as SendIcon, ShieldCheck, X, ExternalLink } from 'lucide-react'
@@ -11,8 +11,9 @@ import { SentHistory } from './SentHistory'
 import { CommandInput } from './CommandInput'
 import { CommandBuilder } from './CommandBuilder'
 import { ImportDialog } from './ImportDialog'
+import { getMissionBuilder } from '@/missions/registry'
 import type {
-  TxQueueItem, TxQueueSummary, TxHistoryItem,
+  TxQueueItem, TxQueueSummary, TxHistoryItem, MissionHistoryItem,
   SendProgress, GuardConfirm, GssConfig,
 } from '@/lib/types'
 
@@ -20,7 +21,7 @@ interface TxPanelProps {
   config: GssConfig | null
   queue: TxQueueItem[]
   summary: TxQueueSummary
-  history: TxHistoryItem[]
+  history: (TxHistoryItem | MissionHistoryItem)[]
   sendProgress: SendProgress | null
   guardConfirm: GuardConfirm | null
   uplinkMode: string
@@ -38,6 +39,7 @@ interface TxPanelProps {
   abortSend: () => void
   approveGuard: () => void
   rejectGuard: () => void
+  queueTemplate: (payload: Record<string, unknown>) => void
   triggerConfirmSend?: number
   triggerConfirmClear?: number
 }
@@ -47,10 +49,14 @@ export function TxPanel({
   queueCommand, queueBuilt, deleteItem, clearQueue,
   toggleGuard, reorder, editDelay, addDelay,
   sendAll, abortSend, approveGuard, rejectGuard,
+  queueTemplate,
   triggerConfirmSend, triggerConfirmClear,
 }: TxPanelProps) {
   const [showBuilder, setShowBuilder] = useState(false)
   const [showImport, setShowImport] = useState(false)
+
+  const missionId = config?.general?.mission ?? ''
+  const MissionBuilder = getMissionBuilder(missionId)
 
   const sending = sendProgress !== null
   const modeColor = uplinkMode.toLowerCase().includes('golay') ? colors.frameGolay : colors.frameAx25
@@ -64,7 +70,7 @@ export function TxPanel({
         {/* Panel header */}
         <div className="flex items-center justify-between px-3 py-1.5 border-b shrink-0" style={{ borderColor: colors.borderSubtle }}>
           <div className="flex items-center gap-2">
-            <span className="text-xs font-bold tracking-wide" style={{ color: colors.value }}>TX UPLINK</span>
+            <span className="text-xs font-bold tracking-wide uppercase" style={{ color: colors.value }}>{config?.general?.tx_title ?? 'TX Uplink'}</span>
             <StatusDot status={connected ? 'LIVE' : 'DOWN'} />
             <span className="text-[11px] font-medium" style={{ color: modeColor }}>{uplinkMode || '--'}</span>
             {sending && (
@@ -92,7 +98,8 @@ export function TxPanel({
           onClear={clearQueue} onSend={sendAll}
           onDuplicate={(idx) => {
             const item = queue[idx]
-            if (item && item.type !== 'delay') queueCommand(`${item.dest} ${item.echo} ${item.ptype} ${item.cmd} ${item.args}`.trim())
+            if (!item || item.type === 'delay' || item.type === 'mission_cmd') return
+            queueCommand(`${item.dest} ${item.echo} ${item.ptype} ${item.cmd} ${item.args}`.trim())
           }}
           onMoveToTop={(idx) => reorder(idx, queue.length - 1)}
           onMoveToBottom={(idx) => reorder(idx, 0)}
@@ -102,7 +109,11 @@ export function TxPanel({
       </div>
 
       {/* Sent history — separate collapsible block */}
-      <SentHistory history={history} onRequeue={(item) => queueCommand(`${item.dest} NONE ${item.ptype} ${item.cmd} ${item.args}`.trim())} />
+      <SentHistory history={history} onRequeue={(item) => {
+        if ('type' in item && item.type === 'mission_cmd') return
+        const cItem = item as TxHistoryItem
+        queueCommand(`${cItem.dest} NONE ${cItem.ptype} ${cItem.cmd} ${cItem.args}`.trim())
+      }} />
 
       {/* Bottom block: guard confirm / send progress / input+builder */}
       {guardConfirm ? (
@@ -152,7 +163,13 @@ export function TxPanel({
           transition={{ type: 'spring', stiffness: 400, damping: 30, mass: 0.8 }}
         >
           {showBuilder ? (
-            <CommandBuilder config={config} onQueue={queueBuilt} onClose={() => setShowBuilder(false)} />
+            MissionBuilder ? (
+              <Suspense fallback={<div className="p-4 text-xs" style={{ color: colors.dim }}>Loading builder...</div>}>
+                <MissionBuilder onQueue={queueTemplate} onClose={() => setShowBuilder(false)} />
+              </Suspense>
+            ) : (
+              <CommandBuilder config={config} onQueue={queueBuilt} onClose={() => setShowBuilder(false)} />
+            )
           ) : (
             <CommandInput onSubmit={queueCommand} onBuilderToggle={() => setShowBuilder(true)} />
           )}

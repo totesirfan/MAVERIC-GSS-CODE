@@ -194,7 +194,12 @@ export default function App() {
   useEffect(() => {
     if (rx.packets.length === 0) return
     const last = rx.packets[rx.packets.length - 1]
-    if (last.crc16_ok === false) showToast(`CRC-16 FAIL: ${last.cmd || 'unknown'} #${last.num} — verify link quality`, 'warning', 'rx')
+    const flags = last._rendering?.row?.values?.flags
+    const hasCrcFail = Array.isArray(flags) && flags.some(
+      (f: unknown) => typeof f === 'object' && f !== null && (f as Record<string, string>).tag === 'CRC',
+    )
+    const cmdLabel = String(last._rendering?.row?.values?.cmd ?? 'unknown').split(' ')[0] || 'unknown'
+    if (hasCrcFail) showToast(`CRC-16 FAIL: ${cmdLabel} #${last.num} — verify link quality`, 'warning', 'rx')
   }, [rx.packets.length])
 
   const version = config?.general?.version ?? '...'
@@ -221,6 +226,7 @@ export default function App() {
           editDelay={tx.editDelay} sendAll={tx.sendAll}
           abortSend={tx.abortSend} approveGuard={tx.approveGuard}
           rejectGuard={tx.rejectGuard}
+          queueTemplate={tx.queueMissionCmd}
           triggerConfirmSend={confirmSendSignal}
           triggerConfirmClear={confirmClearSignal}
         />
@@ -272,6 +278,7 @@ export default function App() {
               editDelay={tx.editDelay} sendAll={tx.sendAll}
               abortSend={tx.abortSend} approveGuard={tx.approveGuard}
               rejectGuard={tx.rejectGuard}
+              queueTemplate={tx.queueMissionCmd}
               triggerConfirmSend={confirmSendSignal}
               triggerConfirmClear={confirmClearSignal}
             />
