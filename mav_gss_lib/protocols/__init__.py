@@ -15,6 +15,9 @@ from mav_gss_lib.protocols.csp import (
     try_parse_csp_v1, CSPConfig,
 )
 from mav_gss_lib.protocols.ax25 import (
-    AX25Config, build_ax25_gfsk_frame,
+    AX25Config, ax25_decode_header, build_ax25_gfsk_frame,
+)
+from mav_gss_lib.protocols.golay import (
+    ASM, PREAMBLE, build_asm_golay_frame, ccsds_scrambler_sequence, golay_encode, rs_encode,
 )
 from mav_gss_lib.protocols.frame_detect import detect_frame_type, normalize_frame

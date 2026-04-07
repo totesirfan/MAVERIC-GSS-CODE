@@ -5,7 +5,8 @@ Mission package contract:
   - ADAPTER_API_VERSION: int — adapter contract version
   - ADAPTER_CLASS: type — adapter class (MavericMissionAdapter)
   - init_mission(cfg): mission-specific initialization hook
-  - mission.yml: mission metadata (nodes, ptypes, callsigns, schema path, UI labels)
+  - mission.example.yml: tracked public-safe mission metadata baseline
+  - mission.yml: optional local mission metadata override
   - adapter.py: MissionAdapter implementation
   - wire_format.py: command wire format, schema, node tables
   - imaging.py: image chunk reassembly

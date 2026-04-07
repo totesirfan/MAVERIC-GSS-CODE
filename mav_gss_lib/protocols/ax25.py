@@ -14,7 +14,7 @@ Author:  Irfan Annuar - USC ISI SERC
 
 
 # =============================================================================
-#  AX.25 UI FRAME HEADER (TX direction)
+#  AX.25 UI FRAME HEADER
 # =============================================================================
 
 class AX25Config:
@@ -72,6 +72,45 @@ class AX25Config:
             )
             return header + payload
         return payload
+
+
+def _decode_callsign(addr):
+    """Decode one 7-byte AX.25 address field into callsign metadata."""
+    if len(addr) != 7:
+        raise ValueError(f"AX.25 address must be 7 bytes, got {len(addr)}")
+    call = ''.join(chr((b >> 1) & 0x7F) for b in addr[:6]).rstrip()
+    ssid_byte = addr[6]
+    return {
+        "callsign": call,
+        "ssid": (ssid_byte >> 1) & 0x0F,
+        "last": bool(ssid_byte & 0x01),
+        "reserved": (ssid_byte >> 5) & 0x03,
+        "raw_ssid_byte": f"0x{ssid_byte:02X}",
+    }
+
+
+def ax25_decode_header(frame):
+    """Decode a 16-byte AX.25 UI frame header into structured fields.
+
+    Expects [dest 7B][src 7B][control 1B][pid 1B] and returns decoded
+    destination/source callsigns plus control/PID metadata.
+    """
+    if len(frame) < AX25Config.HEADER_LEN:
+        raise ValueError(
+            f"AX.25 UI frame header requires {AX25Config.HEADER_LEN} bytes, got {len(frame)}"
+        )
+    header = frame[:AX25Config.HEADER_LEN]
+    dest = _decode_callsign(header[:7])
+    src = _decode_callsign(header[7:14])
+    return {
+        "dest": dest,
+        "src": src,
+        "control": header[14],
+        "pid": header[15],
+        "control_hex": f"0x{header[14]:02X}",
+        "pid_hex": f"0x{header[15]:02X}",
+        "raw_header": header.hex(" "),
+    }
 
 
 # =============================================================================

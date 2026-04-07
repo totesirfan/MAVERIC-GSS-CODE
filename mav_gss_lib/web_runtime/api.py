@@ -216,10 +216,6 @@ async def list_import_files(request: Request):
 
 def parse_import_file(filepath, runtime=None):
     """Parse a queue import JSONL file into runtime queue items."""
-    import re
-
-    _resolve_node = runtime.adapter.resolve_node if runtime else (lambda x: int(x) if x.isdigit() else None)
-    _resolve_ptype = runtime.adapter.resolve_ptype if runtime else (lambda x: int(x) if x.isdigit() else None)
     items = []
     skipped = 0
     for raw_line in filepath.read_text().strip().split("\n"):
@@ -246,45 +242,9 @@ def parse_import_file(filepath, runtime=None):
         line = "".join(out).rstrip().rstrip(",")
         if not line:
             continue
-        kvs = {}
-        if line.startswith("["):
-            kv_pattern = re.compile(r',\s*"(\w+)"\s*:\s*(true|false|null|\d+(?:\.\d+)?|"[^"]*")')
-            for match in kv_pattern.finditer(line):
-                key, raw = match.group(1), match.group(2)
-                if raw == "true":
-                    kvs[key] = True
-                elif raw == "false":
-                    kvs[key] = False
-                elif raw.startswith('"'):
-                    kvs[key] = raw[1:-1]
-                else:
-                    kvs[key] = int(raw) if "." not in raw else float(raw)
-            if kvs:
-                cleaned = kv_pattern.sub("", line).rstrip().rstrip(",").rstrip()
-                if not cleaned.endswith("]"):
-                    cleaned = cleaned.rstrip(",").rstrip() + "]"
-                line = cleaned
         try:
             obj = json.loads(line)
-            if isinstance(obj, list) and len(obj) >= 5:
-                src_s, dest_s, echo_s, ptype_s, cmd_s = obj[:5]
-                args_s = str(obj[5]) if len(obj) > 5 else ""
-                dest = _resolve_node(str(dest_s))
-                echo = _resolve_node(str(echo_s))
-                ptype_val = _resolve_ptype(str(ptype_s))
-                if None in (dest, echo, ptype_val):
-                    skipped += 1
-                    continue
-                mission_payload = {
-                    "cmd_id": cmd_s.lower(),
-                    "args": args_s,
-                    "dest": runtime.adapter.node_name(dest),
-                    "echo": runtime.adapter.node_name(echo),
-                    "ptype": runtime.adapter.ptype_name(ptype_val),
-                    "guard": bool(kvs.get("guard", False)),
-                }
-                items.append(validate_mission_cmd(mission_payload, runtime=runtime))
-            elif isinstance(obj, dict):
+            if isinstance(obj, dict):
                 if obj.get("type") == "delay":
                     items.append(make_delay(max(0, min(300_000, int(obj.get("delay_ms", 0))))))
                 elif obj.get("type") == "mission_cmd" and "payload" in obj:

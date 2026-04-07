@@ -220,7 +220,7 @@ def try_parse_command(payload):
 # =============================================================================
 #  COMMAND SCHEMA -- Deterministic Parsing
 #
-#  Loaded from maveric_commands.yml. When a received command's cmd_id
+#  Loaded from commands.yml (mission package). When a received command's cmd_id
 #  matches an entry, args are parsed by position and type. Commands not
 #  in the schema display raw args with a warning.
 #
@@ -393,7 +393,7 @@ def apply_schema(cmd, cmd_defs):
         cmd["schema_match"] = False
         cmd["schema_warning"] = (
             f"Unknown command '{cmd['cmd_id']}' "
-            "-- add to maveric_commands.yml for typed parsing"
+            "-- add to commands.yml for typed parsing"
         )
         return False
 

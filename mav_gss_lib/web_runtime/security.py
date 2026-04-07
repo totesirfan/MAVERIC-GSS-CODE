@@ -10,7 +10,7 @@ from .state import PORT, get_runtime
 
 def require_api_token(request: Request) -> JSONResponse | None:
     runtime = get_runtime(request)
-    if request.headers.get("x-maveric-token", "") == runtime.session_token:
+    if request.headers.get("x-gss-token", "") == runtime.session_token:
         return None
     return JSONResponse(status_code=403, content={"error": "invalid session token"})
 
