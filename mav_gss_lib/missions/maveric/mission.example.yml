@@ -1,0 +1,62 @@
+# MAVERIC CubeSat Mission Metadata (Public Example)
+# This file defines the tracked/public-safe mission defaults that the platform
+# merges into runtime config at startup.
+#
+# For operational use, you may create a local `mission.yml` beside this file.
+# If present, `mission.yml` takes precedence over `mission.example.yml`.
+
+mission_name: MAVERIC
+
+nodes:
+  0: NONE
+  1: LPPM
+  2: EPS
+  3: UPPM
+  4: HLNV
+  5: ASTR
+  6: GS
+  7: FTDI
+
+ptypes:
+  1: CMD
+  2: RES
+  3: ACK
+  4: TLM
+  5: FILE
+
+node_descriptions:
+  LPPM: Lower Pluggable Processor Module
+  UPPM: Upper Pluggable Processor Module
+  EPS: Electrical Power System
+  GS: Ground Station
+  HLNV: Holonav Payload
+  ASTR: ASTR Payload
+  FTDI: FTDI Debug Interface
+
+gs_node: GS
+
+ax25:
+  src_call: WM2XBB
+  src_ssid: 97
+  dest_call: WS9XSW
+  dest_ssid: 96
+
+csp:
+  priority: 2
+  source: 0
+  destination: 8
+  dest_port: 24
+  src_port: 0
+  flags: 0
+  csp_crc: true
+
+command_defs: commands.yml
+
+tx:
+  frequency: "437.25 MHz"
+  uplink_mode: ASM+Golay
+
+ui:
+  rx_title: Mission Downlink
+  tx_title: Mission Uplink
+  splash_subtitle: Mission Ground Station

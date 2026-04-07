@@ -1,0 +1,24 @@
+# Mission Metadata Template (Tracked Example)
+#
+# This file is the public-safe baseline loaded by the runtime when no local
+# `mission.yml` is present beside it.
+
+mission_name: Template
+
+nodes:
+  0: GS
+  1: SAT
+
+ptypes:
+  1: CMD
+  2: RES
+
+gs_node: GS
+
+# Path to command schema YAML (relative to this directory)
+command_defs: commands.yml
+
+ui:
+  rx_title: Downlink
+  tx_title: Uplink
+  splash_subtitle: Ground Station
