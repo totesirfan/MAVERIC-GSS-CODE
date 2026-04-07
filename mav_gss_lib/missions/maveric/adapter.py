@@ -193,23 +193,41 @@ class MavericMissionAdapter:
         raw_cmd = bytes(build_cmd_raw(dest, cmd_id, args_str, echo=echo, ptype=ptype, origin=src))
 
         guard = payload.get("guard", defn.get("guard", False))
-        display_fields = [
+
+        row = {
+            "src": _node_name(src),
+            "dest": _node_name(dest),
+            "echo": _node_name(echo),
+            "ptype": _ptype_name(ptype),
+            "cmd": (f"{cmd_id} {args_str}".strip() if args_str else cmd_id),
+        }
+
+        routing_block = {"kind": "routing", "label": "Routing", "fields": [
             {"name": "Src", "value": _node_name(src)},
             {"name": "Dest", "value": _node_name(dest)},
             {"name": "Echo", "value": _node_name(echo)},
             {"name": "Type", "value": _ptype_name(ptype)},
-        ]
+        ]}
+
+        args_fields = []
         for arg_def in tx_args_schema:
             val = args_dict.get(arg_def["name"], "")
             if val:
-                display_fields.append({"name": arg_def["name"], "value": str(val)})
-        for i, extra in enumerate(extra_tokens):
-            display_fields.append({"name": f"arg{len(tx_args_schema) + i}", "value": str(extra)})
+                args_fields.append({"name": arg_def["name"], "value": str(val)})
+        if isinstance(args_input, str):
+            parts = args_str.split() if args_str else []
+            for i, extra in enumerate(parts[len(tx_args_schema):]):
+                args_fields.append({"name": f"arg{len(tx_args_schema) + i}", "value": extra})
+
+        detail_blocks = [routing_block]
+        if args_fields:
+            detail_blocks.append({"kind": "args", "label": "Arguments", "fields": args_fields})
 
         display = {
             "title": cmd_id,
             "subtitle": f"{_node_name(src)} \u2192 {_node_name(dest)}",
-            "fields": display_fields,
+            "row": row,
+            "detail_blocks": detail_blocks,
         }
 
         return {"raw_cmd": raw_cmd, "display": display, "guard": guard}
@@ -547,6 +565,16 @@ class MavericMissionAdapter:
     def parse_cmd_line(self, line: str) -> tuple:
         from mav_gss_lib.missions.maveric.wire_format import parse_cmd_line
         return parse_cmd_line(line)
+
+    def tx_queue_columns(self) -> list[dict]:
+        """Return column definitions for the TX queue/history list."""
+        return [
+            {"id": "src",   "label": "src",       "width": "w-[52px]", "hide_if_all": ["GS"]},
+            {"id": "dest",  "label": "dest",      "width": "w-[52px]"},
+            {"id": "echo",  "label": "echo",      "width": "w-[52px]", "hide_if_all": ["NONE"]},
+            {"id": "ptype", "label": "type",      "width": "w-[52px]", "badge": True},
+            {"id": "cmd",   "label": "id / args", "flex": True},
+        ]
 
     def cmd_line_to_payload(self, line: str) -> dict:
         """Convert raw CLI text to a payload dict for build_tx_command.
