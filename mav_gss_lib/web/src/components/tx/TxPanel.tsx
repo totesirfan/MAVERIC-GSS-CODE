@@ -58,12 +58,14 @@ export function TxPanel({
   const missionId = config?.general?.mission ?? ''
   const MissionBuilder = getMissionBuilder(missionId)
   const [hasCommandBuilder, setHasCommandBuilder] = useState(true)
+  const [isLegacyBuilder, setIsLegacyBuilder] = useState(true)
 
   useEffect(() => {
     fetch('/api/tx/capabilities')
       .then((r) => r.json())
-      .then((caps: { command_builder?: boolean }) => {
+      .then((caps: { command_builder?: boolean; legacy_builder?: boolean }) => {
         setHasCommandBuilder(caps.command_builder ?? false)
+        setIsLegacyBuilder(caps.legacy_builder ?? false)
       })
       .catch(() => {})
   }, [])
@@ -177,8 +179,10 @@ export function TxPanel({
               <Suspense fallback={<div className="p-4 text-xs" style={{ color: colors.dim }}>Loading builder...</div>}>
                 <MissionBuilder onQueue={queueTemplate} onClose={() => setShowBuilder(false)} />
               </Suspense>
-            ) : (
+            ) : isLegacyBuilder ? (
               <CommandBuilder config={config} onQueue={queueBuilt} onClose={() => setShowBuilder(false)} />
+            ) : (
+              <CommandInput onSubmit={queueCommand} onBuilderToggle={undefined} />
             )
           ) : (
             <CommandInput onSubmit={queueCommand} onBuilderToggle={hasCommandBuilder ? () => setShowBuilder(true) : undefined} />

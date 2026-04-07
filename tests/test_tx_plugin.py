@@ -45,12 +45,12 @@ class TestTxPluginHelpers(unittest.TestCase):
     def test_get_tx_capabilities_default_no_builder(self):
         from mav_gss_lib.mission_adapter import get_tx_capabilities
         caps = get_tx_capabilities(FakeAdapterNoBuilder())
-        self.assertEqual(caps, {"raw_send": True, "command_builder": False})
+        self.assertEqual(caps, {"raw_send": True, "command_builder": False, "legacy_builder": False})
 
     def test_get_tx_capabilities_with_builder(self):
         from mav_gss_lib.mission_adapter import get_tx_capabilities
         caps = get_tx_capabilities(FakeAdapterWithBuilder())
-        self.assertEqual(caps, {"raw_send": True, "command_builder": True})
+        self.assertEqual(caps, {"raw_send": True, "command_builder": True, "legacy_builder": False})
 
     def test_get_tx_capabilities_legacy_builder(self):
         """Adapter with build_raw_command (legacy) but no build_tx_command."""
@@ -60,7 +60,7 @@ class TestTxPluginHelpers(unittest.TestCase):
             def build_raw_command(self, src, dest, echo, ptype, cmd_id, args):
                 return b""
         caps = get_tx_capabilities(LegacyAdapter())
-        self.assertEqual(caps, {"raw_send": True, "command_builder": True})
+        self.assertEqual(caps, {"raw_send": True, "command_builder": True, "legacy_builder": True})
 
 
 import threading
