@@ -13,7 +13,7 @@ import { lazy, type ComponentType } from 'react'
 import type { MissionBuilderProps } from '@/lib/types'
 
 const builders: Record<string, () => Promise<{ default: ComponentType<MissionBuilderProps> }>> = {
-  // 'maveric': () => import('./maveric/TxBuilder'),  // Phase 4
+  'maveric': () => import('./maveric/TxBuilder'),
 }
 
 export function getMissionBuilder(missionId: string): ComponentType<MissionBuilderProps> | null {
