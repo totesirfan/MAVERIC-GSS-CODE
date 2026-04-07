@@ -58,7 +58,10 @@ class MavericMissionAdapter:
         warnings = [] if warnings is None else warnings
         csp, csp_plausible = try_parse_csp_v1(inner_payload)
         if len(inner_payload) <= 4:
-            return ParsedPacket(csp=csp, csp_plausible=csp_plausible, warnings=warnings)
+            return ParsedPacket(
+                mission_data={"csp": csp, "csp_plausible": csp_plausible},
+                warnings=warnings,
+            )
 
         cmd, cmd_tail = try_parse_command(inner_payload[4:])
         ts_result = None
@@ -75,23 +78,30 @@ class MavericMissionAdapter:
                     f"CRC-32C mismatch: rx 0x{crc_rx:08x} != computed 0x{crc_comp:08x}"
                 )
 
-        return ParsedPacket(
-            csp=csp,
-            csp_plausible=csp_plausible,
-            cmd=cmd,
-            cmd_tail=cmd_tail,
-            ts_result=ts_result,
-            warnings=warnings,
-            crc_status={
+        mission_data = {
+            "csp": csp, "csp_plausible": csp_plausible,
+            "cmd": cmd, "cmd_tail": cmd_tail,
+            "ts_result": ts_result,
+            "crc_status": {
                 "csp_crc32_valid": crc_valid,
                 "csp_crc32_rx": crc_rx,
                 "csp_crc32_comp": crc_comp,
             },
+        }
+        return ParsedPacket(
+            mission_data=mission_data,
+            warnings=warnings,
         )
+
+    @staticmethod
+    def _md(pkt) -> dict:
+        """Read mission data from a packet."""
+        return getattr(pkt, "mission_data", {}) or {}
 
     def duplicate_fingerprint(self, parsed):
         """Return a mission-specific duplicate fingerprint or None."""
-        cmd = parsed.cmd
+        md = self._md(parsed)
+        cmd = md.get("cmd")
         if not (cmd and cmd.get("crc") is not None and cmd.get("csp_crc32") is not None):
             return None
         return cmd["crc"], cmd["csp_crc32"]
@@ -99,7 +109,7 @@ class MavericMissionAdapter:
     def is_uplink_echo(self, cmd) -> bool:
         """Classify whether a decoded command is the ground-station echo."""
         from mav_gss_lib.mission_adapter import ParsedPacket
-        cmd_obj = cmd.cmd if isinstance(cmd, ParsedPacket) else cmd
+        cmd_obj = self._md(cmd).get("cmd") if isinstance(cmd, ParsedPacket) else cmd
         return bool(cmd_obj and cmd_obj.get("src") == GS_NODE)
 
     def build_raw_command(self, src, dest, echo, ptype, cmd_id: str, args: str) -> bytes:
@@ -264,7 +274,8 @@ class MavericMissionAdapter:
 
     def packet_list_row(self, pkt) -> dict:
         """Return row values keyed by column ID for one packet."""
-        cmd = pkt.cmd
+        md = self._md(pkt)
+        cmd = md.get("cmd")
         args_str = ""
         if cmd and cmd.get("schema_match") and cmd.get("typed_args"):
             important = [ta for ta in cmd["typed_args"] if ta.get("important")]
@@ -311,12 +322,14 @@ class MavericMissionAdapter:
         """Return protocol/wrapper blocks for the detail view."""
         from mav_gss_lib.mission_adapter import ProtocolBlock
         from mav_gss_lib.protocols.ax25 import ax25_decode_header
+        md = self._md(pkt)
+        csp = md.get("csp")
         blocks = []
-        if pkt.csp:
+        if csp:
             blocks.append(ProtocolBlock(
                 kind="csp",
                 label="CSP V1",
-                fields=[{"name": k.capitalize(), "value": str(v)} for k, v in pkt.csp.items()],
+                fields=[{"name": k.capitalize(), "value": str(v)} for k, v in csp.items()],
             ))
         if pkt.stripped_hdr:
             ax25_fields = [{"name": "Header", "value": pkt.stripped_hdr}]
@@ -340,8 +353,9 @@ class MavericMissionAdapter:
     def integrity_blocks(self, pkt) -> list:
         """Return integrity check blocks for the detail view."""
         from mav_gss_lib.mission_adapter import IntegrityBlock
+        md = self._md(pkt)
         blocks = []
-        cmd = pkt.cmd
+        cmd = md.get("cmd")
         if cmd and cmd.get("crc") is not None:
             blocks.append(IntegrityBlock(
                 kind="crc16",
@@ -350,7 +364,7 @@ class MavericMissionAdapter:
                 ok=cmd.get("crc_valid"),
                 received=f"0x{cmd['crc']:04X}" if cmd.get("crc") is not None else None,
             ))
-        crc_status = pkt.crc_status
+        crc_status = md.get("crc_status", {})
         if crc_status.get("csp_crc32_valid") is not None:
             blocks.append(IntegrityBlock(
                 kind="crc32c",
@@ -364,14 +378,16 @@ class MavericMissionAdapter:
 
     def packet_detail_blocks(self, pkt) -> list[dict]:
         """Return mission-specific semantic blocks for the detail view."""
-        cmd = pkt.cmd
+        md = self._md(pkt)
+        cmd = md.get("cmd")
+        ts_result = md.get("ts_result")
         blocks = []
 
         time_block = {"kind": "time", "label": "Time", "fields": [
             {"name": "GS Time", "value": pkt.gs_ts},
         ]}
-        if pkt.ts_result:
-            dt_utc, dt_local, ms = pkt.ts_result
+        if ts_result:
+            dt_utc, dt_local, ms = ts_result
             if dt_utc:
                 time_block["fields"].append({"name": "SAT UTC", "value": dt_utc.strftime("%H:%M:%S") + " UTC"})
             if dt_local:
@@ -417,19 +433,22 @@ class MavericMissionAdapter:
         build_rx_log_record(), but scoped under a 'mission' key in the
         platform envelope.
         """
+        md = self._md(pkt)
         data = {}
-        if pkt.csp:
-            data["csp_candidate"] = pkt.csp
-            data["csp_plausible"] = pkt.csp_plausible
-        if pkt.ts_result:
-            data["sat_ts_ms"] = pkt.ts_result[2]
-        crc_status = pkt.crc_status
+        csp = md.get("csp")
+        if csp:
+            data["csp_candidate"] = csp
+            data["csp_plausible"] = md.get("csp_plausible", False)
+        ts_result = md.get("ts_result")
+        if ts_result:
+            data["sat_ts_ms"] = ts_result[2]
+        crc_status = md.get("crc_status", {})
         if crc_status.get("csp_crc32_valid") is not None:
             data["csp_crc32"] = {
                 "valid": crc_status["csp_crc32_valid"],
                 "received": f"0x{crc_status['csp_crc32_rx']:08x}",
             }
-        cmd = pkt.cmd
+        cmd = md.get("cmd")
         if cmd:
             cmd_log = {
                 "src": cmd["src"], "dest": cmd["dest"],
@@ -454,8 +473,9 @@ class MavericMissionAdapter:
                 if cmd.get("schema_warning"):
                     cmd_log["schema_warning"] = cmd["schema_warning"]
             data["cmd"] = cmd_log
-            if pkt.cmd_tail:
-                data["tail_hex"] = pkt.cmd_tail.hex()
+            cmd_tail = md.get("cmd_tail")
+            if cmd_tail:
+                data["tail_hex"] = cmd_tail.hex()
         return data
 
     def format_log_lines(self, pkt) -> list[str]:
@@ -467,6 +487,7 @@ class MavericMissionAdapter:
         """
         from mav_gss_lib.missions.maveric.wire_format import format_arg_value
 
+        md = self._md(pkt)
         lines = []
 
         # AX.25 header
@@ -484,15 +505,15 @@ class MavericMissionAdapter:
                 lines.append(f"  {'AX.25 HDR':<12}{pkt.stripped_hdr}")
 
         # CSP header
-        csp = pkt.csp
+        csp = md.get("csp")
         if csp:
-            tag = "CSP V1" if pkt.csp_plausible else "CSP V1 [?]"
+            tag = "CSP V1" if md.get("csp_plausible") else "CSP V1 [?]"
             lines.append(f"  {tag:<12}"
                 f"Prio:{csp['prio']}  Src:{csp['src']}  Dest:{csp['dest']}  "
                 f"DPort:{csp['dport']}  SPort:{csp['sport']}  Flags:0x{csp['flags']:02X}")
 
         # Satellite time
-        ts_result = pkt.ts_result
+        ts_result = md.get("ts_result")
         if ts_result:
             dt_utc, dt_local, raw_ms = ts_result
             lines.append(f"  {'SAT TIME':<12}"
@@ -500,7 +521,7 @@ class MavericMissionAdapter:
                 f"{dt_local.strftime('%Y-%m-%d %H:%M:%S %Z')}  ({raw_ms})")
 
         # Command
-        cmd = pkt.cmd
+        cmd = md.get("cmd")
         if cmd:
             lines.append(f"  {'CMD':<12}"
                 f"Src:{_wire_node_name(cmd['src'])}  Dest:{_wire_node_name(cmd['dest'])}  "
@@ -522,7 +543,7 @@ class MavericMissionAdapter:
         if cmd and cmd.get("crc") is not None:
             tag = "OK" if cmd.get("crc_valid") else "FAIL"
             lines.append(f"  {'CRC-16':<12}0x{cmd['crc']:04x} [{tag}]")
-        crc_status = pkt.crc_status
+        crc_status = md.get("crc_status", {})
         if crc_status.get("csp_crc32_valid") is not None:
             tag = "OK" if crc_status["csp_crc32_valid"] else "FAIL"
             lines.append(f"  {'CRC-32C':<12}0x{crc_status['csp_crc32_rx']:08x} [{tag}]")
@@ -531,7 +552,7 @@ class MavericMissionAdapter:
 
     def is_unknown_packet(self, parsed) -> bool:
         """MAVERIC: a packet is unknown when no command was decoded."""
-        cmd = parsed.cmd if hasattr(parsed, 'cmd') else None
+        cmd = self._md(parsed).get("cmd")
         return cmd is None
 
     # -- Resolution contract (Phase 11) --

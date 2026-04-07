@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import unittest
 
-from ops_test_support import CMD_DEFS, CMD_WARN
+from ops_test_support import CMD_DEFS
 
 from mav_gss_lib.missions.maveric.adapter import MavericMissionAdapter
 from mav_gss_lib.protocols.ax25 import AX25Config
@@ -23,10 +23,10 @@ class TestProtocolCore(unittest.TestCase):
     """Covers protocol truth plus the current mission-adapter seam."""
 
     def setUp(self):
-        self.adapter = MavericMissionAdapter(CMD_DEFS)
+        self.adapter = MavericMissionAdapter(cmd_defs=CMD_DEFS)
 
     def test_schema_loads_from_repo(self):
-        self.assertIsNone(CMD_WARN)
+        self.assertGreater(len(CMD_DEFS), 0)
         self.assertIn("ping", CMD_DEFS)
         self.assertIn("set_mode", CMD_DEFS)
 
@@ -93,7 +93,8 @@ class TestProtocolCore(unittest.TestCase):
         self.assertEqual(warnings, [])
 
         parsed = self.adapter.parse_packet(inner)
-        cmd, tail, ts_result = parsed.cmd, parsed.cmd_tail, parsed.ts_result
+        md = parsed.mission_data
+        cmd, tail, ts_result = md["cmd"], md["cmd_tail"], md["ts_result"]
         self.assertEqual(cmd["cmd_id"], "set_mode")
         self.assertEqual(cmd["args"], ["NOMINAL"])
         self.assertTrue(cmd["schema_match"])
@@ -104,8 +105,8 @@ class TestProtocolCore(unittest.TestCase):
         inner = CSPConfig().wrap(build_cmd_raw(2, "ping", "REQ"))
         warnings = []
         parsed = self.adapter.parse_packet(inner, warnings)
-        cmd = parsed.cmd
-        clean = parsed.crc_status
+        cmd = parsed.mission_data["cmd"]
+        clean = parsed.mission_data["crc_status"]
         self.assertTrue(clean["csp_crc32_valid"])
         self.assertEqual(warnings, [])
 
@@ -113,7 +114,7 @@ class TestProtocolCore(unittest.TestCase):
         corrupted[-1] ^= 0xFF
         warnings = []
         bad_parsed = self.adapter.parse_packet(bytes(corrupted), warnings)
-        bad = bad_parsed.crc_status
+        bad = bad_parsed.mission_data["crc_status"]
         self.assertFalse(bad["csp_crc32_valid"])
         self.assertTrue(any("CRC-32C mismatch" in msg for msg in warnings))
         self.assertTrue(self.adapter.is_uplink_echo({"src": 6}))

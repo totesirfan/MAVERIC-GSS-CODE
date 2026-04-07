@@ -22,7 +22,7 @@ DUP_WINDOW = 1.0  # seconds -- only flag as duplicate if same fingerprint seen w
 
 @dataclass
 class Packet:
-    """Structured record for a received packet -- replaces flat dict."""
+    """Structured record for a received packet."""
     pkt_num: int = 0
     gs_ts: str = ""
     gs_ts_short: str = ""
@@ -30,16 +30,10 @@ class Packet:
     raw: bytes = b""
     inner_payload: bytes = b""
     stripped_hdr: str | None = None
-    csp: dict | None = None
-    csp_plausible: bool = False
-    ts_result: tuple | None = None
-    cmd: dict | None = None
-    cmd_tail: bytes | None = None
+    mission_data: dict = field(default_factory=dict)
     text: str = ""
     warnings: list = field(default_factory=list)
     delta_t: float | None = None
-    crc_status: dict = field(default_factory=lambda: {
-        "csp_crc32_valid": None, "csp_crc32_rx": None, "csp_crc32_comp": None})
     is_dup: bool = False
     is_uplink_echo: bool = False
     is_unknown: bool = False
@@ -103,13 +97,7 @@ class RxPipeline:
         inner_payload, stripped_hdr, warnings = self.adapter.normalize_frame(frame_type, raw)
 
         parsed = self.adapter.parse_packet(inner_payload, warnings)
-        csp = parsed.csp
-        csp_plausible = parsed.csp_plausible
-        cmd = parsed.cmd
-        cmd_tail = parsed.cmd_tail
-        ts_result = parsed.ts_result
         warnings = parsed.warnings
-        crc_status = parsed.crc_status
 
         # Classification
         is_dup = self._check_duplicate(parsed, now)
@@ -136,15 +124,10 @@ class RxPipeline:
             raw=raw,
             inner_payload=inner_payload,
             stripped_hdr=stripped_hdr,
-            csp=csp,
-            csp_plausible=csp_plausible,
-            ts_result=ts_result,
-            cmd=cmd,
-            cmd_tail=cmd_tail,
+            mission_data=parsed.mission_data,
             text=clean_text(inner_payload),
             warnings=warnings,
             delta_t=delta_t,
-            crc_status=crc_status,
             is_dup=is_dup,
             is_uplink_echo=is_uplink_echo,
             is_unknown=is_unknown,

@@ -35,14 +35,14 @@ class TestRxPipelineBehavior(unittest.TestCase):
         payload = self.ax25.wrap(self.csp.wrap(raw))
         pkt = self.pipeline.process(META_AX25, payload)
         self.assertFalse(pkt.is_uplink_echo)
-        self.assertEqual(pkt.cmd["cmd_id"], "tlm_beacon")
+        self.assertEqual(pkt.mission_data["cmd"]["cmd_id"], "tlm_beacon")
 
     def test_golay_meta_is_classified_as_asm_golay(self):
         raw = build_cmd_raw(2, "ping", "REQ")
         payload = self.csp.wrap(raw)
         pkt = self.pipeline.process(META_GOLAY, payload)
         self.assertEqual(pkt.frame_type, "ASM+GOLAY")
-        self.assertEqual(pkt.cmd["cmd_id"], "ping")
+        self.assertEqual(pkt.mission_data["cmd"]["cmd_id"], "ping")
 
     def test_log_record_contains_operationally_relevant_fields(self):
         raw = build_cmd_raw(2, "set_mode", "NOMINAL")

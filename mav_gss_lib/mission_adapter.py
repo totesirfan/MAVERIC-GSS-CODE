@@ -22,28 +22,15 @@ from typing import Protocol, runtime_checkable
 
 @dataclass
 class ParsedPacket:
-    """Normalized packet parse result returned by a mission adapter.
+    """Mission-opaque packet parse result returned by a mission adapter.
 
-    Transitional compatibility note: the csp, cmd, cmd_tail, and
-    ts_result fields reflect MAVERIC's packet model and are kept for
-    backward compatibility during migration.  The platform's eventual
-    packet record should carry mission-opaque semantic data via
-    adapter-provided rendering payloads rather than baking in any
-    one mission's field names.  These fields may be replaced or
-    generalized in a future phase.
+    The adapter populates mission_data with whatever mission-specific
+    semantics it needs. The platform never reads mission_data directly —
+    it passes it through to adapter rendering/logging methods.
     """
 
-    csp: dict | None = None          # transitional -- MAVERIC CSP parse result
-    csp_plausible: bool = False
-    cmd: dict | None = None          # transitional -- MAVERIC command dict
-    cmd_tail: bytes | None = None    # transitional -- unparsed tail bytes
-    ts_result: tuple | None = None   # transitional -- satellite timestamp
+    mission_data: dict = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
-    crc_status: dict = field(default_factory=lambda: {
-        "csp_crc32_valid": None,
-        "csp_crc32_rx": None,
-        "csp_crc32_comp": None,
-    })
 
 
 # =============================================================================
@@ -123,6 +110,7 @@ class MissionAdapter(Protocol):
     def resolve_ptype(self, s: str) -> int | None: ...
     def parse_cmd_line(self, line: str) -> tuple: ...
     def cmd_line_to_payload(self, line: str) -> dict: ...
+    def tx_queue_columns(self) -> list[dict]: ...
 
 
 # =============================================================================
@@ -150,6 +138,7 @@ def validate_adapter(adapter, api_version: int, mission_name: str) -> None:
             'build_log_mission_data', 'format_log_lines', 'is_unknown_packet',
             'node_name', 'ptype_name', 'node_label', 'ptype_label',
             'resolve_node', 'resolve_ptype', 'parse_cmd_line', 'cmd_line_to_payload',
+            'tx_queue_columns',
         ):
             if not hasattr(adapter, method_name):
                 missing.append(method_name)

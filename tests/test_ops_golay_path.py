@@ -6,7 +6,7 @@ import unittest
 
 from ops_test_support import CMD_DEFS, decode_golay_via_flowgraph, decode_golay_via_gr
 
-from mav_gss_lib.golay import MAX_PAYLOAD, build_asm_golay_frame
+from mav_gss_lib.protocols.golay import MAX_PAYLOAD, build_asm_golay_frame
 from mav_gss_lib.parsing import RxPipeline
 from mav_gss_lib.protocols.csp import CSPConfig
 from mav_gss_lib.missions.maveric.wire_format import build_cmd_raw
@@ -47,10 +47,10 @@ class TestGolayPath(unittest.TestCase):
 
         pkt = self.pipeline.process(META_GOLAY, decoded)
         self.assertEqual(pkt.frame_type, "ASM+GOLAY")
-        self.assertEqual(pkt.cmd["cmd_id"], "ping")
-        self.assertTrue(pkt.cmd["crc_valid"])
-        self.assertTrue(pkt.crc_status["csp_crc32_valid"])
-        self.assertTrue(pkt.cmd["schema_match"])
+        self.assertEqual(pkt.mission_data["cmd"]["cmd_id"], "ping")
+        self.assertTrue(pkt.mission_data["cmd"]["crc_valid"])
+        self.assertTrue(pkt.mission_data["crc_status"]["csp_crc32_valid"])
+        self.assertTrue(pkt.mission_data["cmd"]["schema_match"])
 
     def test_gr_satellites_roundtrip_at_rs_limit(self):
         packet = bytes(range(256))[:MAX_PAYLOAD]
@@ -67,11 +67,11 @@ class TestGolayPath(unittest.TestCase):
 
         pkt = self.pipeline.process(meta, decoded)
         self.assertEqual(pkt.frame_type, "ASM+GOLAY")
-        self.assertEqual(pkt.cmd["cmd_id"], "set_mode")
-        self.assertEqual(pkt.cmd["args"], ["NOMINAL"])
-        self.assertTrue(pkt.cmd["crc_valid"])
-        self.assertTrue(pkt.crc_status["csp_crc32_valid"])
-        self.assertTrue(pkt.cmd["schema_match"])
+        self.assertEqual(pkt.mission_data["cmd"]["cmd_id"], "set_mode")
+        self.assertEqual(pkt.mission_data["cmd"]["args"], ["NOMINAL"])
+        self.assertTrue(pkt.mission_data["cmd"]["crc_valid"])
+        self.assertTrue(pkt.mission_data["crc_status"]["csp_crc32_valid"])
+        self.assertTrue(pkt.mission_data["cmd"]["schema_match"])
 
 
 if __name__ == "__main__":

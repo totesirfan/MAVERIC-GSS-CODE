@@ -143,12 +143,14 @@ class TestMavericLoggingMethods(unittest.TestCase):
         pkt.inner_payload = b"\xBE\xEF"
         pkt.delta_t = 1.5
         pkt.stripped_hdr = "WM2XBB>WS9XSW"
-        pkt.csp = csp
-        pkt.csp_plausible = csp is not None
-        pkt.cmd = cmd
-        pkt.cmd_tail = None
-        pkt.ts_result = ts_result
-        pkt.crc_status = crc_status or {"csp_crc32_valid": None, "csp_crc32_rx": None, "csp_crc32_comp": None}
+        pkt.mission_data = {
+            "csp": csp,
+            "csp_plausible": csp is not None,
+            "cmd": cmd,
+            "cmd_tail": None,
+            "ts_result": ts_result,
+            "crc_status": crc_status or {"csp_crc32_valid": None, "csp_crc32_rx": None, "csp_crc32_comp": None},
+        }
         pkt.text = ""
         pkt.warnings = []
         pkt.is_dup = False
@@ -206,7 +208,7 @@ class TestMavericLoggingMethods(unittest.TestCase):
     def test_is_unknown_packet_with_command(self):
         """MAVERIC: packet with a parsed command is not unknown."""
         from mav_gss_lib.mission_adapter import ParsedPacket
-        parsed = ParsedPacket(cmd={"cmd_id": "com_ping"})
+        parsed = ParsedPacket(mission_data={"cmd": {"cmd_id": "com_ping"}})
         self.assertFalse(self.adapter.is_unknown_packet(parsed))
 
     def test_is_unknown_packet_without_command(self):
@@ -238,12 +240,14 @@ class TestPlatformLogEnvelope(unittest.TestCase):
         pkt.inner_payload = b"\xBE\xEF"
         pkt.delta_t = 1.5
         pkt.stripped_hdr = None
-        pkt.csp = None
-        pkt.csp_plausible = False
-        pkt.cmd = None
-        pkt.cmd_tail = None
-        pkt.ts_result = None
-        pkt.crc_status = {"csp_crc32_valid": None, "csp_crc32_rx": None, "csp_crc32_comp": None}
+        pkt.mission_data = {
+            "csp": None,
+            "csp_plausible": False,
+            "cmd": None,
+            "cmd_tail": None,
+            "ts_result": None,
+            "crc_status": {"csp_crc32_valid": None, "csp_crc32_rx": None, "csp_crc32_comp": None},
+        }
         pkt.text = ""
         pkt.warnings = []
         pkt.is_dup = False
@@ -274,10 +278,10 @@ class TestPlatformLogEnvelope(unittest.TestCase):
         """Platform envelope includes serialized protocol/integrity blocks."""
         from mav_gss_lib.parsing import build_rx_log_record
         pkt = self._make_pkt()
-        pkt.csp = {"prio": 2, "src": 0, "dest": 8, "dport": 24, "sport": 0, "flags": 0}
-        pkt.csp_plausible = True
+        pkt.mission_data["csp"] = {"prio": 2, "src": 0, "dest": 8, "dport": 24, "sport": 0, "flags": 0}
+        pkt.mission_data["csp_plausible"] = True
         pkt.is_unknown = False
-        pkt.cmd = {
+        pkt.mission_data["cmd"] = {
             "src": 6, "dest": 1, "echo": 0, "pkt_type": 2,
             "cmd_id": "com_ping", "crc": 0x1234, "crc_valid": True,
             "args": [], "schema_match": False,
@@ -292,7 +296,7 @@ class TestPlatformLogEnvelope(unittest.TestCase):
         """Platform envelope contains adapter-provided mission block."""
         from mav_gss_lib.parsing import build_rx_log_record
         pkt = self._make_pkt()
-        pkt.cmd = {
+        pkt.mission_data["cmd"] = {
             "src": 6, "dest": 1, "echo": 0, "pkt_type": 2,
             "cmd_id": "com_ping", "crc": 0x1234, "crc_valid": True,
             "args": [], "schema_match": False,
@@ -307,8 +311,8 @@ class TestPlatformLogEnvelope(unittest.TestCase):
         """Platform envelope does not contain flat MAVERIC-specific fields at top level."""
         from mav_gss_lib.parsing import build_rx_log_record
         pkt = self._make_pkt()
-        pkt.csp = {"prio": 2, "src": 0, "dest": 8, "dport": 24, "sport": 0, "flags": 0}
-        pkt.cmd = {
+        pkt.mission_data["csp"] = {"prio": 2, "src": 0, "dest": 8, "dport": 24, "sport": 0, "flags": 0}
+        pkt.mission_data["cmd"] = {
             "src": 6, "dest": 1, "echo": 0, "pkt_type": 2,
             "cmd_id": "com_ping", "crc": 0x1234, "crc_valid": True,
             "args": [], "schema_match": False,
