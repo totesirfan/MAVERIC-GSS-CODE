@@ -24,7 +24,15 @@ function createEmptyStats(): RxPacketStats {
 }
 
 function packetHasEcho(packet: RxPacket): boolean {
-  return Boolean(packet.echo && packet.echo !== 'NONE' && packet.echo !== '0')
+  return packet.is_echo
+}
+
+function packetHasCrcFail(packet: RxPacket): boolean {
+  const flags = packet._rendering?.row?.values?.flags
+  if (Array.isArray(flags)) {
+    return flags.some((f: unknown) => typeof f === 'object' && f !== null && (f as Record<string, string>).tag === 'CRC')
+  }
+  return false
 }
 
 export function useRxSocket() {
@@ -74,7 +82,7 @@ export function useRxSocket() {
           livePacketsRef.current.push(pkt)
           const nextStats = statsRef.current
           nextStats.total += 1
-          if (pkt.crc16_ok === false) nextStats.crcFailures += 1
+          if (packetHasCrcFail(pkt)) nextStats.crcFailures += 1
           if (pkt.is_dup) nextStats.dupCount += 1
           if (!nextStats.hasEcho && packetHasEcho(pkt)) nextStats.hasEcho = true
 
@@ -82,7 +90,7 @@ export function useRxSocket() {
             const removed = livePacketsRef.current.shift()
             if (removed) {
               nextStats.total -= 1
-              if (removed.crc16_ok === false) nextStats.crcFailures -= 1
+              if (packetHasCrcFail(removed)) nextStats.crcFailures -= 1
               if (removed.is_dup) nextStats.dupCount -= 1
               if (nextStats.hasEcho && packetHasEcho(removed) && !livePacketsRef.current.some(packetHasEcho)) {
                 nextStats.hasEcho = false
@@ -127,9 +135,11 @@ export function useRxSocket() {
 
   /** Exit replay mode -- restores live packets */
   const exitReplay = useCallback(() => {
+    replayRef.current = false
     setReplayMode(false)
-    syncVisiblePackets()
-  }, [syncVisiblePackets])
+    setPackets([...livePacketsRef.current])
+    setStats({ ...statsRef.current })
+  }, [])
 
   return { packets, status, connected, stats, columns, clearPackets, replayMode, replacePackets, enterReplay, exitReplay }
 }
