@@ -547,3 +547,47 @@ class MavericMissionAdapter:
     def parse_cmd_line(self, line: str) -> tuple:
         from mav_gss_lib.missions.maveric.wire_format import parse_cmd_line
         return parse_cmd_line(line)
+
+    def cmd_line_to_payload(self, line: str) -> dict:
+        """Convert raw CLI text to a payload dict for build_tx_command.
+
+        Handles two input formats:
+        - Shortcut: CMD_ID [ARGS]  (when cmd_id has routing defaults in schema)
+        - Full:     [SRC] DEST ECHO TYPE CMD_ID [ARGS]
+
+        Returns: {cmd_id, args, dest, echo, ptype[, src]} for build_tx_command.
+        Only includes 'src' when explicitly provided in full format.
+        Raises ValueError on parse failure or unknown command.
+        """
+        line = line.strip()
+        if not line:
+            raise ValueError("empty command input")
+
+        parts = line.split()
+        candidate = parts[0].lower()
+        defn = self.cmd_defs.get(candidate)
+
+        if defn and not defn.get("rx_only") and defn.get("dest") is not None:
+            # Shortcut path: cmd_id [args...]
+            args = " ".join(parts[1:])
+            return {
+                "cmd_id": candidate,
+                "args": args,
+                "dest": _wire_node_name(defn["dest"]),
+                "echo": _wire_node_name(defn["echo"]),
+                "ptype": _wire_ptype_name(defn["ptype"]),
+            }
+
+        # Full parse path: [SRC] DEST ECHO TYPE CMD [ARGS]
+        src, dest, echo, ptype, cmd_id, args = self.parse_cmd_line(line)
+        result = {
+            "cmd_id": cmd_id,
+            "args": args,
+            "dest": _wire_node_name(dest),
+            "echo": _wire_node_name(echo),
+            "ptype": _wire_ptype_name(ptype),
+        }
+        # Include explicit src only when it differs from GS_NODE
+        if src != GS_NODE:
+            result["src"] = _wire_node_name(src)
+        return result

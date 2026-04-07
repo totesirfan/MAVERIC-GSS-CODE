@@ -430,5 +430,99 @@ class TestBuildTxCommandStringArgs(unittest.TestCase):
         self.assertEqual(field_map["Src"], node_name(GS_NODE))
 
 
+class TestCmdLineToPayload(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        cls.adapter = _make_maveric_adapter()
+        # Find a non-rx-only command with schema routing defaults (dest set)
+        cmd_defs = cls.adapter.cmd_defs
+        cls.cmd_with_defaults = None      # any command with dest set
+        cls.cmd_with_args = None          # command with tx_args and dest set
+        cls.cmd_no_args_defaults = None   # zero-arg command with dest set (for roundtrip)
+        for cmd_id, defn in cmd_defs.items():
+            if defn.get("rx_only"):
+                continue
+            if defn.get("dest") is not None:
+                if defn.get("tx_args") and not cls.cmd_with_args:
+                    cls.cmd_with_args = (cmd_id, defn)
+                if not defn.get("tx_args") and not cls.cmd_no_args_defaults:
+                    cls.cmd_no_args_defaults = (cmd_id, defn)
+                if not cls.cmd_with_defaults:
+                    cls.cmd_with_defaults = (cmd_id, defn)
+            if cls.cmd_with_defaults and cls.cmd_with_args and cls.cmd_no_args_defaults:
+                break
+
+    def test_shortcut_format(self):
+        """Shortcut format (just cmd_id) returns payload with routing defaults."""
+        cmd_id, defn = self.cmd_with_defaults
+        payload = self.adapter.cmd_line_to_payload(cmd_id)
+        self.assertEqual(payload["cmd_id"], cmd_id)
+        self.assertIn("dest", payload)
+        self.assertIn("echo", payload)
+        self.assertIn("ptype", payload)
+
+    def test_shortcut_with_args(self):
+        """Shortcut format with args preserves args string."""
+        if self.cmd_with_args is None:
+            self.skipTest("No command with tx_args found in schema")
+        cmd_id, defn = self.cmd_with_args
+        tx_args = defn.get("tx_args", [])
+        args_str = " ".join("test" for _ in tx_args)
+        line = f"{cmd_id} {args_str}"
+        payload = self.adapter.cmd_line_to_payload(line)
+        self.assertEqual(payload["cmd_id"], cmd_id)
+        self.assertEqual(payload["args"], args_str)
+
+    def test_full_format_without_src(self):
+        """Full format (DEST ECHO TYPE CMD) sets cmd_id and dest, no src key."""
+        from mav_gss_lib.missions.maveric.wire_format import node_name, ptype_name
+        cmd_id, defn = self.cmd_with_defaults
+        dest_name = defn.get("dest") if isinstance(defn.get("dest"), str) else node_name(defn["dest"])
+        echo_name = node_name(defn.get("echo", 0)) if isinstance(defn.get("echo"), int) else defn.get("echo", "NONE")
+        ptype_n = ptype_name(defn.get("ptype", 1)) if isinstance(defn.get("ptype"), int) else defn.get("ptype", "CMD")
+        line = f"{dest_name} {echo_name} {ptype_n} {cmd_id}"
+        payload = self.adapter.cmd_line_to_payload(line)
+        self.assertEqual(payload["cmd_id"], cmd_id)
+        self.assertEqual(payload["dest"], dest_name)
+        self.assertNotIn("src", payload)
+
+    def test_full_format_with_explicit_src(self):
+        """Full format (SRC DEST ECHO TYPE CMD) sets src key when non-default."""
+        from mav_gss_lib.missions.maveric.wire_format import node_name, ptype_name, NODE_NAMES, GS_NODE
+        cmd_id, defn = self.cmd_with_defaults
+        dest_name = defn.get("dest") if isinstance(defn.get("dest"), str) else node_name(defn["dest"])
+        echo_name = node_name(defn.get("echo", 0)) if isinstance(defn.get("echo"), int) else defn.get("echo", "NONE")
+        ptype_n = ptype_name(defn.get("ptype", 1)) if isinstance(defn.get("ptype"), int) else defn.get("ptype", "CMD")
+        # Pick a src that differs from GS_NODE
+        alt_src = next((v for k, v in sorted(NODE_NAMES.items()) if k != GS_NODE), None)
+        if alt_src is None:
+            self.skipTest("No alternate src node available")
+        line = f"{alt_src} {dest_name} {echo_name} {ptype_n} {cmd_id}"
+        payload = self.adapter.cmd_line_to_payload(line)
+        self.assertIn("src", payload)
+        self.assertEqual(payload["src"], alt_src)
+
+    def test_roundtrip_through_build(self):
+        """cmd_line_to_payload output feeds into build_tx_command successfully."""
+        if self.cmd_no_args_defaults is None:
+            self.skipTest("No zero-arg command with defaults found in schema")
+        cmd_id, defn = self.cmd_no_args_defaults
+        payload = self.adapter.cmd_line_to_payload(cmd_id)
+        result = self.adapter.build_tx_command(payload)
+        self.assertIsInstance(result["raw_cmd"], bytes)
+        self.assertIn("display", result)
+
+    def test_unknown_command_raises(self):
+        """ValueError raised for an unknown command ID."""
+        with self.assertRaises(ValueError):
+            self.adapter.cmd_line_to_payload("__totally_unknown_cmd__")
+
+    def test_empty_input_raises(self):
+        """ValueError raised for empty input."""
+        with self.assertRaises(ValueError):
+            self.adapter.cmd_line_to_payload("")
+
+
 if __name__ == "__main__":
     unittest.main()
