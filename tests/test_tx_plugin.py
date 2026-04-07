@@ -187,5 +187,96 @@ class TestMissionCmdQueueProjection(unittest.TestCase):
         self.assertEqual(item2["num"], 2)
 
 
+class TestMavericBuildTxCommand(unittest.TestCase):
+    """Test MAVERIC adapter's build_tx_command implementation."""
+
+    def _make_adapter(self):
+        from mav_gss_lib.config import load_gss_config
+        from mav_gss_lib.mission_adapter import load_mission_adapter
+        cfg = load_gss_config()
+        return load_mission_adapter(cfg)
+
+    def test_build_tx_command_returns_raw_cmd(self):
+        adapter = self._make_adapter()
+        result = adapter.build_tx_command({
+            "cmd_id": "com_ping",
+            "args": {},
+            "dest": "LPPM",
+            "echo": "NONE",
+            "ptype": "CMD",
+        })
+        self.assertIn("raw_cmd", result)
+        self.assertIsInstance(result["raw_cmd"], bytes)
+        self.assertGreater(len(result["raw_cmd"]), 0)
+
+    def test_build_tx_command_returns_display(self):
+        adapter = self._make_adapter()
+        result = adapter.build_tx_command({
+            "cmd_id": "com_ping",
+            "args": {},
+            "dest": "LPPM",
+            "echo": "NONE",
+            "ptype": "CMD",
+        })
+        display = result["display"]
+        self.assertIn("title", display)
+        self.assertIn("fields", display)
+        self.assertEqual(display["title"], "com_ping")
+
+    def test_build_tx_command_with_args(self):
+        adapter = self._make_adapter()
+        result = adapter.build_tx_command({
+            "cmd_id": "ping",
+            "args": {"Type": "hello"},
+            "dest": "LPPM",
+            "echo": "NONE",
+            "ptype": "CMD",
+        })
+        self.assertIn("raw_cmd", result)
+        display = result["display"]
+        self.assertIn("fields", display)
+        field_names = [f["name"] for f in display["fields"]]
+        self.assertIn("Type", field_names)
+
+    def test_build_tx_command_rejects_unknown_cmd(self):
+        adapter = self._make_adapter()
+        with self.assertRaises(ValueError):
+            adapter.build_tx_command({
+                "cmd_id": "nonexistent_cmd_xyz",
+                "args": {},
+                "dest": "LPPM",
+                "echo": "NONE",
+                "ptype": "CMD",
+            })
+
+    def test_build_tx_command_rejects_unknown_node(self):
+        adapter = self._make_adapter()
+        with self.assertRaises(ValueError):
+            adapter.build_tx_command({
+                "cmd_id": "com_ping",
+                "args": {},
+                "dest": "NONEXISTENT_NODE",
+                "echo": "NONE",
+                "ptype": "CMD",
+            })
+
+    def test_build_tx_command_guard_from_schema(self):
+        adapter = self._make_adapter()
+        result = adapter.build_tx_command({
+            "cmd_id": "com_ping",
+            "args": {},
+            "dest": "LPPM",
+            "echo": "NONE",
+            "ptype": "CMD",
+        })
+        self.assertIn("guard", result)
+        self.assertIsInstance(result["guard"], bool)
+
+    def test_has_tx_builder_true_for_maveric(self):
+        from mav_gss_lib.mission_adapter import has_tx_builder
+        adapter = self._make_adapter()
+        self.assertTrue(has_tx_builder(adapter))
+
+
 if __name__ == "__main__":
     unittest.main()

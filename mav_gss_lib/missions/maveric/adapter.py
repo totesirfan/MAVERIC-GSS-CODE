@@ -110,123 +110,102 @@ class MavericMissionAdapter:
         """Validate TX arguments using the active mission command schema."""
         return validate_args(cmd_id, args, self.cmd_defs)
 
-    def packet_to_json(self, pkt) -> dict:
-        """Transitional: convert Packet to the JSON shape the current frontend expects.
+    def build_tx_command(self, payload):
+        """Build a mission command from structured input.
 
-        STATUS: Phase 11 removal candidate. Will be replaced when the frontend
-        consumes rendering-slot data exclusively and the flat JSON shape is retired.
+        Accepts: {cmd_id, args: {name: value, ...}, dest, echo, ptype, guard?}
+        Returns: {raw_cmd: bytes, display: dict, guard: bool}
+        Raises ValueError on validation failure.
         """
-        cmd = pkt.cmd
-        args_named = []
-        args_extra = []
-        if cmd and cmd.get("schema_match") and cmd.get("typed_args"):
-            for ta in cmd["typed_args"]:
-                val = ta.get("value", "")
-                if ta["type"] == "epoch_ms":
-                    if hasattr(val, "ms"):
-                        val = val.ms
-                    elif isinstance(val, dict) and "ms" in val:
-                        val = val["ms"]
-                if isinstance(val, (bytes, bytearray)):
-                    val = val.hex()
-                args_named.append({
-                    "name": ta["name"],
-                    "value": str(val),
-                    "important": bool(ta.get("important")),
-                })
-            args_extra = [
-                a.hex() if isinstance(a, (bytes, bytearray)) else str(a)
-                for a in cmd.get("extra_args", [])
-            ]
-        elif cmd:
-            raw_args = cmd.get("args", [])
-            if isinstance(raw_args, list):
-                args_extra = [str(a) for a in raw_args]
-            else:
-                args_extra = [str(raw_args)] if raw_args else []
+        cmd_id = payload.get("cmd_id", "").lower()
+        args_dict = payload.get("args", {})
+        dest_name = payload.get("dest", "")
+        echo_name = payload.get("echo", "NONE")
+        ptype_name = payload.get("ptype", "CMD")
 
-        payload = {
-            "num": pkt.pkt_num,
-            "time": pkt.gs_ts_short,
-            "time_utc": pkt.gs_ts,
-            "frame": pkt.frame_type,
-            "src": _wire_node_name(cmd["src"]) if cmd else "",
-            "dest": _wire_node_name(cmd["dest"]) if cmd else "",
-            "echo": _wire_node_name(cmd["echo"]) if cmd else "",
-            "ptype": _wire_ptype_name(cmd["pkt_type"]) if cmd else "",
-            "cmd": cmd["cmd_id"] if cmd else "",
-            "args_named": args_named,
-            "args_extra": args_extra,
-            "size": len(pkt.raw),
-            "crc16_ok": cmd.get("crc_valid") if cmd else None,
-            "crc32_ok": pkt.crc_status.get("csp_crc32_valid"),
-            "is_echo": pkt.is_uplink_echo,
-            "is_dup": pkt.is_dup,
-            "is_unknown": pkt.is_unknown,
-            "raw_hex": pkt.raw.hex(),
-            "warnings": pkt.warnings,
-            "csp_header": pkt.csp,
-            "ax25_header": pkt.stripped_hdr,
-        }
-        if pkt.ts_result:
-            dt_utc, dt_local, ms = pkt.ts_result
-            payload["sat_time_utc"] = dt_utc.strftime("%H:%M:%S") + " UTC" if dt_utc else None
-            payload["sat_time_local"] = dt_local.strftime("%H:%M:%S %Z") if dt_local else None
-            payload["sat_time_ms"] = ms
-        return payload
+        from mav_gss_lib.missions.maveric.wire_format import (
+            resolve_node, resolve_ptype,
+            node_name as _node_name, ptype_name as _ptype_name,
+        )
+        src = GS_NODE
+        dest = resolve_node(dest_name)
+        if dest is None:
+            raise ValueError(f"unknown destination node '{dest_name}'")
+        echo = resolve_node(echo_name)
+        if echo is None:
+            raise ValueError(f"unknown echo node '{echo_name}'")
+        ptype = resolve_ptype(ptype_name)
+        if ptype is None:
+            raise ValueError(f"unknown packet type '{ptype_name}'")
 
-    def queue_item_to_json(self, item: dict, match_tx_args, extra_tx_args) -> dict:
-        """Transitional: convert TX queue item to the JSON shape the current frontend expects.
+        if self.cmd_defs and cmd_id not in self.cmd_defs:
+            raise ValueError(f"'{cmd_id}' not in schema")
+        defn = self.cmd_defs.get(cmd_id, {})
+        if defn.get("rx_only"):
+            raise ValueError(f"'{cmd_id}' is receive-only")
 
-        STATUS: Phase 11 removal candidate.
-        """
-        return {
-            "type": "cmd",
-            "num": item.get("num", 0),
-            "src": _wire_node_name(item["src"]),
-            "dest": _wire_node_name(item["dest"]),
-            "echo": _wire_node_name(item["echo"]),
-            "ptype": _wire_ptype_name(item["ptype"]),
-            "cmd": item["cmd"],
-            "args": item.get("args", ""),
-            "args_named": match_tx_args(item["cmd"], item.get("args", "")),
-            "args_extra": extra_tx_args(item["cmd"], item.get("args", "")),
-            "guard": item.get("guard", False),
-            "size": len(item.get("raw_cmd", b"")),
+        tx_args_schema = defn.get("tx_args", [])
+        args_parts = []
+        for arg_def in tx_args_schema:
+            val = args_dict.get(arg_def["name"], "")
+            if val:
+                args_parts.append(str(val))
+        args_str = " ".join(args_parts)
+
+        valid, issues = validate_args(cmd_id, args_str, self.cmd_defs)
+        if not valid:
+            raise ValueError("; ".join(issues))
+
+        raw_cmd = bytes(build_cmd_raw(dest, cmd_id, args_str, echo=echo, ptype=ptype, origin=src))
+
+        guard = payload.get("guard", defn.get("guard", False))
+        display_fields = [
+            {"name": "Src", "value": _node_name(src)},
+            {"name": "Dest", "value": _node_name(dest)},
+            {"name": "Echo", "value": _node_name(echo)},
+            {"name": "Type", "value": _ptype_name(ptype)},
+        ]
+        for arg_def in tx_args_schema:
+            val = args_dict.get(arg_def["name"], "")
+            if val:
+                display_fields.append({"name": arg_def["name"], "value": str(val)})
+
+        display = {
+            "title": cmd_id,
+            "subtitle": f"{_node_name(src)} \u2192 {_node_name(dest)}",
+            "fields": display_fields,
         }
 
-    def history_entry(self, count: int, item: dict, payload_len: int) -> dict:
-        """Transitional: build sent-command history entry for the current frontend.
+        return {"raw_cmd": raw_cmd, "display": display, "guard": guard}
 
-        STATUS: Phase 11 removal candidate.
-        """
-        from datetime import datetime
-        return {
-            "n": count,
-            "ts": datetime.now().strftime("%H:%M:%S"),
-            "src": _wire_node_name(item["src"]),
-            "dest": _wire_node_name(item["dest"]),
-            "echo": _wire_node_name(item["echo"]),
-            "ptype": _wire_ptype_name(item["ptype"]),
-            "cmd": item["cmd"],
-            "args": item.get("args", ""),
-            "size": payload_len,
-        }
+    # =========================================================================
+    #  Adapter boundary
+    #
+    #  This adapter implements the MissionAdapter protocol defined in
+    #  mav_gss_lib/mission_adapter.py. The platform calls these methods
+    #  without knowing which mission is active.
+    #
+    #  RX: detect_frame_type → normalize_frame → parse_packet
+    #  TX: build_raw_command, validate_tx_args, parse_cmd_line
+    #  UI: packet_list_columns/row, packet_detail_blocks, protocol/integrity
+    #  Log: build_log_mission_data, format_log_lines, is_unknown_packet
+    #  Resolution: gs_node, node_name, ptype_name, resolve_node, resolve_ptype
+    # =========================================================================
 
     # -- Rendering-slot contract (architecture spec) --
 
     def packet_list_columns(self) -> list[dict]:
         """Return column definitions for the RX packet list."""
         return [
-            {"id": "num",   "label": "#",         "align": "right", "width": "w-10"},
-            {"id": "time",  "label": "time",      "width": "w-[72px]"},
-            {"id": "frame", "label": "frame",     "width": "w-[76px]", "toggle": "showFrame"},
-            {"id": "src",   "label": "src",       "width": "w-[84px]"},
-            {"id": "echo",  "label": "echo",      "width": "w-[84px]", "toggle": "showEcho"},
-            {"id": "ptype", "label": "type",       "width": "w-[52px]", "badge": True},
-            {"id": "cmd",   "label": "cmd / args", "flex": True},
-            {"id": "flags", "label": "",           "width": "w-[76px]", "align": "right"},
-            {"id": "size",  "label": "size",       "align": "right", "width": "w-12"},
+            {"id": "num",   "label": "#",         "align": "right", "width": "w-9"},
+            {"id": "time",  "label": "time",      "width": "w-[68px]"},
+            {"id": "frame", "label": "frame",     "width": "w-[72px]", "toggle": "showFrame"},
+            {"id": "src",   "label": "src",       "width": "w-[52px]"},
+            {"id": "echo",  "label": "echo",      "width": "w-[52px]", "toggle": "showEcho"},
+            {"id": "ptype", "label": "type",      "width": "w-[52px]", "badge": True},
+            {"id": "cmd",   "label": "id / args", "flex": True},
+            {"id": "flags", "label": "",          "width": "w-[72px]", "align": "right"},
+            {"id": "size",  "label": "size",      "align": "right", "width": "w-10"},
         ]
 
     def packet_list_row(self, pkt) -> dict:
@@ -277,6 +256,7 @@ class MavericMissionAdapter:
     def protocol_blocks(self, pkt) -> list:
         """Return protocol/wrapper blocks for the detail view."""
         from mav_gss_lib.mission_adapter import ProtocolBlock
+        from mav_gss_lib.protocols.ax25 import ax25_decode_header
         blocks = []
         if pkt.csp:
             blocks.append(ProtocolBlock(
@@ -285,10 +265,21 @@ class MavericMissionAdapter:
                 fields=[{"name": k.capitalize(), "value": str(v)} for k, v in pkt.csp.items()],
             ))
         if pkt.stripped_hdr:
+            ax25_fields = [{"name": "Header", "value": pkt.stripped_hdr}]
+            try:
+                decoded = ax25_decode_header(bytes.fromhex(pkt.stripped_hdr.replace(" ", "")))
+                ax25_fields = [
+                    {"name": "Dest", "value": f"{decoded['dest']['callsign']}-{decoded['dest']['ssid']}"},
+                    {"name": "Src", "value": f"{decoded['src']['callsign']}-{decoded['src']['ssid']}"},
+                    {"name": "Control", "value": decoded["control_hex"]},
+                    {"name": "PID", "value": decoded["pid_hex"]},
+                ]
+            except Exception:
+                pass
             blocks.append(ProtocolBlock(
                 kind="ax25",
                 label="AX.25",
-                fields=[{"name": "Header", "value": pkt.stripped_hdr}],
+                fields=ax25_fields,
             ))
         return blocks
 
@@ -426,7 +417,17 @@ class MavericMissionAdapter:
 
         # AX.25 header
         if pkt.stripped_hdr:
-            lines.append(f"  {'AX.25 HDR':<12}{pkt.stripped_hdr}")
+            from mav_gss_lib.protocols.ax25 import ax25_decode_header
+            try:
+                decoded = ax25_decode_header(bytes.fromhex(pkt.stripped_hdr.replace(" ", "")))
+                lines.append(
+                    f"  {'AX.25 HDR':<12}"
+                    f"Dest:{decoded['dest']['callsign']}-{decoded['dest']['ssid']}  "
+                    f"Src:{decoded['src']['callsign']}-{decoded['src']['ssid']}  "
+                    f"Ctrl:{decoded['control_hex']}  PID:{decoded['pid_hex']}"
+                )
+            except Exception:
+                lines.append(f"  {'AX.25 HDR':<12}{pkt.stripped_hdr}")
 
         # CSP header
         csp = pkt.csp
