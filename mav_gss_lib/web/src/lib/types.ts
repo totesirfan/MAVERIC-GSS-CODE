@@ -76,19 +76,19 @@ export interface RxStatus {
 
 // ---- TX ----
 
+export interface CmdDisplay {
+  title: string
+  subtitle?: string
+  fields?: { name: string; value: string }[]
+}
+
 export interface TxQueueCmd {
-  type: 'cmd'
+  type: 'mission_cmd'
   num: number
-  src: string
-  dest: string
-  echo: string
-  ptype: string
-  cmd: string
-  args: string
-  args_named?: { name: string; value: string }[]
-  args_extra?: string[]
+  display: CmdDisplay
   guard: boolean
   size: number
+  payload: Record<string, unknown>
 }
 
 export interface TxQueueDelay {
@@ -96,29 +96,7 @@ export interface TxQueueDelay {
   delay_ms: number
 }
 
-export interface MissionCmdDisplay {
-  title: string
-  subtitle?: string
-  fields?: { name: string; value: string }[]
-}
-
-export interface MissionQueueCmd {
-  type: 'mission_cmd'
-  num: number
-  display: MissionCmdDisplay
-  guard: boolean
-  size: number
-}
-
-export interface MissionHistoryItem {
-  n: number
-  ts: string
-  type: 'mission_cmd'
-  display: MissionCmdDisplay
-  size: number
-}
-
-export type TxQueueItem = TxQueueCmd | TxQueueDelay | MissionQueueCmd
+export type TxQueueItem = TxQueueCmd | TxQueueDelay
 
 export interface TxQueueSummary {
   cmds: number
@@ -129,16 +107,11 @@ export interface TxQueueSummary {
 export interface TxHistoryItem {
   n: number
   ts: string
-  src: string
-  dest: string
-  echo: string
-  ptype: string
-  cmd: string
-  args: string
+  type: 'mission_cmd'
+  display: CmdDisplay
+  payload: Record<string, unknown>
   size: number
 }
-
-export type TxHistoryEntry = TxHistoryItem | MissionHistoryItem
 
 export interface SendProgress {
   sent: number
@@ -149,9 +122,7 @@ export interface SendProgress {
 
 export interface GuardConfirm {
   index: number
-  cmd: string
-  args: string
-  dest: string
+  display: CmdDisplay
 }
 
 export interface TxCapabilities {
