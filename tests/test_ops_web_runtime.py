@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from mav_gss_lib.config import (
     get_decoder_yml_path,
     get_generated_commands_dir,
     load_gss_config,
 )
-from mav_gss_lib.missions.maveric.wire_format import resolve_ptype
 from mav_gss_lib.web_runtime.api import (
     export_queue,
     import_file,
@@ -21,7 +23,7 @@ from mav_gss_lib.web_runtime.api import (
     parse_import_file,
     preview_import,
 )
-from mav_gss_lib.web_runtime.runtime import make_cmd, make_delay
+from mav_gss_lib.web_runtime.runtime import make_delay, validate_mission_cmd
 from mav_gss_lib.web_runtime.state import create_runtime
 
 
@@ -29,9 +31,15 @@ def _request_for(runtime, *, token=True):
     """Build the minimal request shape expected by the API helpers."""
     headers = {}
     if token:
-        headers["x-maveric-token"] = runtime.session_token
+        headers["x-gss-token"] = runtime.session_token
     app = SimpleNamespace(state=SimpleNamespace(runtime=runtime))
     return SimpleNamespace(app=app, headers=headers)
+
+
+def _make_mission_item(cmd_id="ping", args="", dest="LPPM", runtime=None):
+    """Build a validated mission_cmd queue item for testing."""
+    payload = {"cmd_id": cmd_id, "args": args, "dest": dest, "echo": "NONE", "ptype": "CMD"}
+    return validate_mission_cmd(payload, runtime=runtime)
 
 
 class TestWebRuntimeWorkflows(unittest.TestCase):
@@ -56,9 +64,10 @@ class TestWebRuntimeWorkflows(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_config_paths_resolve_expected_locations(self):
-        decoder_yml = Path(get_decoder_yml_path(self.cfg))
+        decoder_yml = get_decoder_yml_path(self.cfg)
         generated_dir = get_generated_commands_dir(self.cfg)
-        self.assertTrue(decoder_yml.is_absolute())
+        # decoder_yml is empty when not set (mission-owned)
+        self.assertEqual(decoder_yml, "")
         self.assertEqual(generated_dir.name, "generated_commands")
 
     def test_config_paths_preserve_absolute_overrides(self):
@@ -69,10 +78,10 @@ class TestWebRuntimeWorkflows(unittest.TestCase):
             self.assertEqual(Path(get_decoder_yml_path(self.cfg)), tmp_path / "decoder.yml")
             self.assertEqual(get_generated_commands_dir(self.cfg), tmp_path / "exports")
 
-    def test_parse_import_file_supports_hybrid_array_and_sanitizes_comments(self):
+    def test_parse_import_file_produces_mission_cmd_items(self):
         payload = """
         // comment
-        ["GS", "EPS", "NONE", "REQ", "ping", "REQ", "guard": true] // trailing
+        ["GS", "EPS", "NONE", "CMD", "ping", "REQ", "guard": true] // trailing
         {"type": "delay", "delay_ms": 250}
         """.strip()
         path = self.generated_dir / "sample.jsonl"
@@ -80,8 +89,9 @@ class TestWebRuntimeWorkflows(unittest.TestCase):
         items, skipped = parse_import_file(path, runtime=self.runtime)
         self.assertEqual(skipped, 0)
         self.assertEqual(len(items), 2)
+        self.assertEqual(items[0]["type"], "mission_cmd")
         self.assertTrue(items[0]["guard"])
-        self.assertEqual(items[0]["cmd"], "ping")
+        self.assertEqual(items[0]["display"]["title"], "ping")
         self.assertEqual(items[1]["type"], "delay")
 
     def test_list_import_files_uses_configured_directory(self):
@@ -91,22 +101,30 @@ class TestWebRuntimeWorkflows(unittest.TestCase):
         names = [item["name"] for item in result]
         self.assertEqual(set(names), {"a.jsonl", "b.jsonl"})
 
-    def test_preview_and_import_use_sanitized_runtime_queue_items(self):
+    def test_preview_returns_display_metadata(self):
         path = self.generated_dir / "queue.jsonl"
-        path.write_text('["GS", "EPS", "NONE", "REQ", "ping", "REQ"]\n')
+        path.write_text('["GS", "EPS", "NONE", "CMD", "ping", "REQ"]\n')
         preview = asyncio.run(preview_import("queue.jsonl", _request_for(self.runtime)))
         self.assertEqual(preview["skipped"], 0)
-        self.assertEqual(preview["items"][0]["cmd"], "ping")
-        self.assertEqual(preview["items"][0]["dest"], "EPS")
+        self.assertEqual(len(preview["items"]), 1)
+        item = preview["items"][0]
+        self.assertEqual(item["type"], "mission_cmd")
+        self.assertIn("display", item)
+        self.assertEqual(item["display"]["title"], "ping")
 
+    def test_import_produces_mission_cmd_queue_items(self):
+        path = self.generated_dir / "queue.jsonl"
+        path.write_text('["GS", "EPS", "NONE", "CMD", "ping", "REQ"]\n')
         result = asyncio.run(import_file("queue.jsonl", _request_for(self.runtime)))
         self.assertEqual(result["loaded"], 1)
-        self.assertEqual(self.runtime.tx.queue[0]["cmd"], "ping")
+        item = self.runtime.tx.queue[0]
+        self.assertEqual(item["type"], "mission_cmd")
+        self.assertEqual(item["display"]["title"], "ping")
 
     def test_export_queue_writes_to_configured_directory(self):
         self.runtime.tx.queue.extend(
             [
-                make_cmd(6, 2, 0, resolve_ptype("REQ"), "ping", "REQ", runtime=self.runtime),
+                _make_mission_item("ping", "REQ", runtime=self.runtime),
                 make_delay(500),
             ]
         )
@@ -115,12 +133,12 @@ class TestWebRuntimeWorkflows(unittest.TestCase):
         export_path = self.generated_dir / "ops_smoke.jsonl"
         self.assertTrue(export_path.exists())
         contents = export_path.read_text()
-        self.assertIn('"cmd": "ping"', contents)
+        self.assertIn('"type": "mission_cmd"', contents)
         self.assertIn('"type": "delay"', contents)
 
     def test_export_queue_requires_session_token(self):
         self.runtime.tx.queue.append(
-            make_cmd(6, 2, 0, resolve_ptype("REQ"), "ping", "REQ", runtime=self.runtime)
+            _make_mission_item("ping", "REQ", runtime=self.runtime)
         )
         response = asyncio.run(export_queue({"name": "blocked"}, _request_for(self.runtime, token=False)))
         self.assertEqual(response.status_code, 403)
