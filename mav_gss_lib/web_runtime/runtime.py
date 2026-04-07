@@ -106,13 +106,9 @@ def make_mission_cmd(payload, adapter=None):
 def validate_mission_cmd(payload, runtime: WebRuntime | None = None):
     """Validate and build a mission-command queue item.
 
-    Checks: adapter has TX builder, build succeeds, MTU fits.
+    Checks: build succeeds, MTU fits.
     """
     runtime = ensure_runtime(runtime)
-    from mav_gss_lib.mission_adapter import has_tx_builder
-
-    if not has_tx_builder(runtime.adapter):
-        raise ValueError("mission does not support TX command builder")
 
     item = make_mission_cmd(payload, adapter=runtime.adapter)
 

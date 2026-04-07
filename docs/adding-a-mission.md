@@ -101,22 +101,15 @@ The platform renders RX packets from structured data you provide. This is how yo
 | `protocol_blocks(pkt)` | Protocol header blocks (same shape as detail) |
 | `integrity_blocks(pkt)` | CRC/integrity blocks: `[{kind, label, scope, ok, received?, computed?}]` |
 
-### TX — Command Encoding
+### TX — Command Input and Encoding
 
-These methods let operators type commands and have them encoded for transmission. The signatures use `src/dest/echo/ptype/cmd/args` because that's the current protocol interface, but your mission decides what those parameters mean internally.
+These methods let operators type commands and have them encoded for transmission. The mission owns all command parsing, validation, and encoding.
 
 | Method | What it does |
 |--------|-------------|
-| `build_raw_command(src, dest, echo, ptype, cmd_id, args)` | Encode to raw bytes |
-| `validate_tx_args(cmd_id, args)` | Validate args → (ok, error_list) |
-| `parse_cmd_line(line)` | Parse operator CLI text → (src, dest, echo, ptype, cmd, args) |
-| `cmd_line_to_payload(line)` | Convert CLI text to a payload dict for `build_tx_command` |
-
-### TX — Rendering
-
-| Method | What it returns |
-|--------|----------------|
-| `tx_queue_columns()` | Column definitions for TX queue/history, with optional `hide_if_all` for auto-hide |
+| `cmd_line_to_payload(line)` | Wrap raw CLI text for `build_tx_command` — typically `{"line": line}` |
+| `build_tx_command(payload)` | Parse, validate, encode → `{raw_cmd, display, guard}` |
+| `tx_queue_columns()` | Column definitions for TX queue/history rendering |
 
 ### Resolution
 
@@ -136,16 +129,9 @@ These methods translate between internal IDs and operator-facing names:
 | `build_log_mission_data(pkt)` | Mission-specific data for the JSONL log record |
 | `format_log_lines(pkt)` | Mission-specific lines for the text log |
 
-## Optional: TX Command Builder
+## TX Command Flow
 
-If your mission provides `build_tx_command(payload)`, the platform enables richer TX behavior:
-
-- The mission builder UI appears (if a frontend component is registered)
-- `cmd_line_to_payload()` can route CLI input through `build_tx_command()`
-- Queue items carry structured `display` metadata for column-driven rendering
-- Duplicate/requeue faithfully re-submits the original payload
-
-`build_tx_command(payload)` receives a mission-defined payload dict and returns:
+`build_tx_command(payload)` is required. All missions implement it. It receives a mission-defined payload dict and returns:
 
 ```python
 {
@@ -160,17 +146,21 @@ If your mission provides `build_tx_command(payload)`, the platform enables riche
 }
 ```
 
-Without `build_tx_command`, the mission builder is hidden and only raw CLI works.
+`cmd_line_to_payload(line)` converts the operator's raw CLI text into a payload dict, typically `{"line": line}`. The mission interprets the text inside `build_tx_command`.
+
+Queue items carry structured `display` metadata for column-driven rendering. Duplicate/requeue faithfully re-submits the original payload through `build_tx_command`, preserving all context.
 
 ### Optional: Custom React Builder Component
 
-The backend `build_tx_command` hook is what enables mission-built commands. The frontend component that collects the payload input is a separate, optional layer.
+The platform always provides raw CLI input. If your mission wants a visual command picker or form-based builder, register a React component in `mav_gss_lib/web/src/missions/registry.ts`. This component calls `build_tx_command` via the `queue_mission_cmd` WebSocket action. See `missions/maveric/TxBuilder.tsx` for an example.
 
-By default, the platform provides raw CLI input. If your mission wants a visual command picker or form-based builder, register a React component in `mav_gss_lib/web/src/missions/registry.ts`. This component calls `build_tx_command` via the `queue_mission_cmd` WebSocket action. See `missions/maveric/TxBuilder.tsx` for an example.
+To signal that a custom frontend builder is available, set `tx_builder_id` on your adapter class:
 
-The relationship:
-- **Backend hook** (`build_tx_command`) — required for mission-built commands
-- **Frontend component** (registry) — optional UI for collecting payload input
+```python
+tx_builder_id: str = "mymission"  # matches registry key
+```
+
+The platform checks `has_custom_tx_ui(adapter)` (looks for `tx_builder_id`) to decide whether to show the builder UI. Without it, only raw CLI input is available.
 
 ## Optional: Protocol Metadata
 
@@ -228,6 +218,6 @@ If your mission has a structured command schema, provide it as `commands.yml` al
 - [ ] Tests for parse/encode/render paths
 - [ ] Optional: `commands.yml` + gitignore entry if security-sensitive
 - [ ] Optional: protocol metadata in `mission.example.yml` if using AX.25/CSP
-- [ ] Optional: TX builder backend hook (`build_tx_command`)
-- [ ] Optional: TX builder frontend component (registry)
+- [ ] `build_tx_command` encodes operator commands to raw bytes
+- [ ] Optional: TX builder frontend component (registry + `tx_builder_id` on adapter)
 - [ ] If frontend changes: `npm run build` and commit `dist/`

@@ -83,9 +83,7 @@ class MissionAdapter(Protocol):
     def duplicate_fingerprint(self, parsed: ParsedPacket) -> tuple | None: ...
     def is_uplink_echo(self, cmd) -> bool: ...
 
-    def build_raw_command(self, src: int, dest: int, echo: int, ptype: int,
-                          cmd_id: str, args: str) -> bytes: ...
-    def validate_tx_args(self, cmd_id: str, args: str) -> tuple[bool, list[str]]: ...
+    def build_tx_command(self, payload: dict) -> dict: ...
 
     # -- Rendering-slot contract (architecture spec §4) --
     def packet_list_columns(self) -> list[dict]: ...
@@ -108,7 +106,6 @@ class MissionAdapter(Protocol):
     def ptype_label(self, ptype_id: int) -> str: ...
     def resolve_node(self, s: str) -> int | None: ...
     def resolve_ptype(self, s: str) -> int | None: ...
-    def parse_cmd_line(self, line: str) -> tuple: ...
     def cmd_line_to_payload(self, line: str) -> dict: ...
     def tx_queue_columns(self) -> list[dict]: ...
 
@@ -132,12 +129,12 @@ def validate_adapter(adapter, api_version: int, mission_name: str) -> None:
         for method_name in (
             'detect_frame_type', 'normalize_frame', 'parse_packet',
             'duplicate_fingerprint', 'is_uplink_echo',
-            'build_raw_command', 'validate_tx_args',
+            'build_tx_command',
             'packet_list_columns', 'packet_list_row',
             'packet_detail_blocks', 'protocol_blocks', 'integrity_blocks',
             'build_log_mission_data', 'format_log_lines', 'is_unknown_packet',
             'node_name', 'ptype_name', 'node_label', 'ptype_label',
-            'resolve_node', 'resolve_ptype', 'parse_cmd_line', 'cmd_line_to_payload',
+            'resolve_node', 'resolve_ptype', 'cmd_line_to_payload',
             'tx_queue_columns',
         ):
             if not hasattr(adapter, method_name):
@@ -164,14 +161,16 @@ def validate_adapter(adapter, api_version: int, mission_name: str) -> None:
 # =============================================================================
 
 
-def has_tx_builder(adapter) -> bool:
-    """Check whether an adapter provides the optional TX builder hook.
+def has_custom_tx_ui(adapter) -> bool:
+    """Check whether a mission provides an optional custom TX input UI.
 
-    Adapters that implement build_tx_command() can accept mission-specific
-    command payloads and produce raw bytes + display metadata. Adapters
-    without it still work via the existing build_raw_command() path.
+    All missions implement build_tx_command() — that is the mission TX
+    contract, not what this checks. This checks whether the mission also
+    registers a custom frontend component for collecting structured
+    command input (e.g. MAVERIC's command picker). If not, only raw
+    CLI input is available.
     """
-    return hasattr(adapter, 'build_tx_command') and callable(adapter.build_tx_command)
+    return hasattr(adapter, 'tx_builder_id') and bool(adapter.tx_builder_id)
 
 
 def get_tx_capabilities(adapter) -> dict:
@@ -179,11 +178,11 @@ def get_tx_capabilities(adapter) -> dict:
 
     Adapters may override tx_capabilities() to declare support.
     Default: raw_send always True, command_builder True if
-    build_tx_command exists.
+    the mission provides a custom frontend builder component.
     """
     if hasattr(adapter, 'tx_capabilities') and callable(adapter.tx_capabilities):
         return adapter.tx_capabilities()
-    return {"raw_send": True, "command_builder": has_tx_builder(adapter)}
+    return {"raw_send": True, "command_builder": has_custom_tx_ui(adapter)}
 
 
 # =============================================================================

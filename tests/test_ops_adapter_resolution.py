@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from mav_gss_lib.mission_adapter import MissionAdapter, validate_adapter, _MISSION_REGISTRY
+from mav_gss_lib.mission_adapter import MissionAdapter, validate_adapter
 
 
 class TestInitMission(unittest.TestCase):
@@ -51,18 +51,25 @@ class TestInitMission(unittest.TestCase):
         self.assertIsInstance(adapter.cmd_defs, dict)
         self.assertGreater(len(adapter.cmd_defs), 0)
 
-    def test_echo_via_loader_single_arg(self):
-        """Echo mission loads via single-arg loader."""
+    def test_unknown_mission_raises_import_error(self):
+        """Unknown mission raises ImportError via convention-based discovery."""
         from mav_gss_lib.mission_adapter import load_mission_adapter
 
-        _MISSION_REGISTRY["echo_test"] = "tests.echo_mission"
-        try:
-            cfg = {"general": {"mission": "echo_test"}}
-            adapter = load_mission_adapter(cfg)
-            self.assertIsInstance(adapter, MissionAdapter)
-            self.assertEqual(adapter.cmd_defs, {})
-        finally:
-            del _MISSION_REGISTRY["echo_test"]
+        cfg = {"general": {"mission": "nonexistent_mission_xyz"}}
+        with self.assertRaises(ImportError):
+            load_mission_adapter(cfg)
+
+    def test_convention_discovery_finds_maveric(self):
+        """Mission discovery finds maveric without hardcoded registry."""
+        from mav_gss_lib.mission_adapter import _resolve_mission_module
+        module_path = _resolve_mission_module("maveric")
+        self.assertEqual(module_path, "mav_gss_lib.missions.maveric")
+
+    def test_convention_discovery_raises_for_unknown(self):
+        from mav_gss_lib.mission_adapter import _resolve_mission_module
+        with self.assertRaises(ImportError) as ctx:
+            _resolve_mission_module("nonexistent_mission_xyz")
+        self.assertIn("No mission package found", str(ctx.exception))
 
 
 class TestEchoResolution(unittest.TestCase):
@@ -94,10 +101,11 @@ class TestEchoResolution(unittest.TestCase):
     def test_gs_node(self):
         self.assertEqual(self.adapter.gs_node, 0)
 
-    def test_parse_cmd_line(self):
-        result = self.adapter.parse_cmd_line("test arg1 arg2")
-        self.assertIsInstance(result, tuple)
-        self.assertEqual(len(result), 6)
+    def test_echo_build_tx_command(self):
+        result = self.adapter.build_tx_command({"line": "test a b"})
+        self.assertIn("raw_cmd", result)
+        self.assertIsInstance(result["raw_cmd"], bytes)
+        self.assertIn("display", result)
 
     def test_node_label(self):
         self.assertIn("5", self.adapter.node_label(5))
@@ -119,7 +127,7 @@ class TestMavericResolution(unittest.TestCase):
         self.assertEqual(self.adapter.node_name(6), "GS")
 
     def test_ptype_name_known(self):
-        self.assertEqual(self.adapter.ptype_name(1), "REQ")
+        self.assertEqual(self.adapter.ptype_name(1), "CMD")
 
     def test_resolve_node_by_name(self):
         self.assertEqual(self.adapter.resolve_node("GS"), 6)
@@ -128,7 +136,7 @@ class TestMavericResolution(unittest.TestCase):
         self.assertEqual(self.adapter.resolve_node("6"), 6)
 
     def test_resolve_ptype_by_name(self):
-        self.assertEqual(self.adapter.resolve_ptype("REQ"), 1)
+        self.assertEqual(self.adapter.resolve_ptype("CMD"), 1)
 
     def test_gs_node_is_6(self):
         self.assertEqual(self.adapter.gs_node, 6)
@@ -141,7 +149,7 @@ class TestMavericResolution(unittest.TestCase):
         self.assertIn("GS", self.adapter.node_label(6))
 
     def test_ptype_label_known(self):
-        self.assertIn("REQ", self.adapter.ptype_label(1))
+        self.assertIn("CMD", self.adapter.ptype_label(1))
 
 
 if __name__ == "__main__":

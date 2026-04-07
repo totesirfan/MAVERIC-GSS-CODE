@@ -47,34 +47,42 @@ class TemplateMissionAdapter:
 
     # -- TX path --
 
-    def build_raw_command(self, src, dest, echo, ptype, cmd_id, args):
-        """Encode a TX command into raw bytes for framing."""
-        return f"{cmd_id} {args}".encode("ascii")
-
-    def validate_tx_args(self, cmd_id, args):
-        """Validate TX arguments against the command schema.
-        Return (ok: bool, errors: list[str])."""
-        return True, []
-
-    def parse_cmd_line(self, line: str) -> tuple:
-        """Parse operator command input into (src, dest, echo, ptype, cmd, args)."""
-        parts = line.split()
-        cmd = parts[0] if parts else ""
-        args = " ".join(parts[1:])
-        return (0, 0, 0, 0, cmd, args)
-
     def cmd_line_to_payload(self, line: str) -> dict:
-        """Convert CLI text to a payload dict for build_tx_command."""
-        parts = line.strip().split()
-        if not parts:
+        """Wrap raw CLI text for build_tx_command.
+
+        The platform passes the operator's raw input string. The mission
+        interprets the text inside build_tx_command, not here.
+        """
+        line = line.strip()
+        if not line:
             raise ValueError("empty command input")
-        cmd = parts[0]
-        args = " ".join(parts[1:])
-        return {"cmd_id": cmd, "args": args, "dest": "", "echo": "", "ptype": ""}
+        return {"line": line}
+
+    def build_tx_command(self, payload):
+        """Parse, validate, and encode a transmit command.
+
+        Receives: {"line": "..."} from CLI, or a structured dict from
+                  a custom mission builder UI.
+        Returns: {raw_cmd: bytes, display: dict, guard: bool}
+        """
+        line = payload.get("line", "")
+        raw = line.encode("ascii")
+        return {
+            "raw_cmd": raw,
+            "display": {
+                "title": line.split()[0] if line else "?",
+                "subtitle": "",
+                "row": {"cmd": line},
+                "detail_blocks": [{"kind": "command", "label": "Command", "fields": [
+                    {"name": "Input", "value": line},
+                ]}],
+            },
+            "guard": False,
+        }
 
     def tx_queue_columns(self) -> list[dict]:
         """Return column definitions for the TX queue/history list."""
-        return []
+        return [{"id": "cmd", "label": "command", "flex": True}]
 
     # -- Rendering slots (UI) --
 

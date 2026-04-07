@@ -126,13 +126,12 @@ Must satisfy the `MissionAdapter` Protocol defined in `mission_adapter.py`. Requ
 - `duplicate_fingerprint(parsed)` → hashable tuple or None
 - `is_uplink_echo(cmd)` → bool
 
-**TX path:**
-- `build_raw_command(src, dest, echo, ptype, cmd_id, args)` → bytes
-- `validate_tx_args(cmd_id, args)` → (ok, errors)
-- `parse_cmd_line(line)` → (src, dest, echo, ptype, cmd, args)
-- `cmd_line_to_payload(line)` → payload dict for `build_tx_command`
-- `build_tx_command(payload)` → `{raw_cmd, display, guard}` (optional TX plugin)
+**TX path (required):**
+- `cmd_line_to_payload(line)` → wrap raw CLI text (typically `{"line": line}`)
+- `build_tx_command(payload)` → parse, validate, encode → `{raw_cmd, display, guard}`
 - `tx_queue_columns()` → column definitions for TX queue/history
+
+The mission owns all command parsing, validation, and encoding inside `build_tx_command`. The platform owns only generic queue admission (MTU/framing checks).
 
 **Rendering slots (UI):**
 - `packet_list_columns()` → column definitions for the RX table

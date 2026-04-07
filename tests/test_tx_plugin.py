@@ -9,12 +9,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
 class FakeAdapterNoBuilder:
-    """Adapter without TX builder support (like current MAVERIC)."""
+    """Adapter without a custom TX builder UI (no tx_builder_id)."""
     pass
 
 
 class FakeAdapterWithBuilder:
-    """Adapter with TX builder support."""
+    """Adapter with a custom TX builder UI (has tx_builder_id)."""
+
+    tx_builder_id = "fake_builder"
 
     def build_tx_command(self, payload):
         """Validate, encode, and return queue-ready command."""
@@ -34,13 +36,13 @@ class FakeAdapterWithBuilder:
 
 class TestTxPluginHelpers(unittest.TestCase):
 
-    def test_has_tx_builder_false_when_no_method(self):
-        from mav_gss_lib.mission_adapter import has_tx_builder
-        self.assertFalse(has_tx_builder(FakeAdapterNoBuilder()))
+    def test_has_custom_tx_ui_false_when_no_tx_builder_id(self):
+        from mav_gss_lib.mission_adapter import has_custom_tx_ui
+        self.assertFalse(has_custom_tx_ui(FakeAdapterNoBuilder()))
 
-    def test_has_tx_builder_true_when_method_present(self):
-        from mav_gss_lib.mission_adapter import has_tx_builder
-        self.assertTrue(has_tx_builder(FakeAdapterWithBuilder()))
+    def test_has_custom_tx_ui_true_when_tx_builder_id_present(self):
+        from mav_gss_lib.mission_adapter import has_custom_tx_ui
+        self.assertTrue(has_custom_tx_ui(FakeAdapterWithBuilder()))
 
     def test_get_tx_capabilities_default_no_builder(self):
         from mav_gss_lib.mission_adapter import get_tx_capabilities
@@ -129,15 +131,6 @@ class TestMakeMissionCmd(unittest.TestCase):
         with self.assertRaises(ValueError) as ctx:
             validate_mission_cmd({}, runtime=rt)
         self.assertIn("required", str(ctx.exception))
-
-    def test_validate_mission_cmd_rejects_no_builder(self):
-        from mav_gss_lib.web_runtime.runtime import validate_mission_cmd
-        adapter = FakeAdapterNoBuilder()
-        rt = FakeRuntime(adapter)
-        with self.assertRaises(ValueError) as ctx:
-            validate_mission_cmd({"cmd_id": "ping"}, runtime=rt)
-        self.assertIn("does not support", str(ctx.exception))
-
 
 class TestMissionCmdQueueProjection(unittest.TestCase):
 
@@ -265,10 +258,10 @@ class TestMavericBuildTxCommand(unittest.TestCase):
         self.assertIn("guard", result)
         self.assertIsInstance(result["guard"], bool)
 
-    def test_has_tx_builder_true_for_maveric(self):
-        from mav_gss_lib.mission_adapter import has_tx_builder
+    def test_has_custom_tx_ui_true_for_maveric(self):
+        from mav_gss_lib.mission_adapter import has_custom_tx_ui
         adapter = self._make_adapter()
-        self.assertTrue(has_tx_builder(adapter))
+        self.assertTrue(has_custom_tx_ui(adapter))
 
     def test_build_tx_command_rejects_invalid_node_for_cmd(self):
         """com_ping is only valid for LPPM/EPS/UPPM/HLNV/ASTR, not FTDI."""

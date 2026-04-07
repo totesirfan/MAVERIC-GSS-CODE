@@ -36,11 +36,20 @@ class EchoMissionAdapter:
     def is_uplink_echo(self, cmd) -> bool:
         return False
 
-    def build_raw_command(self, src, dest, echo, ptype, cmd_id, args):
-        return f"{cmd_id} {args}".encode("ascii")
-
-    def validate_tx_args(self, cmd_id, args):
-        return True, []
+    def build_tx_command(self, payload):
+        """Echo mission: encode the raw line as ASCII bytes."""
+        line = payload.get("line", "")
+        raw = line.encode("ascii")
+        return {
+            "raw_cmd": raw,
+            "display": {
+                "title": line.split()[0] if line else "?",
+                "subtitle": "",
+                "row": {},
+                "detail_blocks": [],
+            },
+            "guard": False,
+        }
 
     # -- Rendering-slot contract --
 
@@ -116,20 +125,11 @@ class EchoMissionAdapter:
         except ValueError:
             return None
 
-    def parse_cmd_line(self, line: str) -> tuple:
-        parts = line.split()
-        cmd = parts[0] if parts else ""
-        args = " ".join(parts[1:])
-        return (0, 0, 0, 0, cmd, args)
-
     def cmd_line_to_payload(self, line: str) -> dict:
-        """Convert CLI text to a payload dict."""
-        parts = line.strip().split()
-        if not parts:
+        line = line.strip()
+        if not line:
             raise ValueError("empty command input")
-        cmd = parts[0]
-        args = " ".join(parts[1:])
-        return {"cmd_id": cmd, "args": args, "dest": "", "echo": "", "ptype": ""}
+        return {"line": line}
 
     def tx_queue_columns(self) -> list[dict]:
         """Return column definitions for the TX queue/history list."""
