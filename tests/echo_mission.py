@@ -122,53 +122,14 @@ class EchoMissionAdapter:
         args = " ".join(parts[1:])
         return (0, 0, 0, 0, cmd, args)
 
-    # -- Transitional compatibility (Phase 5a) --
-
-    def packet_to_json(self, pkt) -> dict:
-        return {
-            "num": pkt.pkt_num,
-            "time": pkt.gs_ts_short,
-            "time_utc": pkt.gs_ts,
-            "frame": "RAW",
-            "src": "", "dest": "", "echo": "", "ptype": "",
-            "cmd": "", "args_named": [], "args_extra": [],
-            "size": len(pkt.raw),
-            "crc16_ok": None, "crc32_ok": None,
-            "is_echo": False, "is_dup": pkt.is_dup,
-            "is_unknown": True,
-            "raw_hex": pkt.raw.hex(),
-            "warnings": pkt.warnings,
-            "csp_header": None, "ax25_header": None,
-            "_rendering": {
-                "row": self.packet_list_row(pkt),
-                "detail_blocks": self.packet_detail_blocks(pkt),
-                "protocol_blocks": [],
-                "integrity_blocks": [],
-            },
-        }
-
-    def queue_item_to_json(self, item, match_tx_args, extra_tx_args):
-        return {
-            "type": "cmd",
-            "num": item.get("num", 0),
-            "src": "", "dest": "", "echo": "", "ptype": "",
-            "cmd": item.get("cmd", ""),
-            "args": item.get("args", ""),
-            "args_named": [], "args_extra": [],
-            "guard": item.get("guard", False),
-            "size": len(item.get("raw_cmd", b"")),
-        }
-
-    def history_entry(self, count, item, payload_len):
-        from datetime import datetime
-        return {
-            "n": count,
-            "ts": datetime.now().strftime("%H:%M:%S"),
-            "src": "", "dest": "", "echo": "", "ptype": "",
-            "cmd": item.get("cmd", ""),
-            "args": item.get("args", ""),
-            "size": payload_len,
-        }
+    def cmd_line_to_payload(self, line: str) -> dict:
+        """Convert CLI text to a payload dict."""
+        parts = line.strip().split()
+        if not parts:
+            raise ValueError("empty command input")
+        cmd = parts[0]
+        args = " ".join(parts[1:])
+        return {"cmd_id": cmd, "args": args, "dest": "", "echo": "", "ptype": ""}
 
 
 # Explicit entry point for shared mission loader

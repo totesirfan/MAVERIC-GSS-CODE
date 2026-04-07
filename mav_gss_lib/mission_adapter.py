@@ -122,6 +122,7 @@ class MissionAdapter(Protocol):
     def resolve_node(self, s: str) -> int | None: ...
     def resolve_ptype(self, s: str) -> int | None: ...
     def parse_cmd_line(self, line: str) -> tuple: ...
+    def cmd_line_to_payload(self, line: str) -> dict: ...
 
 
 # =============================================================================
@@ -148,7 +149,7 @@ def validate_adapter(adapter, api_version: int, mission_name: str) -> None:
             'packet_detail_blocks', 'protocol_blocks', 'integrity_blocks',
             'build_log_mission_data', 'format_log_lines', 'is_unknown_packet',
             'node_name', 'ptype_name', 'node_label', 'ptype_label',
-            'resolve_node', 'resolve_ptype', 'parse_cmd_line',
+            'resolve_node', 'resolve_ptype', 'parse_cmd_line', 'cmd_line_to_payload',
         ):
             if not hasattr(adapter, method_name):
                 missing.append(method_name)
