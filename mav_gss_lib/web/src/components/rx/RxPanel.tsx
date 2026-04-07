@@ -19,6 +19,35 @@ function f(label: string, value: string): string {
   return `  ${label.padEnd(12)}${value}`
 }
 
+/** Extract command label from _rendering (live row or replay detail_blocks). */
+function extractCmd(p: RxPacket): string {
+  const rowCmd = p._rendering?.row?.values?.cmd
+  if (rowCmd) return String(rowCmd).split(' ')[0] || '???'
+  // Fallback: search command blocks
+  for (const block of p._rendering?.detail_blocks ?? []) {
+    if (block.kind !== 'command') continue
+    for (const field of block.fields ?? []) {
+      if (field.name === 'Command') return field.value || '???'
+    }
+  }
+  return '???'
+}
+
+/** Extract "cmd args" string from _rendering for clipboard. */
+function extractCmdArgs(p: RxPacket): string {
+  const rowCmd = p._rendering?.row?.values?.cmd
+  if (rowCmd) return String(rowCmd).trim()
+  // Fallback: build from command blocks only (not routing)
+  const parts: string[] = []
+  for (const block of p._rendering?.detail_blocks ?? []) {
+    if (block.kind !== 'command') continue
+    for (const field of block.fields ?? []) {
+      parts.push(field.value)
+    }
+  }
+  return parts.join(' ').trim()
+}
+
 function formatPacketText(p: RxPacket): string {
   const lines: string[] = []
   const sep = '\u2500'
@@ -26,15 +55,29 @@ function formatPacketText(p: RxPacket): string {
   lines.push(`${sep.repeat(4)} #${p.num}  ${p.time_utc || p.time}  ${extras} ${sep.repeat(20)}`)
   if (p.is_echo) lines.push('  \u25B2\u25B2\u25B2 UPLINK ECHO \u25B2\u25B2\u25B2')
   for (const w of p.warnings) lines.push(f('\u26A0 WARNING', w))
-  if (p.ax25_header) lines.push(f('AX.25 HDR', p.ax25_header))
-  if (p.csp_header) lines.push(f('CSP V1', Object.entries(p.csp_header).map(([k, v]) => `${k}:${v}`).join('  ')))
-  if (p.sat_time_utc) lines.push(f('SAT TIME', `${p.sat_time_utc} \u2502 ${p.sat_time_local || ''}`))
-  lines.push(f('CMD', `Src:${p.src}  Dest:${p.dest}  Echo:${p.echo || 'NONE'}  Type:${p.ptype}`))
-  lines.push(f('CMD ID', p.cmd || '--'))
-  for (const a of p.args_named ?? []) lines.push(f(a.name.toUpperCase(), a.value))
-  for (let i = 0; i < (p.args_extra ?? []).length; i++) lines.push(f(`ARG +${i}`, (p.args_extra ?? [])[i]))
-  if (p.crc16_ok !== null) lines.push(f('CRC-16', p.crc16_ok ? 'OK' : 'FAIL'))
-  if (p.crc32_ok !== null) lines.push(f('CRC-32C', p.crc32_ok ? 'OK' : 'FAIL'))
+
+  const r = p._rendering
+  if (r?.detail_blocks) {
+    for (const block of r.detail_blocks) {
+      for (const field of block.fields ?? []) {
+        lines.push(f(field.name.toUpperCase(), field.value))
+      }
+    }
+  }
+
+  if (r?.protocol_blocks) {
+    for (const block of r.protocol_blocks) {
+      const vals = (block.fields ?? []).map((fld: { name: string; value: string }) => `${fld.name}:${fld.value}`).join('  ')
+      lines.push(f(block.label, vals))
+    }
+  }
+
+  if (r?.integrity_blocks) {
+    for (const block of r.integrity_blocks) {
+      lines.push(f(block.label, block.ok === null ? '?' : block.ok ? 'OK' : 'FAIL'))
+    }
+  }
+
   if (p.raw_hex) {
     const hex = p.raw_hex.match(/.{1,2}/g)?.join(' ') ?? p.raw_hex
     const chunks = hex.match(/.{1,47}/g) ?? [hex]
@@ -69,7 +112,7 @@ function ageColor(s: number): string {
 }
 
 function hasEcho(packet: RxPacket): boolean {
-  return Boolean(packet.echo && packet.echo !== 'NONE' && packet.echo !== '0')
+  return packet.is_echo
 }
 
 export function RxPanel({ config, packets, status, packetStats, columns, replayMode, replaySession, replacePackets, onStopReplay }: RxPanelProps) {
@@ -184,7 +227,7 @@ export function RxPanel({ config, packets, status, packetStats, columns, replayM
           }}
         >
           <div className="flex items-center gap-2">
-            <span className="text-xs font-bold tracking-wide" style={{ color: colors.value }}>RX DOWNLINK</span>
+            <span className="text-xs font-bold tracking-wide uppercase" style={{ color: colors.value }}>{config?.general?.rx_title ?? 'RX Downlink'}</span>
             <StatusDot status={replayMode ? 'REPLAY' : status.zmq} />
             {replayMode ? (
               <span className="text-[11px] font-medium" style={{ color: colors.warning }}>REPLAY</span>
@@ -292,7 +335,7 @@ export function RxPanel({ config, packets, status, packetStats, columns, replayM
                 </div>
                 <div className="flex items-center justify-between px-3 py-1 border-b shrink-0" style={{ borderColor: colors.borderSubtle }}>
                   <span className="text-xs font-bold" style={{ color: colors.value }}>
-                    #{selectedPacket.num} {selectedPacket.cmd || '???'}
+                    #{selectedPacket.num} {extractCmd(selectedPacket)}
                     {isLive && <span className="ml-2 text-[11px] font-normal" style={{ color: colors.success }}>LIVE</span>}
                   </span>
                   <button onClick={() => setDetailOpen(false)} className="p-0.5 rounded hover:bg-white/5">
@@ -318,7 +361,7 @@ export function RxPanel({ config, packets, status, packetStats, columns, replayM
               <ContextMenuItem icon={ClipboardCopy} onSelect={() => navigator.clipboard.writeText(formatPacketText(selectedPacket))}>
                 Copy Full Details
               </ContextMenuItem>
-              <ContextMenuItem icon={ClipboardCopy} onSelect={() => navigator.clipboard.writeText(`${selectedPacket.cmd} ${(selectedPacket.args_named ?? []).map(a => a.value).join(' ')} ${(selectedPacket.args_extra ?? []).join(' ')}`.trim())}>
+              <ContextMenuItem icon={ClipboardCopy} onSelect={() => navigator.clipboard.writeText(extractCmdArgs(selectedPacket))}>
                 Copy Command + Args
               </ContextMenuItem>
               {selectedPacket.raw_hex && (

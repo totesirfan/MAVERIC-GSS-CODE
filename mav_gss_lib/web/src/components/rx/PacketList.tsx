@@ -134,15 +134,15 @@ export function PacketList({
             })
           ) : (
             <>
-              <span className="w-10 px-2 text-right">#</span>
-              <span className="w-[72px] px-2">time</span>
-              {showFrame && <span className="w-[76px] px-2">frame</span>}
-              <span className="w-[84px] px-2">src</span>
-              {showEcho && <span className="w-[84px] px-2">echo</span>}
+              <span className="w-9 px-2 text-right">#</span>
+              <span className="w-[68px] px-2">time</span>
+              {showFrame && <span className="w-[72px] px-2">frame</span>}
+              <span className="w-[52px] px-1.5">src</span>
+              {showEcho && <span className="w-[52px] px-1.5">echo</span>}
               <span className="w-[52px] px-1">type</span>
-              <span className="flex-1 px-2">cmd / args</span>
-              <span className="w-[76px] px-2 text-right"></span>
-              <span className="w-12 px-2 text-right">size</span>
+              <span className="flex-1 px-2">id / args</span>
+              <span className="w-[72px] px-2 text-right"></span>
+              <span className="w-10 px-2 text-right">size</span>
             </>
           )}
         </div>

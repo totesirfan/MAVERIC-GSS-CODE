@@ -44,7 +44,9 @@ export function RxStatusBar({ status, packets, autoScroll, onLiveClick, replayMo
     return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current) }
   }, [])
 
-  const crcCount = packets.filter(p => p.crc16_ok === false).length
+  const crcCount = packets.filter(p =>
+    p._rendering?.integrity_blocks?.some(b => b.ok === false)
+  ).length
   const dupCount = packets.filter(p => p.is_dup).length
 
   if (replayMode) {

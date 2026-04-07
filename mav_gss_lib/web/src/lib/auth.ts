@@ -23,6 +23,6 @@ export async function getAuthToken(): Promise<string> {
 export async function authFetch(input: RequestInfo | URL, init: RequestInit = {}) {
   const token = await getAuthToken()
   const headers = new Headers(init.headers ?? {})
-  if (token) headers.set('X-MAVERIC-Token', token)
+  if (token) headers.set('X-GSS-Token', token)
   return fetch(input, { ...init, headers })
 }

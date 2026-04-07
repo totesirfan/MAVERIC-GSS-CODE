@@ -61,8 +61,13 @@ export function useAlarms(
     const newPkts = packets.slice(prevLen.current)
     const now = Date.now()
     for (const p of newPkts) {
-      if (p.crc16_ok === false) crcTimes.current.push(now)
-      if (p.ptype === 'NONE' || p.ptype === '0') noneTimes.current.push(now)
+      const flags = p._rendering?.row?.values?.flags
+      const hasCrcFlag = Array.isArray(flags) && flags.some(
+        (f: unknown) => typeof f === 'object' && f !== null && (f as Record<string, string>).tag === 'CRC',
+      )
+      if (hasCrcFlag) crcTimes.current.push(now)
+      const ptype = p._rendering?.row?.values?.ptype
+      if (ptype === 'NONE' || ptype === '0') noneTimes.current.push(now)
       if (p.is_dup) dupTimes.current.push(now)
     }
     prevLen.current = packets.length
