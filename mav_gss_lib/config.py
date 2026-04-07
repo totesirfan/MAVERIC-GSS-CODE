@@ -22,11 +22,6 @@ _DEFAULT_GSS_PATH = _LIB_DIR / "gss.yml"
 
 
 _DEFAULTS = {
-    "nodes": {},
-    "ptypes": {},
-    "node_descriptions": {},
-    "ax25": {},
-    "csp": {},
     "tx": {
         "zmq_addr":  "tcp://127.0.0.1:52002",
         "delay_ms":  500,
@@ -37,7 +32,7 @@ _DEFAULTS = {
     },
     "general": {
         "mission":      "maveric",
-        "version":      "4.3.1",
+        "version":      "5.0.0",
         "log_dir":      "logs",
         "generated_commands_dir": "generated_commands",
     },
@@ -154,17 +149,23 @@ def _sync_to_cfg(cfg_section, obj, mapping):
 
 def apply_ax25(cfg, ax25):
     """Apply config dict values to an AX25Config object."""
-    _apply_map(cfg["ax25"], ax25, _AX25_MAP)
+    section = cfg.get("ax25")
+    if section:
+        _apply_map(section, ax25, _AX25_MAP)
 
 
 def apply_csp(cfg, csp):
     """Apply config dict values to a CSPConfig object."""
-    _apply_map(cfg["csp"], csp, _CSP_MAP)
+    section = cfg.get("csp")
+    if section:
+        _apply_map(section, csp, _CSP_MAP)
 
 
 def update_cfg_from_state(cfg, csp, ax25, freq=None, zmq_addr=None, tx_delay_ms=None,
                           uplink_mode=None):
     """Sync runtime state back into the config dict for saving."""
+    cfg.setdefault("ax25", {})
+    cfg.setdefault("csp", {})
     _sync_to_cfg(cfg["ax25"], ax25, _AX25_MAP)
     _sync_to_cfg(cfg["csp"], csp, _CSP_MAP)
     tx_updates = {"frequency": freq, "zmq_addr": zmq_addr,
