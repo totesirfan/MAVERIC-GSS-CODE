@@ -53,6 +53,8 @@ def migrate_entry(entry: dict) -> dict:
                 blocks.append({"kind": "args", "label": "Arguments", "fields": arg_fields})
             display["detail_blocks"] = blocks
             display.pop("fields", None)
+        # Remove stale pre-migration _rendering
+        entry.pop("_rendering", None)
         return entry
 
     # Old format — build display from flat fields
@@ -108,6 +110,8 @@ def migrate_entry(entry: dict) -> dict:
     entry["type"] = "mission_cmd"
     entry["display"] = display
     entry["mission_payload"] = mission_payload
+    # Remove stale pre-migration _rendering (had detail_blocks but no row)
+    entry.pop("_rendering", None)
 
     return entry
 
@@ -130,16 +134,21 @@ def migrate_file(path: Path) -> tuple[int, int]:
             output.append(line)
             continue
 
-        # Check if this is an old-format entry
+        # Check if this needs migration
         is_old = "display" not in entry or (
             "display" in entry and (
                 "row" not in entry.get("display", {}) or
                 "detail_blocks" not in entry.get("display", {})
             )
         )
+        has_stale_rendering = "_rendering" in entry
 
         if is_old:
             entry = migrate_entry(entry)
+            migrated += 1
+        elif has_stale_rendering:
+            # New-format entry but has stale pre-migration _rendering — remove it
+            entry.pop("_rendering", None)
             migrated += 1
 
         output.append(json.dumps(entry))
