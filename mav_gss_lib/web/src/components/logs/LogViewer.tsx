@@ -48,7 +48,8 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
   const [loading, setLoading] = useState(false)
   const [dateFilter, setDateFilter] = useState('')
   const animateOnMount = hasLoadedLogViewer
-  const [columns, setColumns] = useState<ColumnDef[]>([])
+  const [rxColumns, setRxColumns] = useState<ColumnDef[]>([])
+  const [txColumns, setTxColumns] = useState<ColumnDef[]>([])
 
   useEffect(() => {
     hasLoadedLogViewer = true
@@ -58,7 +59,11 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
     if (!open) return
     fetch('/api/columns')
       .then((r) => r.json())
-      .then((data: ColumnDef[]) => setColumns(data))
+      .then((data: ColumnDef[]) => setRxColumns(data))
+      .catch(() => {})
+    fetch('/api/tx-columns')
+      .then((r) => r.json())
+      .then((data: ColumnDef[]) => setTxColumns(data))
       .catch(() => {})
   }, [open])
 
@@ -305,20 +310,24 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
                 {selected && <span className="text-[11px] shrink-0" style={{ color: colors.dim }}>{entries.length} entries</span>}
               </div>
 
-              {/* Column headers */}
-              {selected && entries.length > 0 && columns.length > 0 && (
-                <div className="flex items-center text-[11px] font-light px-2 py-0.5 shrink-0" style={{ color: colors.sep }}>
-                  <span className="w-5 px-1" />
-                  {columns.map(c => (
-                    <span
-                      key={c.id}
-                      className={`px-2 shrink-0 ${c.flex ? 'flex-1' : ''} ${c.align === 'right' ? 'text-right' : ''} ${c.width ?? ''}`}
-                    >
-                      {c.label}
-                    </span>
-                  ))}
-                </div>
-              )}
+              {/* Column headers — use TX columns for TX sessions, RX columns for RX */}
+              {selected && entries.length > 0 && (() => {
+                const isTxSession = entries.some(e => e.is_tx)
+                const cols = isTxSession ? txColumns : rxColumns
+                return cols.length > 0 ? (
+                  <div className="flex items-center text-[11px] font-light px-2 py-0.5 shrink-0" style={{ color: colors.sep }}>
+                    <span className="w-5 px-1" />
+                    {cols.map(c => (
+                      <span
+                        key={c.id}
+                        className={`px-2 shrink-0 ${c.flex ? 'flex-1' : ''} ${c.align === 'right' ? 'text-right' : ''} ${c.width ?? ''}`}
+                      >
+                        {c.label}
+                      </span>
+                    ))}
+                  </div>
+                ) : null
+              })()}
 
               {/* Entries */}
               <div className="flex-1 overflow-y-auto">
@@ -356,22 +365,27 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
                               onClick={() => setExpandedSet(prev => { const next = new Set(prev); if (next.has(i)) next.delete(i); else next.add(i); return next })}
                             >
                               {isExpanded ? <ChevronDown className="size-3 shrink-0" style={{ color: colors.label }} /> : <ChevronRight className="size-3 shrink-0" style={{ color: colors.dim }} />}
-                              {row && columns.length > 0 ? (
-                                columns.map(c => (
-                                  <CellValue key={c.id} col={c} row={row} showFrame={true} showEcho={true} />
-                                ))
-                              ) : (
-                                <>
-                                  <span className={`${col.num} text-right shrink-0 tabular-nums`} style={{ color: colors.dim }}>{num}</span>
-                                  <span className={`${col.time} shrink-0 tabular-nums`} style={{ color: colors.dim }}>{timeStr}</span>
-                                  <span className={`${col.frame} shrink-0`} style={{ color: frameColor(frame) }}>{frame || '--'}</span>
-                                  <span className="flex-1 min-w-0 truncate" style={{ color: colors.dim }}>{size}B</span>
-                                  <span className={`${col.flags} flex items-center gap-1 justify-end shrink-0`}>
-                                    {isEcho && <Badge className="text-[11px] px-1 py-0 h-5" style={{ backgroundColor: `${colors.ulColor}22`, color: colors.ulColor }}>UL</Badge>}
-                                    {isDup && <Badge className="text-[11px] px-1 py-0 h-5" style={{ backgroundColor: `${colors.warning}22`, color: colors.warning }}>DUP</Badge>}
-                                  </span>
-                                </>
-                              )}
+                              {(() => {
+                                const isTx = !!(e.is_tx)
+                                const cols = isTx ? txColumns : rxColumns
+                                if (row && cols.length > 0) {
+                                  return cols.map(c => (
+                                    <CellValue key={c.id} col={c} row={row} showFrame={true} showEcho={true} />
+                                  ))
+                                }
+                                return (
+                                  <>
+                                    <span className={`${col.num} text-right shrink-0 tabular-nums`} style={{ color: colors.dim }}>{num}</span>
+                                    <span className={`${col.time} shrink-0 tabular-nums`} style={{ color: colors.dim }}>{timeStr}</span>
+                                    <span className={`${col.frame} shrink-0`} style={{ color: frameColor(frame) }}>{frame || '--'}</span>
+                                    <span className="flex-1 min-w-0 truncate" style={{ color: colors.dim }}>{size}B</span>
+                                    <span className={`${col.flags} flex items-center gap-1 justify-end shrink-0`}>
+                                      {isEcho && <Badge className="text-[11px] px-1 py-0 h-5" style={{ backgroundColor: `${colors.ulColor}22`, color: colors.ulColor }}>UL</Badge>}
+                                      {isDup && <Badge className="text-[11px] px-1 py-0 h-5" style={{ backgroundColor: `${colors.warning}22`, color: colors.warning }}>DUP</Badge>}
+                                    </span>
+                                  </>
+                                )
+                              })()}
                             </div>
 
                             {/* Expanded detail */}

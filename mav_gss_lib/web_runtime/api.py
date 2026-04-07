@@ -480,10 +480,13 @@ def parse_replay_entry(entry: dict, cmd_defs: dict, adapter=None) -> dict | None
             "warnings": [],
         }
 
+        normalized["is_tx"] = True
+
         # TX log entries: consume persisted display from the raw log entry
+        # Wrap row in {values: ...} to match the RenderingRow shape used by CellValue
         display = entry.get("display", {})
         normalized["_rendering"] = {
-            "row": display.get("row", {}),
+            "row": {"values": display.get("row", {}), "_meta": {}},
             "detail_blocks": display.get("detail_blocks", []),
             "protocol_blocks": [],
             "integrity_blocks": [],
