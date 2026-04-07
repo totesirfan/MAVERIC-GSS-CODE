@@ -147,20 +147,6 @@ def sanitize_queue_items(items, runtime: WebRuntime | None = None):
             except ValueError:
                 skipped += 1
             continue
-        # Legacy cmd items — convert to mission payload
-        try:
-            adapter = runtime.adapter
-            mission_payload = {
-                "cmd_id": item["cmd"],
-                "args": item.get("args", ""),
-                "dest": adapter.node_name(item["dest"]),
-                "echo": adapter.node_name(item["echo"]),
-                "ptype": adapter.ptype_name(item["ptype"]),
-                "guard": item.get("guard", False),
-            }
-            accepted.append(
-                validate_mission_cmd(mission_payload, runtime=runtime)
-            )
-        except (ValueError, KeyError):
-            skipped += 1
+        # Unknown item type — skip
+        skipped += 1
     return accepted, skipped

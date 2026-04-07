@@ -289,22 +289,6 @@ def parse_import_file(filepath, runtime=None):
                     items.append(make_delay(max(0, min(300_000, int(obj.get("delay_ms", 0))))))
                 elif obj.get("type") == "mission_cmd" and "payload" in obj:
                     items.append(validate_mission_cmd(obj["payload"], runtime=runtime))
-                elif obj.get("type") == "cmd" or "cmd" in obj:
-                    dest = _resolve_node(str(obj.get("dest", "GS")))
-                    echo = _resolve_node(str(obj.get("echo", "NONE")))
-                    ptype_val = _resolve_ptype(str(obj.get("ptype", "CMD")))
-                    if None in (dest, echo, ptype_val):
-                        skipped += 1
-                        continue
-                    mission_payload = {
-                        "cmd_id": obj["cmd"].lower(),
-                        "args": str(obj.get("args", "")),
-                        "dest": runtime.adapter.node_name(dest),
-                        "echo": runtime.adapter.node_name(echo),
-                        "ptype": runtime.adapter.ptype_name(ptype_val),
-                        "guard": bool(obj.get("guard", False)),
-                    }
-                    items.append(validate_mission_cmd(mission_payload, runtime=runtime))
                 else:
                     skipped += 1
             else:

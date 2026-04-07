@@ -282,17 +282,7 @@ class TxService:
                 payload.get("payload", {}),
                 runtime=self.runtime,
             )
-        # Legacy cmd-type migration: convert flat fields to mission payload
-        adapter = self.runtime.adapter
-        mission_payload = {
-            "cmd_id": payload["cmd"],
-            "args": payload.get("args", ""),
-            "dest": adapter.node_name(payload["dest"]),
-            "echo": adapter.node_name(payload["echo"]),
-            "ptype": adapter.ptype_name(payload["ptype"]),
-            "guard": payload.get("guard", False),
-        }
-        return validate_mission_cmd(mission_payload, runtime=self.runtime)
+        raise ValueError(f"unsupported queue item type: {payload['type']}")
 
     def renumber_queue(self) -> None:
         """Assign sequential display numbers to queued command items."""
