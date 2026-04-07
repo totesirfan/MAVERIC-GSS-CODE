@@ -34,7 +34,7 @@ MAV_WEB.py
 | Command schema | `mav_gss_lib/missions/maveric/commands.yml` | Provided separately | Gitignored for security |
 | Mission metadata override | `mav_gss_lib/missions/maveric/mission.yml` | Optional local file | Overrides tracked `mission.example.yml` when present |
 
-If `gss.yml` is missing, hardcoded defaults in `config.py` are used. If `commands.yml` is missing, the system starts but TX validation and command builder are disabled. If `mission.yml` is missing, the runtime falls back to the tracked `mission.example.yml`.
+If `gss.yml` is missing, hardcoded defaults in `config.py` are used. If `commands.yml` is missing, the MAVERIC mission starts but command schema validation is unavailable. If `mission.yml` is missing, the runtime falls back to the tracked `mission.example.yml`.
 
 ### Config Merge Order
 

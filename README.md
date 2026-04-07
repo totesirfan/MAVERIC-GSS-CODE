@@ -142,7 +142,8 @@ Reports active mission, resolved config/schema paths, web build status, and ZMQ 
 
 ### Controlled Uplink Operations
 
-- Schema-validated command entry with visual command builder
+- Raw CLI command input with mission-owned parsing and validation
+- Optional visual command builder UI per mission (e.g. MAVERIC command picker)
 - Persistent TX queue with drag-and-drop reorder
 - Delay items and guard confirmations
 - Two uplink modes: AX.25 (Mode 6) and ASM+Golay (Mode 5, recommended)
