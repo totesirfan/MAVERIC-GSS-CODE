@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { FileUp, FileText, Check, ChevronRight, Shield, Timer } from 'lucide-react'
-import { PtypeBadge } from '@/components/shared/PtypeBadge'
 import { colors } from '@/lib/colors'
 import { col } from '@/lib/columns'
 import { authFetch } from '@/lib/auth'
@@ -20,13 +19,13 @@ interface ImportFile {
 
 interface PreviewItem {
   type: string
-  src?: string
-  dest?: string
-  echo?: string
-  ptype?: string
-  cmd?: string
-  args?: string
+  display?: {
+    title: string
+    subtitle?: string
+    fields?: { name: string; value: string }[]
+  }
   guard?: boolean
+  size?: number
   delay_ms?: number
 }
 
@@ -199,10 +198,13 @@ export function ImportDialog({ open, onClose, onImported }: ImportDialogProps) {
                         </>
                       ) : (
                         <>
-                          <span className={`${col.node} shrink-0`} style={{ color: colors.label }}>{item.dest}</span>
-                          <PtypeBadge ptype={item.ptype ?? 'CMD'} />
-                          <span className="shrink-0 px-1.5 py-0.5 rounded text-[11px] font-semibold" style={{ color: colors.value, backgroundColor: 'rgba(255,255,255,0.06)' }}>{item.cmd}</span>
-                          <span className="flex-1 min-w-0 truncate" style={{ color: colors.dim }}>{item.args}</span>
+                          <span className="shrink-0 px-1.5 py-0.5 rounded text-[11px] font-semibold" style={{ color: colors.value, backgroundColor: 'rgba(255,255,255,0.06)' }}>{item.display?.title ?? '?'}</span>
+                          {item.display?.subtitle && (
+                            <span className="shrink-0 truncate text-[11px]" style={{ color: colors.label }}>{item.display.subtitle}</span>
+                          )}
+                          <span className="flex-1 min-w-0 truncate" style={{ color: colors.dim }}>
+                            {item.display?.fields?.map(f => `${f.name}=${f.value}`).join(' ')}
+                          </span>
                           {item.guard && <Shield className="size-3 shrink-0" style={{ color: colors.warning }} />}
                         </>
                       )}
