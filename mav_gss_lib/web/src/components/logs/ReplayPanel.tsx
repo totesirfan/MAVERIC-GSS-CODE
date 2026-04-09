@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Play, Pause, Square, Gauge } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Slider } from '@/components/ui/slider'
 import { colors } from '@/lib/colors'
 import type { RxPacket } from '@/lib/types'
 
@@ -69,7 +70,7 @@ function parseReplayTime(pkt: RxPacket): number {
 /** Binary search for the last packet with parseReplayTime(pkt) <= targetTime.
  *  Returns the index, or 0 if targetTime is before all packets.
  */
-export function findPacketIndexAtTime(packets: RxPacket[], targetTime: number): number {
+function findPacketIndexAtTime(packets: RxPacket[], targetTime: number): number {
   let lo = 0
   let hi = packets.length - 1
   let result = 0
@@ -90,7 +91,7 @@ export function findPacketIndexAtTime(packets: RxPacket[], targetTime: number): 
  *  from the backend normalizer). Falls back to extracting HH:MM:SS from
  *  pkt.time_utc only if pkt.time is empty.
  */
-export function formatTimestamp(pkt: RxPacket): string {
+function formatTimestamp(pkt: RxPacket): string {
   // Prefer pkt.time — the display-oriented local time field
   const display = (pkt.time || '').trim()
   if (display) {
@@ -119,6 +120,10 @@ export function ReplayPanel({ sessionId, replacePackets, onStop }: ReplayPanelPr
   const [playing, setPlaying] = useState(false)
   const [speed, setSpeed] = useState<Speed>(1)
   const [loading, setLoading] = useState(true)
+  const [tooltipTime, setTooltipTime] = useState<string | null>(null)
+  const [tooltipX, setTooltipX] = useState(0)
+  const [dragging, setDragging] = useState(false)
+  const scrubberRef = useRef<HTMLDivElement>(null)
 
   const posRef = useRef(0)
   const playingRef = useRef(false)
@@ -126,6 +131,10 @@ export function ReplayPanel({ sessionId, replacePackets, onStop }: ReplayPanelPr
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const entriesRef = useRef<RxPacket[]>([])
   const intervalsRef = useRef<number[]>([])
+
+  const [startTime, setStartTime] = useState(0)
+  const [sessionDurationMs, setSessionDurationMs] = useState(0)
+  const startTimeRef = useRef(0)
 
   // Sync refs
   useEffect(() => { playingRef.current = playing }, [playing])
@@ -139,6 +148,13 @@ export function ReplayPanel({ sessionId, replacePackets, onStop }: ReplayPanelPr
       .then((r) => r.json())
       .then((data: LogEntry[]) => {
         const packets = data.map((e, i) => entryToPacket(e, i))
+        // Compute session time bounds
+        const t0 = packets.length > 0 ? parseReplayTime(packets[0]) : 0
+        const tEnd = packets.length > 0 ? parseReplayTime(packets[packets.length - 1]) : 0
+        const duration = Math.max(tEnd - t0, 0)
+        startTimeRef.current = t0
+        setStartTime(t0)
+        setSessionDurationMs(duration)
         // Compute intervals from timestamps
         // Group packets with the same second and spread them evenly
         const gaps: number[] = [0]
@@ -230,11 +246,13 @@ export function ReplayPanel({ sessionId, replacePackets, onStop }: ReplayPanelPr
     })
   }, [])
 
-  const handleScrub = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const newPos = parseInt(e.target.value, 10)
-    posRef.current = newPos
-    setPosition(newPos)
-    replacePackets(entriesRef.current.slice(0, newPos + 1))
+  const handleScrub = useCallback((_value: number | readonly number[]) => {
+    const offsetMs = (Array.isArray(_value) ? (_value as number[])[0] : _value as number) ?? 0
+    const targetTime = startTimeRef.current + offsetMs
+    const idx = findPacketIndexAtTime(entriesRef.current, targetTime)
+    posRef.current = idx
+    setPosition(idx)
+    replacePackets(entriesRef.current.slice(0, idx + 1))
     // If playing, restart the schedule from the new position
     if (playingRef.current) {
       if (timerRef.current) clearTimeout(timerRef.current)
@@ -242,8 +260,27 @@ export function ReplayPanel({ sessionId, replacePackets, onStop }: ReplayPanelPr
     }
   }, [replacePackets, scheduleNext])
 
+  const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (dragging) return // hide tooltip during drag — thumb position is sufficient
+    const rect = scrubberRef.current?.getBoundingClientRect()
+    if (!rect || sessionDurationMs === 0) return
+    const fraction = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+    const offsetMs = fraction * sessionDurationMs
+    const targetTime = startTimeRef.current + offsetMs
+    const idx = findPacketIndexAtTime(entriesRef.current, targetTime)
+    setTooltipTime(formatTimestamp(entriesRef.current[idx]))
+    setTooltipX(fraction * 100)
+  }, [sessionDurationMs, dragging])
+
+  const handlePointerLeave = useCallback(() => {
+    setTooltipTime(null)
+  }, [])
+
+  const handleDragEnd = useCallback(() => {
+    setDragging(false)
+  }, [])
+
   const atEnd = position >= allEntries.length - 1
-  const total = allEntries.length
 
   // Auto-pause at end
   /* eslint-disable react-hooks/set-state-in-effect */
@@ -285,19 +322,44 @@ export function ReplayPanel({ sessionId, replacePackets, onStop }: ReplayPanelPr
       </Button>
 
       {/* Scrubber */}
-      <input
-        type="range"
-        min={0}
-        max={Math.max(0, total - 1)}
-        value={position}
-        onChange={handleScrub}
-        className="flex-1 h-1 accent-amber-400 cursor-pointer"
-        style={{ accentColor: colors.warning }}
-      />
+      <div
+        ref={scrubberRef}
+        className="relative flex-1 group"
+        data-dragging={dragging || undefined}
+        onPointerMove={handlePointerMove}
+        onPointerLeave={handlePointerLeave}
+        onPointerUp={handleDragEnd}
+        onPointerCancel={handleDragEnd}
+      >
+        {tooltipTime && (
+          <div
+            className="absolute -top-7 -translate-x-1/2 px-1.5 py-0.5 rounded text-[10px] font-mono tabular-nums pointer-events-none whitespace-nowrap"
+            style={{
+              left: `${tooltipX}%`,
+              backgroundColor: colors.bgPanelRaised,
+              color: colors.textSecondary,
+              border: `1px solid ${colors.borderSubtle}`,
+            }}
+          >
+            {tooltipTime}
+          </div>
+        )}
+        <Slider
+          min={0}
+          max={sessionDurationMs || 1}
+          step={1}
+          value={[allEntries.length > 0 ? parseReplayTime(allEntries[position]) - startTime : 0]}
+          onValueChange={handleScrub}
+          onPointerDown={() => { setDragging(true); setTooltipTime(null) }}
+          onValueCommitted={handleDragEnd}
+          style={{ '--slider-track': colors.borderSubtle } as React.CSSProperties}
+          className="w-full cursor-pointer [&_[data-slot=slider-track]]:h-1 [&_[data-slot=slider-track]]:group-hover:h-1.5 [&_[data-slot=slider-track]]:transition-all [&_[data-slot=slider-track]]:bg-[var(--slider-track)] [&_[data-slot=slider-range]]:bg-amber-400 [&_[data-slot=slider-thumb]]:size-3 [&_[data-slot=slider-thumb]]:opacity-0 [&_[data-slot=slider-thumb]]:group-hover:opacity-100 [&[data-dragging]_[data-slot=slider-thumb]]:opacity-100 [&_[data-slot=slider-thumb]]:transition-opacity [&_[data-slot=slider-thumb]]:border-0 [&_[data-slot=slider-thumb]]:bg-amber-400"
+        />
+      </div>
 
-      {/* Position counter */}
-      <span className="text-[11px] tabular-nums shrink-0" style={{ color: colors.dim }}>
-        {position + 1}/{total}
+      {/* Current timestamp */}
+      <span className="text-[11px] font-mono tabular-nums shrink-0" style={{ color: colors.dim }}>
+        {allEntries.length > 0 ? formatTimestamp(allEntries[position]) : '--:--:--'}
       </span>
     </div>
   )
