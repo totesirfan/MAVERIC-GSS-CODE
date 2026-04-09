@@ -118,13 +118,15 @@ for ws in dead:
 
 **Target:** Single async helper at the top of `services.py` (used by both RxService and TxService, and importable by api/session.py).
 
-**Concurrency contract:** The current code uses `self.lock` (a `threading.Lock`) around all client list mutations in both RxService and TxService. The helper must preserve this. It becomes an instance method on each service (or accepts the lock), not a bare function:
+**Concurrency contract:** The current code uses `self.lock` (a `threading.Lock`) around all client list mutations in both RxService and TxService. Connect/disconnect paths can mutate the list concurrently with broadcast iteration. The helper must snapshot under lock before iterating, then lock again for removals:
 
 ```python
 async def broadcast_safe(clients: list[WebSocket], lock: threading.Lock, payload: str) -> None:
-    """Send payload to all clients, removing dead connections under lock."""
+    """Send payload to all clients, removing dead connections."""
+    with lock:
+        snapshot = list(clients)
     dead = []
-    for ws in clients:
+    for ws in snapshot:
         try:
             await ws.send_text(payload)
         except Exception:
@@ -136,7 +138,7 @@ async def broadcast_safe(clients: list[WebSocket], lock: threading.Lock, payload
                     clients.remove(ws)
 ```
 
-The lock is only held for the removal phase (fast), not during sends (slow/blocking). This matches the current pattern where sends happen outside the lock and removals happen inside it.
+Lock is held briefly twice: once to snapshot (fast copy), once to remove dead sockets. Sends happen outside the lock against the snapshot, so I/O never blocks other paths.
 
 Replace all 6 occurrences in `RxService.broadcast()`, `RxService.broadcast_loop()` (3 sites), `TxService.broadcast()`, and the session rename broadcast in `api.py` (which uses `runtime.session_clients` — pass the appropriate lock or add one for session clients).
 
@@ -288,7 +290,7 @@ export function useConfig(): { config: GssConfig | null; setConfig: (c: GssConfi
 ## Dependency Order
 
 ```
-1A (api/ package split) ──── standalone (api.py only)
+1A (api/ package split) ──── standalone (api.py → api/ package, no other existing files touched)
         ↓
 1C (broadcast_safe) ──────── sequential after 1A (both touch api session broadcast)
         ↓
