@@ -211,3 +211,87 @@ MAVERIC_FULL_GR=1 pytest tests/test_ops_golay_path.py -q   # GNU Radio end-to-en
 ```
 
 The echo mission adapter in `tests/echo_mission.py` validates that a non-MAVERIC adapter can satisfy the full protocol.
+
+## Repo Map
+
+```
+MAV_WEB.py                          Entry point — FastAPI server
+mav_gss_lib/
+  config.py                         Config loading + deep merge
+  logging.py                        Dual-output session logging (JSONL + text)
+  mission_adapter.py                MissionAdapter Protocol + loader
+  parsing.py                        RxPipeline — frame detect, normalize, dedup
+  transport.py                      ZMQ PUB/SUB + PMT serialization
+  protocols/                        Reusable protocol toolkit
+    crc.py                            CRC-16 / CRC-32C
+    csp.py                            CSP v1 header + KISS framing
+    ax25.py                           AX.25 HDLC framing
+    golay.py                          Golay(24,12) + CCSDS scrambler
+    frame_detect.py                   Frame type detection
+  missions/
+    template/                       Starter kit for new missions
+    maveric/                        MAVERIC mission package
+      __init__.py                     Package entry + init_mission()
+      adapter.py                      MavericMissionAdapter
+      nodes.py                        NodeTable — explicit node/ptype state
+      wire_format.py                  CommandFrame encode/decode
+      schema.py                       Command schema loading + validation
+      cmd_parser.py                   TX command line parser
+      rx_ops.py                       RX packet parsing
+      tx_ops.py                       TX command building
+      rendering.py                    RX display rendering
+      log_format.py                   Log record formatting
+      imaging.py                      Imaging page plugin
+      commands.yml                    Command schema (gitignored)
+      mission.example.yml            Public mission metadata
+  web_runtime/                      Backend web services
+    state.py                          WebRuntime container
+    app.py                            FastAPI factory + lifespan
+    api/                              REST endpoints (config, schema, logs, queue_io, session)
+    rx.py                             RX WebSocket handler
+    tx.py                             TX WebSocket handler
+    tx_queue.py                       Queue operations
+    services.py                       RxService + TxService
+    runtime.py                        Queue helpers
+    security.py                       CORS/CSP middleware
+    session_ws.py                     WebSocket session management
+  web/                              Frontend
+    src/                              React + Vite + Tailwind source
+      components/                     UI components (rx/, tx/, shared/, etc.)
+      hooks/                          React hooks (sockets, state, shortcuts)
+      lib/                            Types, colors, utilities
+      plugins/                        Mission plugin registry + per-mission UI
+        registry.ts                     Convention-based plugin discovery
+        maveric/                        MAVERIC TX builder + imaging page
+    dist/                             Production build (committed, see below)
+tests/                              Test suite
+docs/                               Documentation
+```
+
+## Files to Ignore for Code Edits
+
+These paths are generated, local-only, or security-sensitive. Don't read or modify them when making code changes:
+
+| Path | Reason |
+|---|---|
+| `mav_gss_lib/web/dist/` | Generated build output (~1.3 MB). Rebuilt with `npm run build`. |
+| `mav_gss_lib/web/node_modules/` | NPM dependencies. Untracked. |
+| `logs/` | Runtime log output. |
+| `generated_commands/` | Queue import/export files. |
+| `mav_gss_lib/gss.yml` | Local operator config (not tracked). |
+| `mav_gss_lib/missions/maveric/mission.yml` | Local mission overrides (not tracked). |
+| `mav_gss_lib/missions/maveric/commands.yml` | Command schema — gitignored for security. |
+| `.pending_queue.jsonl` | Persisted TX queue state. |
+
+## Sensitive Surfaces
+
+These areas affect wire protocol correctness, RF safety, or mission operations. Edit with extra care and verify with tests.
+
+| Surface | Files | Risk |
+|---|---|---|
+| **Command wire format** | `maveric/wire_format.py` (`CommandFrame.to_bytes`, `from_bytes`) | Byte-level encode/decode — any change can corrupt uplink/downlink frames |
+| **Protocol framing** | `protocols/crc.py`, `protocols/csp.py`, `protocols/ax25.py`, `protocols/golay.py` | CRC, KISS, AX.25, ASM+Golay — must match spacecraft radio firmware |
+| **TX send loop** | `web_runtime/services.py` (`TxService.run_send`) | Controls actual RF transmission timing, guard confirmation, abort |
+| **Command schema** | `maveric/commands.yml`, `maveric/schema.py` | Defines valid commands and argument types — errors can send malformed uplinks |
+| **Mission adapter boundary** | `mission_adapter.py` (`MissionAdapter` Protocol) | Contract between platform and mission — breaking changes affect all missions |
+| **Frame detection** | `protocols/frame_detect.py`, `parsing.py` (`RxPipeline`) | Misidentifying frames drops or corrupts received packets |
