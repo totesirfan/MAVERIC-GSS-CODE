@@ -557,21 +557,25 @@ def requires_space(runtime: "WebRuntime") -> str | None:
 #  Queue mutation helper
 # ---------------------------------------------------------------------------
 
-def mutate_queue_if_idle(runtime: "WebRuntime", fn) -> str | None:
-    """Run fn(queue) under send_lock with an atomic idle check.
+def mutate_queue_if_idle(runtime: "WebRuntime", fn, *, check_space: bool = False) -> str | None:
+    """Run fn(queue) under send_lock with atomic idle + capacity checks.
 
-    Returns an error string if the queue is being sent, else None.
+    Returns an error string if the queue is being sent or full, else None.
     fn receives the queue list and may mutate it. After fn returns,
     renumber and save are done under the same lock. Broadcasts happen
     after the lock is released by the caller.
 
+    If check_space=True, also enforces MAX_QUEUE before running fn.
+
     This is the ONLY correct way to mutate the queue from action handlers.
-    The dispatch-loop guard (requires_idle) is a fast pre-check; this
-    function is the authoritative gate under the lock.
+    The dispatch-loop guards (requires_idle, requires_space) are fast
+    pre-checks; this function is the authoritative gate under the lock.
     """
     with runtime.tx.send_lock:
         if runtime.tx.sending["active"]:
             return "cannot modify queue during send"
+        if check_space and len(runtime.tx.queue) >= MAX_QUEUE:
+            return f"queue full ({MAX_QUEUE} items max)"
         fn(runtime.tx.queue)
         runtime.tx.renumber_queue()
         runtime.tx.save_queue()
@@ -596,7 +600,7 @@ async def handle_queue(runtime: "WebRuntime", msg: dict, ws: "WebSocket") -> Non
     try:
         payload = runtime.adapter.cmd_line_to_payload(line)
         item = validate_mission_cmd(payload, runtime=runtime)
-        err = mutate_queue_if_idle(runtime, lambda q: q.append(item))
+        err = mutate_queue_if_idle(runtime, lambda q: q.append(item), check_space=True)
         if err:
             await send_error(ws, err)
             return
@@ -610,7 +614,7 @@ async def handle_queue_mission_cmd(runtime: "WebRuntime", msg: dict, ws: "WebSoc
     try:
         payload = msg.get("payload", {})
         item = validate_mission_cmd(payload, runtime=runtime)
-        err = mutate_queue_if_idle(runtime, lambda q: q.append(item))
+        err = mutate_queue_if_idle(runtime, lambda q: q.append(item), check_space=True)
         if err:
             await send_error(ws, err)
             return
@@ -691,7 +695,7 @@ async def handle_add_delay(runtime: "WebRuntime", msg: dict, ws: "WebSocket") ->
             q.insert(idx, item)
         else:
             q.append(item)
-    err = mutate_queue_if_idle(runtime, do_add)
+    err = mutate_queue_if_idle(runtime, do_add, check_space=True)
     if err:
         await send_error(ws, err)
         return
