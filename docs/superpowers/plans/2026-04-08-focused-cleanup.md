@@ -128,19 +128,23 @@ print('com_ping full defn keys:', list(defn.keys()))
 
 - [ ] **Step 3: Fix the root cause in tracked code**
 
-Three possible tracked fixes, in order of preference:
-
-**Option A — Test fixture with explicit schema:** If the test class `TestMavericBuildTxCommand._make_adapter()` loads the real (gitignored) schema, refactor it to use a tracked test fixture or to inject a known `nodes` constraint. For example, patch `adapter.cmd_defs["com_ping"]["nodes"]` in the test setup so the test is self-contained regardless of the local schema file.
-
-**Option B — Adapter default behavior:** If `commands.example.yml` (tracked) has `com_ping` with `nodes`, but the gitignored `commands.yml` doesn't, update `commands.example.yml` to include the `nodes` field and ensure the test loads from the example file or a fixture derived from it.
-
-**Option C — Case-sensitivity fix in adapter:** If the `nodes` list exists but the comparison fails due to casing, normalize in `adapter.py:172`:
+**Default fix:** Patch `adapter.cmd_defs["com_ping"]["nodes"]` in the test so the test is self-contained regardless of the local schema file. The test helper `_make_adapter()` calls `load_mission_adapter(cfg)` which loads the gitignored `commands.yml`. After that call, inject the constraint:
 
 ```python
-if allowed_nodes and dest_name not in allowed_nodes:
+def _make_adapter(self):
+    from mav_gss_lib.config import load_gss_config
+    from mav_gss_lib.mission_adapter import load_mission_adapter
+    cfg = load_gss_config()
+    adapter = load_mission_adapter(cfg)
+    # Ensure com_ping has node restrictions for whitelist tests
+    if "com_ping" in adapter.cmd_defs:
+        adapter.cmd_defs["com_ping"].setdefault("nodes", ["LPPM", "EPS", "UPPM", "HLNV", "ASTR"])
+    return adapter
 ```
 
-Check actual casing before applying this.
+This makes the test deterministic: it passes with any local `commands.yml` (or none), because it ensures the constraint exists after loading.
+
+**Only if code inspection reveals the test helper is already fixture-driven** (i.e., does not use `load_mission_adapter`), consider alternative approaches like updating `commands.example.yml` or fixing case sensitivity. But the default instruction is the patch above.
 
 The key requirement: after the fix, `git clone` + `conda run -n gnuradio python -m pytest tests/` must pass without any local schema file present.
 
@@ -1094,28 +1098,30 @@ Add to `tests/test_ops_web_runtime.py` in `TestWebRuntimeWorkflows`:
 def test_log_pagination_respects_offset_and_limit(self):
     """Paginated log endpoint returns bounded results with has_more."""
     import json as _json
-    from pathlib import Path
 
-    # Write a small JSONL log file with 5 entries
-    log_dir = Path(self.runtime.cfg["general"]["log_dir"]) / "json"
+    # Redirect log_dir to isolated temp directory
+    log_base = Path(self.tmp.name) / "logs"
+    self.runtime.cfg["general"]["log_dir"] = str(log_base)
+    log_dir = log_base / "json"
     log_dir.mkdir(parents=True, exist_ok=True)
+
+    # Write 5 realistic RX log entries (RX entries have "pkt" and "gs_ts")
     session_id = "downlink_20260408_120000"
     log_file = log_dir / f"{session_id}.jsonl"
     entries = []
     for i in range(5):
         entry = {
-            "n": i + 1,
-            "time": f"2026-04-08T12:00:{i:02d}Z",
+            "pkt": i + 1,
+            "gs_ts": f"2026-04-08T12:00:{i:02d}Z",
             "raw_hex": f"{i:02x}" * 10,
+            "raw_len": 20,
             "frame_type": "HDLC",
-            "size": 20,
         }
         entries.append(_json.dumps(entry))
     log_file.write_text("\n".join(entries) + "\n")
 
-    # Call the endpoint helper with offset=1, limit=2
+    # Call the endpoint with offset=1, limit=2
     from mav_gss_lib.web_runtime.api import api_log_entries
-    from unittest.mock import AsyncMock
 
     req = _request_for(self.runtime)
     result = asyncio.run(api_log_entries(
@@ -1131,7 +1137,7 @@ def test_log_pagination_respects_offset_and_limit(self):
     self.assertIn("entries", result)
     self.assertIn("has_more", result)
     self.assertEqual(len(result["entries"]), 2)
-    self.assertTrue(result["has_more"])  # 5 entries, offset 1 + limit 2 = entries 2,3 with more remaining
+    self.assertTrue(result["has_more"])  # 5 entries, offset 1 + limit 2 = more remaining
     self.assertEqual(result["offset"], 1)
     self.assertEqual(result["limit"], 2)
 ```
