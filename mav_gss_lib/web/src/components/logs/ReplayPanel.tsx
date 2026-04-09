@@ -67,24 +67,6 @@ function parseReplayTime(pkt: RxPacket): number {
   return h * 3600000 + m * 60000 + s * 1000 + ms
 }
 
-/** Binary search for the last packet with parseReplayTime(pkt) <= targetTime.
- *  Returns the index, or 0 if targetTime is before all packets.
- */
-function findPacketIndexAtTime(packets: RxPacket[], targetTime: number): number {
-  let lo = 0
-  let hi = packets.length - 1
-  let result = 0
-  while (lo <= hi) {
-    const mid = (lo + hi) >>> 1
-    if (parseReplayTime(packets[mid]) <= targetTime) {
-      result = mid
-      lo = mid + 1
-    } else {
-      hi = mid - 1
-    }
-  }
-  return result
-}
 
 /** Format a packet's display time to HH:MM:SS.
  *  Uses pkt.time (the operator-facing local time field, already HH:MM:SS
@@ -132,15 +114,12 @@ export function ReplayPanel({ sessionId, replacePackets, onStop }: ReplayPanelPr
   const entriesRef = useRef<RxPacket[]>([])
   const intervalsRef = useRef<number[]>([])
 
-  const [sessionDurationMs, setSessionDurationMs] = useState(0)
-  const startTimeRef = useRef(0)
-
-  // Smooth slider animation: interpolates between packet timestamps during playback
-  const [sliderOffsetMs, setSliderOffsetMs] = useState(0)
+  // Smooth slider animation: interpolates between packet indices during playback
+  const [sliderPos, setSliderPos] = useState(0)
   const rafRef = useRef<number>(0)
   const tickStartRef = useRef(0)     // wall-clock time when current tick started
-  const tickFromMs = useRef(0)       // slider offset at tick start
-  const tickToMs = useRef(0)         // slider offset at tick end (next packet)
+  const tickFromPos = useRef(0)      // slider position at tick start (packet index)
+  const tickToPos = useRef(0)        // slider position at tick end (next packet index)
   const tickDurationRef = useRef(0)  // actual delay duration for this tick (ms)
 
   // Sync refs
@@ -156,12 +135,6 @@ export function ReplayPanel({ sessionId, replacePackets, onStop }: ReplayPanelPr
       .then((resp: { entries: LogEntry[] } | LogEntry[]) => {
         const data = Array.isArray(resp) ? resp : resp.entries
         const packets = data.map((e, i) => entryToPacket(e, i))
-        // Compute session time bounds
-        const t0 = packets.length > 0 ? parseReplayTime(packets[0]) : 0
-        const tEnd = packets.length > 0 ? parseReplayTime(packets[packets.length - 1]) : 0
-        const duration = Math.max(tEnd - t0, 0)
-        startTimeRef.current = t0
-        setSessionDurationMs(duration)
         // Compute intervals from timestamps
         // Group packets with the same second and spread them evenly
         const gaps: number[] = [0]
@@ -202,25 +175,25 @@ export function ReplayPanel({ sessionId, replacePackets, onStop }: ReplayPanelPr
   }, [sessionId, replacePackets])
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  // Smooth slider animation loop — duration matches the actual playback delay
+  // Smooth slider animation — interpolates between packet indices at constant visual rate
   const animateSlider = useCallback(() => {
     const now = performance.now()
     const elapsed = now - tickStartRef.current
-    const from = tickFromMs.current
-    const to = tickToMs.current
+    const from = tickFromPos.current
+    const to = tickToPos.current
     const duration = tickDurationRef.current
     const t = duration > 0 ? Math.min(elapsed / duration, 1) : 1
-    setSliderOffsetMs(from + (to - from) * t)
+    setSliderPos(from + (to - from) * t)
     if (t < 1 && playingRef.current) {
       rafRef.current = requestAnimationFrame(animateSlider)
     }
   }, [])
 
-  const startSliderAnimation = useCallback((fromOffset: number, toOffset: number, delay: number) => {
+  const startSliderAnimation = useCallback((fromPos: number, toPos: number, delay: number) => {
     cancelAnimationFrame(rafRef.current)
     tickStartRef.current = performance.now()
-    tickFromMs.current = fromOffset
-    tickToMs.current = toOffset
+    tickFromPos.current = fromPos
+    tickToPos.current = toPos
     tickDurationRef.current = delay
     rafRef.current = requestAnimationFrame(animateSlider)
   }, [animateSlider])
@@ -237,7 +210,6 @@ export function ReplayPanel({ sessionId, replacePackets, onStop }: ReplayPanelPr
     const pos = posRef.current
     const entries = entriesRef.current
     const gaps = intervalsRef.current
-    const t0 = startTimeRef.current
 
     if (pos >= entries.length - 1 || !playingRef.current) {
       stopSliderAnimation()
@@ -247,15 +219,13 @@ export function ReplayPanel({ sessionId, replacePackets, onStop }: ReplayPanelPr
     const nextPos = pos + 1
     const delay = gaps[nextPos] / speedRef.current
 
-    // Start smooth slider interpolation — duration matches the actual playback delay
-    const curOffset = parseReplayTime(entries[pos]) - t0
-    const nextOffset = parseReplayTime(entries[nextPos]) - t0
-    startSliderAnimation(curOffset, nextOffset, delay)
+    // Smooth slider interpolation in position space — constant visual rate
+    startSliderAnimation(pos, nextPos, delay)
 
     timerRef.current = setTimeout(() => {
       posRef.current = nextPos
       setPosition(nextPos)
-      setSliderOffsetMs(nextOffset)
+      setSliderPos(nextPos)
       replacePackets(entries.slice(0, nextPos + 1))
       scheduleNextRef.current()
     }, delay)
@@ -296,12 +266,11 @@ export function ReplayPanel({ sessionId, replacePackets, onStop }: ReplayPanelPr
   }, [])
 
   const handleScrub = useCallback((_value: number | readonly number[]) => {
-    const offsetMs = Array.isArray(_value) ? _value[0] ?? 0 : _value
-    const targetTime = startTimeRef.current + offsetMs
-    const idx = findPacketIndexAtTime(entriesRef.current, targetTime)
+    const raw = Array.isArray(_value) ? _value[0] ?? 0 : _value
+    const idx = Math.round(raw)
     posRef.current = idx
     setPosition(idx)
-    setSliderOffsetMs(offsetMs)
+    setSliderPos(raw)
     stopSliderAnimation()
     replacePackets(entriesRef.current.slice(0, idx + 1))
     // If playing, restart the schedule from the new position
@@ -314,14 +283,13 @@ export function ReplayPanel({ sessionId, replacePackets, onStop }: ReplayPanelPr
   const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (dragging) return // hide tooltip during drag — thumb position is sufficient
     const rect = scrubberRef.current?.getBoundingClientRect()
-    if (!rect || sessionDurationMs === 0) return
+    const total = entriesRef.current.length
+    if (!rect || total === 0) return
     const fraction = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
-    const offsetMs = fraction * sessionDurationMs
-    const targetTime = startTimeRef.current + offsetMs
-    const idx = findPacketIndexAtTime(entriesRef.current, targetTime)
+    const idx = Math.min(Math.round(fraction * (total - 1)), total - 1)
     setTooltipTime(formatTimestamp(entriesRef.current[idx]))
     setTooltipX(fraction * 100)
-  }, [sessionDurationMs, dragging])
+  }, [dragging])
 
   const handlePointerLeave = useCallback(() => {
     setTooltipTime(null)
@@ -330,15 +298,14 @@ export function ReplayPanel({ sessionId, replacePackets, onStop }: ReplayPanelPr
   const handleDragEnd = useCallback(() => {
     setDragging(false)
     // Restore tooltip at current thumb position so it reappears without needing a pointermove
-    const rect = scrubberRef.current?.getBoundingClientRect()
-    if (rect && sessionDurationMs > 0 && entriesRef.current.length > 0) {
+    const total = entriesRef.current.length
+    if (total > 0) {
       const pos = posRef.current
-      const offset = parseReplayTime(entriesRef.current[pos]) - startTimeRef.current
-      const fraction = offset / sessionDurationMs
+      const fraction = total > 1 ? pos / (total - 1) : 0
       setTooltipTime(formatTimestamp(entriesRef.current[pos]))
       setTooltipX(fraction * 100)
     }
-  }, [sessionDurationMs])
+  }, [])
 
   const atEnd = position >= allEntries.length - 1
 
@@ -405,9 +372,9 @@ export function ReplayPanel({ sessionId, replacePackets, onStop }: ReplayPanelPr
         )}
         <Slider
           min={0}
-          max={sessionDurationMs || 1}
-          step={1}
-          value={[sliderOffsetMs]}
+          max={Math.max(allEntries.length - 1, 1)}
+          step={0.01}
+          value={[sliderPos]}
           onValueChange={handleScrub}
           onPointerDown={() => { setDragging(true); setTooltipTime(null) }}
           onValueCommitted={handleDragEnd}
