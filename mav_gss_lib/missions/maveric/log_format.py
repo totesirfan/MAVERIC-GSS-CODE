@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 from mav_gss_lib.missions.maveric.schema import format_arg_value
 
 if TYPE_CHECKING:
-    from mav_gss_lib.missions.maveric.node_table import NodeTable
+    from mav_gss_lib.missions.maveric.nodes import NodeTable
 
 
 def _md(pkt) -> dict:
