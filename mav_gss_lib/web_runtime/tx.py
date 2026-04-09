@@ -7,7 +7,8 @@ import json
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from .state import MAX_HISTORY, MAX_QUEUE, WebRuntime, get_runtime
-from .runtime import make_delay, schedule_shutdown_check
+from .runtime import schedule_shutdown_check
+from .tx_queue import make_delay
 from .security import authorize_websocket
 from .services import item_to_json
 
@@ -68,7 +69,7 @@ async def ws_tx(websocket: WebSocket):
                     await websocket.send_text(json.dumps({"type": "error", "error": "empty input"}))
                     continue
                 try:
-                    from .runtime import validate_mission_cmd
+                    from .tx_queue import validate_mission_cmd
                     payload = runtime.adapter.cmd_line_to_payload(line)
                     item = validate_mission_cmd(payload, runtime=runtime)
                     runtime.tx.queue.append(item)
@@ -88,7 +89,7 @@ async def ws_tx(websocket: WebSocket):
                     )
                     continue
                 try:
-                    from .runtime import validate_mission_cmd
+                    from .tx_queue import validate_mission_cmd
                     payload = msg.get("payload", {})
                     item = validate_mission_cmd(payload, runtime=runtime)
                     runtime.tx.queue.append(item)

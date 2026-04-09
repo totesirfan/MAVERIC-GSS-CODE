@@ -16,8 +16,6 @@ import asyncio
 import copy
 import json
 import logging
-import os
-import tempfile
 import threading
 import time
 from collections import deque
@@ -291,100 +289,33 @@ class TxService:
 
     def save_queue(self) -> None:
         """Persist the current queue to disk as JSONL."""
-        queue_file = self.queue_file()
-        if not self.queue:
-            try:
-                os.remove(queue_file)
-            except FileNotFoundError:
-                pass
-            return
-        queue_file.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(suffix=".tmp", dir=str(queue_file.parent))
-        try:
-            with os.fdopen(fd, "w") as handle:
-                for item in self.queue:
-                    handle.write(json.dumps(item_to_json(item)) + "\n")
-            os.replace(tmp, str(queue_file))
-        except BaseException:
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
-            raise
+        from . import tx_queue as _tq
+        _tq.save_queue(self.queue, self.queue_file())
 
     def load_queue(self):
         """Load any persisted queue items from disk."""
-        queue_file = self.queue_file()
-        if not queue_file.is_file():
-            return []
-        items = []
-        with open(queue_file) as handle:
-            for line in handle:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    payload = json.loads(line)
-                    items.append(self.json_to_item(payload))
-                except (json.JSONDecodeError, KeyError, ValueError) as exc:
-                    logging.warning("Skipped corrupted queue entry: %s", exc)
-        return items
+        from . import tx_queue as _tq
+        return _tq.load_queue(self.queue_file(), runtime=self.runtime)
 
     def json_to_item(self, payload):
         """Convert one persisted JSON payload back into a runtime queue item."""
-        from .runtime import make_delay, make_note, validate_mission_cmd
-
-        if payload["type"] == "delay":
-            return make_delay(payload.get("delay_ms", 0))
-        if payload["type"] == "note":
-            return make_note(payload.get("text", ""))
-        if payload["type"] == "mission_cmd":
-            item = validate_mission_cmd(
-                payload.get("payload", {}),
-                runtime=self.runtime,
-            )
-            if "guard" in payload:
-                item["guard"] = payload["guard"]
-            return item
-        raise ValueError(f"unsupported queue item type: {payload['type']}")
+        from . import tx_queue as _tq
+        return _tq.json_to_item(payload, runtime=self.runtime)
 
     def renumber_queue(self) -> None:
         """Assign sequential display numbers to queued command items."""
-        count = 0
-        for item in self.queue:
-            if item["type"] == "mission_cmd":
-                count += 1
-                item["num"] = count
+        from . import tx_queue as _tq
+        _tq.renumber_queue(self.queue)
 
     def queue_summary(self):
         """Summarize queue size, guard count, and rough execution time."""
-        cmds = sum(1 for item in self.queue if item["type"] == "mission_cmd")
-        guards = sum(1 for item in self.queue if item.get("guard"))
-        delay_total = sum(item.get("delay_ms", 0) for item in self.queue if item["type"] == "delay")
-        default_delay = self.runtime.cfg.get("tx", {}).get("delay_ms", 500)
-        inter_cmd_ms = default_delay * max(cmds - 1, 0)
-        est_time_s = (delay_total + inter_cmd_ms) / 1000.0
-        return {"cmds": cmds, "guards": guards, "est_time_s": round(est_time_s, 1)}
+        from . import tx_queue as _tq
+        return _tq.queue_summary(self.queue, self.runtime.cfg)
 
     def queue_items_json(self):
         """Project the current queue into the websocket/API JSON shape."""
-        result = []
-        for item in self.queue:
-            if item["type"] == "delay":
-                result.append({"type": "delay", "delay_ms": item["delay_ms"]})
-                continue
-            if item["type"] == "note":
-                result.append({"type": "note", "text": item["text"]})
-                continue
-            result.append({
-                "type": "mission_cmd",
-                "num": item.get("num", 0),
-                "display": item.get("display", {}),
-                "guard": item.get("guard", False),
-                "size": len(item.get("raw_cmd", b"")),
-                "payload": item.get("payload", {}),
-            })
-        return result
+        from . import tx_queue as _tq
+        return _tq.queue_items_json(self.queue)
 
     async def broadcast(self, msg):
         """Broadcast one JSON-serializable message to all TX websocket clients."""
@@ -583,6 +514,4 @@ class TxService:
             await self.broadcast({"type": "history", "items": self.history[-self.runtime.max_history :]})
 
 
-def item_to_json(item):
-    """Serialize a queue item for persistence (strips raw_cmd bytes)."""
-    return {key: value for key, value in item.items() if key != "raw_cmd"}
+from .tx_queue import item_to_json  # noqa: F401

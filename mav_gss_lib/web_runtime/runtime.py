@@ -20,11 +20,9 @@ import signal
 from typing import Any
 
 from .state import SHUTDOWN_DELAY, WebRuntime, ensure_runtime
-
-try:
-    from mav_gss_lib.protocols.golay import MAX_PAYLOAD as GOLAY_MAX_PAYLOAD
-except ImportError:
-    GOLAY_MAX_PAYLOAD = 223
+from .tx_queue import (  # noqa: F401
+    make_delay, make_note, make_mission_cmd, validate_mission_cmd, sanitize_queue_items,
+)
 
 
 # =============================================================================
@@ -79,76 +77,3 @@ def build_send_context(runtime: WebRuntime | None = None):
         )
 
 
-def make_delay(delay_ms):
-    """Build one delay queue item."""
-    return {"type": "delay", "delay_ms": delay_ms}
-
-
-def make_note(text):
-    """Build one note queue item (from ``//`` comment lines in JSONL files)."""
-    return {"type": "note", "text": " ".join(str(text).split())}
-
-
-def make_mission_cmd(payload, adapter=None):
-    """Build one mission-command queue item from a mission-specific payload.
-
-    Calls the adapter's build_tx_command() to validate, encode, and
-    produce display metadata. Does NOT check MTU — use
-    validate_mission_cmd() for full admission.
-
-    The original payload is stored so it can be re-built on queue restore.
-    """
-    result = adapter.build_tx_command(payload)
-    return {
-        "type": "mission_cmd",
-        "raw_cmd": result["raw_cmd"],
-        "display": result.get("display", {}),
-        "guard": result.get("guard", False),
-        "payload": payload,
-    }
-
-
-def validate_mission_cmd(payload, runtime: WebRuntime | None = None):
-    """Validate and build a mission-command queue item.
-
-    Checks: build succeeds, MTU fits.
-    """
-    runtime = ensure_runtime(runtime)
-
-    item = make_mission_cmd(payload, adapter=runtime.adapter)
-
-    uplink_mode, send_csp, _send_ax25 = build_send_context(runtime)
-    if uplink_mode == "ASM+Golay":
-        csp_packet = send_csp.wrap(item["raw_cmd"])
-        if len(csp_packet) > GOLAY_MAX_PAYLOAD:
-            raise ValueError(
-                f"command too large for ASM+Golay RS payload "
-                f"({len(csp_packet)}B > {GOLAY_MAX_PAYLOAD}B)"
-            )
-    return item
-
-
-def sanitize_queue_items(items, runtime: WebRuntime | None = None):
-    """Filter a queue restore/import set down to valid command/delay items."""
-    runtime = ensure_runtime(runtime)
-    accepted = []
-    skipped = 0
-    for item in items:
-        if item["type"] in ("delay", "note"):
-            accepted.append(item)
-            continue
-        if item["type"] == "mission_cmd":
-            try:
-                rebuilt = validate_mission_cmd(
-                    item.get("payload", {}),
-                    runtime=runtime,
-                )
-                if item.get("guard"):
-                    rebuilt["guard"] = True
-                accepted.append(rebuilt)
-            except ValueError:
-                skipped += 1
-            continue
-        # Unknown item type — skip
-        skipped += 1
-    return accepted, skipped

@@ -33,9 +33,9 @@ from mav_gss_lib.config import (
     save_gss_config,
 )
 from .state import MAX_QUEUE, Session, get_runtime
-from .runtime import deep_merge, make_delay, sanitize_queue_items, validate_mission_cmd
+from .runtime import deep_merge
+from .tx_queue import parse_import_file, make_delay, sanitize_queue_items, validate_mission_cmd, item_to_json
 from .security import require_api_token
-from .services import item_to_json
 
 router = APIRouter()
 
@@ -208,60 +208,6 @@ async def list_import_files(request: Request):
         files.append({"name": path.name, "path": str(path), "size": path.stat().st_size})
     return files
 
-
-def parse_import_file(filepath, runtime=None):
-    """Parse a queue import JSONL file into runtime queue items."""
-    from .runtime import make_note
-
-    items = []
-    skipped = 0
-    for raw_line in filepath.read_text().strip().split("\n"):
-        line = raw_line.strip()
-        if not line:
-            continue
-        if line.startswith("//"):
-            continue
-        in_str, escaped, out = False, False, []
-        for index, ch in enumerate(line):
-            if escaped:
-                escaped = False
-                out.append(ch)
-                continue
-            if ch == "\\" and in_str:
-                escaped = True
-                out.append(ch)
-                continue
-            if ch == '"':
-                in_str = not in_str
-                out.append(ch)
-                continue
-            if not in_str and ch == "/" and index + 1 < len(line) and line[index + 1] == "/":
-                break
-            out.append(ch)
-        line = "".join(out).rstrip().rstrip(",")
-        if not line:
-            continue
-        try:
-            obj = json.loads(line)
-            if isinstance(obj, dict):
-                if obj.get("type") == "delay":
-                    items.append(make_delay(max(0, min(300_000, int(obj.get("delay_ms", 0))))))
-                elif obj.get("type") == "note":
-                    text = str(obj.get("text", "")).strip()
-                    if text:
-                        items.append(make_note(text))
-                elif obj.get("type") == "mission_cmd" and "payload" in obj:
-                    item = validate_mission_cmd(obj["payload"], runtime=runtime)
-                    if obj.get("guard"):
-                        item["guard"] = True
-                    items.append(item)
-                else:
-                    skipped += 1
-            else:
-                skipped += 1
-        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
-            skipped += 1
-    return items, skipped
 
 
 @router.get("/api/import/{filename}/preview")
