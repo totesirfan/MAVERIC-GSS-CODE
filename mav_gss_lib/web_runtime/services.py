@@ -190,11 +190,7 @@ class RxService:
                 if not self._was_traffic_active:
                     self._was_traffic_active = True
                     traffic_msg = json.dumps({"type": "traffic_status", "active": True})
-                    for sc in list(self.runtime.session_clients):
-                        try:
-                            await sc.send_text(traffic_msg)
-                        except Exception:
-                            pass
+                    await broadcast_safe(self.runtime.session_clients, self.runtime.session_lock, traffic_msg)
 
                 drained += 1
 
@@ -208,11 +204,7 @@ class RxService:
             if self._was_traffic_active and self.last_rx_at > 0 and (now - self.last_rx_at) > 10.0:
                 self._was_traffic_active = False
                 traffic_msg = json.dumps({"type": "traffic_status", "active": False})
-                for sc in list(self.runtime.session_clients):
-                    try:
-                        await sc.send_text(traffic_msg)
-                    except Exception:
-                        pass
+                await broadcast_safe(self.runtime.session_clients, self.runtime.session_lock, traffic_msg)
 
             if drained == 0 and now - last_status_push > 1.0:
                 last_status_push = now
