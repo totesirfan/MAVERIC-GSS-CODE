@@ -558,9 +558,10 @@ def requires_space(runtime: "WebRuntime") -> str | None:
 # ---------------------------------------------------------------------------
 
 async def persist_and_broadcast(runtime: "WebRuntime") -> None:
-    """Renumber, persist, and broadcast the current queue state."""
-    runtime.tx.renumber_queue()
-    runtime.tx.save_queue()
+    """Renumber, persist under send_lock, then broadcast (outside lock)."""
+    with runtime.tx.send_lock:
+        runtime.tx.renumber_queue()
+        runtime.tx.save_queue()
     await runtime.tx.send_queue_update()
 
 
@@ -582,7 +583,8 @@ async def handle_queue(runtime: "WebRuntime", msg: dict, ws: "WebSocket") -> Non
     try:
         payload = runtime.adapter.cmd_line_to_payload(line)
         item = validate_mission_cmd(payload, runtime=runtime)
-        runtime.tx.queue.append(item)
+        with runtime.tx.send_lock:
+            runtime.tx.queue.append(item)
         await persist_and_broadcast(runtime)
     except (ValueError, KeyError, TypeError, AttributeError) as exc:
         await send_error(ws, str(exc))
@@ -593,7 +595,8 @@ async def handle_queue_mission_cmd(runtime: "WebRuntime", msg: dict, ws: "WebSoc
     try:
         payload = msg.get("payload", {})
         item = validate_mission_cmd(payload, runtime=runtime)
-        runtime.tx.queue.append(item)
+        with runtime.tx.send_lock:
+            runtime.tx.queue.append(item)
         await persist_and_broadcast(runtime)
     except (ValueError, KeyError, TypeError, AttributeError) as exc:
         await send_error(ws, str(exc))
@@ -687,21 +690,24 @@ async def handle_edit_delay(runtime: "WebRuntime", msg: dict, ws: "WebSocket") -
 
 async def handle_send(runtime: "WebRuntime", msg: dict, ws: "WebSocket") -> None:
     """Start the TX send loop."""
+    error = None
     with runtime.tx.send_lock:
         if runtime.tx.sending["active"] and runtime.tx.send_task and runtime.tx.send_task.done():
             runtime.tx.sending["active"] = False
         if runtime.tx.sending["active"]:
-            await send_error(ws, "send already in progress")
-            return
-        if not runtime.tx.queue:
-            await send_error(ws, "queue is empty")
-            return
-        runtime.tx.abort.clear()
-        runtime.tx.guard_ok.clear()
-        runtime.tx.sending.update(
-            active=True, total=len(runtime.tx.queue), idx=0,
-            guarding=False, sent_at=0, waiting=False,
-        )
+            error = "send already in progress"
+        elif not runtime.tx.queue:
+            error = "queue is empty"
+        else:
+            runtime.tx.abort.clear()
+            runtime.tx.guard_ok.clear()
+            runtime.tx.sending.update(
+                active=True, total=len(runtime.tx.queue), idx=0,
+                guarding=False, sent_at=0, waiting=False,
+            )
+    if error:
+        await send_error(ws, error)
+        return
     runtime.tx.send_task = asyncio.create_task(runtime.tx.run_send())
 
 
