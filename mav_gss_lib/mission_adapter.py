@@ -341,8 +341,10 @@ def load_mission_adapter(cfg: dict, cmd_defs: dict | None = None):
     else:
         resolved_cmd_defs = {}
 
-    # Build adapter kwargs — pass image_assembler if mission provides one
+    # Build adapter kwargs — pass nodes and image_assembler if mission provides them
     adapter_kwargs = {"cmd_defs": resolved_cmd_defs}
+    if resources.get("nodes") is not None:
+        adapter_kwargs["nodes"] = resources["nodes"]
     if resources.get("image_assembler") is not None:
         adapter_kwargs["image_assembler"] = resources["image_assembler"]
 
