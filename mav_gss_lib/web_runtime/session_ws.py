@@ -48,14 +48,16 @@ async def ws_session(websocket: WebSocket):
         "active": traffic_active,
     }))
 
-    # Register in session_clients
-    runtime.session_clients.append(websocket)
+    # Register in session_clients (under lock — matches broadcast_safe contract)
+    with runtime.session_lock:
+        runtime.session_clients.append(websocket)
     try:
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
         pass
     finally:
-        if websocket in runtime.session_clients:
-            runtime.session_clients.remove(websocket)
+        with runtime.session_lock:
+            if websocket in runtime.session_clients:
+                runtime.session_clients.remove(websocket)
         schedule_shutdown_check(runtime)
