@@ -86,12 +86,13 @@ Expected: 1 fewer failure (the other failing test is Task 2)
 
 ## Task 2: Fix Failing Test — Node Whitelist Validation
 
-**Context:** `build_tx_command` in `adapter.py` has correct node-whitelist validation code at lines 171-173 that checks `defn.get("nodes", [])`. The test expects `com_ping` sent to `FTDI` to raise `ValueError`. The validation code is correct — the issue is likely that `com_ping`'s schema definition in `commands.yml` (gitignored, local only) is missing or has an empty `nodes` field.
+**Context:** `build_tx_command` in `adapter.py` has correct node-whitelist validation code at lines 171-173 that checks `defn.get("nodes", [])`. The test expects `com_ping` sent to `FTDI` to raise `ValueError`. The fix **must be in tracked code**, not in the gitignored `commands.yml`. If the schema is missing `nodes`, the fix belongs in the test fixture or in the adapter's validation logic — not in a local-only file that other developers won't have.
 
 **Files:**
 - Investigate: `mav_gss_lib/missions/maveric/adapter.py:166-173`
-- Investigate: `mav_gss_lib/missions/maveric/commands.yml` (gitignored — read locally only)
 - Test: `tests/test_tx_plugin.py:257-268` (class: `TestMavericBuildTxCommand`)
+
+**Constraint:** The end state must be a green test from tracked code only. A local-only `commands.yml` edit is not an acceptable fix.
 
 - [ ] **Step 1: Run the failing test to confirm**
 
@@ -111,7 +112,7 @@ if allowed_nodes and dest_name not in allowed_nodes:
     raise ValueError(...)
 ```
 
-This only triggers if the schema definition has a non-empty `nodes` list. Check `com_ping`'s schema:
+This only triggers if the schema definition has a non-empty `nodes` list. Diagnose:
 
 ```bash
 cd "/Users/irfan/Documents/MAVERIC GSS/MAVERIC GSS CODE" && conda run -n gnuradio python3 -c "
@@ -125,13 +126,23 @@ print('com_ping full defn keys:', list(defn.keys()))
 "
 ```
 
-- [ ] **Step 3: Fix the root cause**
+- [ ] **Step 3: Fix the root cause in tracked code**
 
-Based on investigation:
+Three possible tracked fixes, in order of preference:
 
-**If `com_ping` is missing `nodes` in `commands.yml`:** Add `nodes: [LPPM, EPS, UPPM, HLNV, ASTR]` to the `com_ping` definition in the local `mav_gss_lib/missions/maveric/commands.yml`. The test docstring says it should be valid for those nodes only.
+**Option A — Test fixture with explicit schema:** If the test class `TestMavericBuildTxCommand._make_adapter()` loads the real (gitignored) schema, refactor it to use a tracked test fixture or to inject a known `nodes` constraint. For example, patch `adapter.cmd_defs["com_ping"]["nodes"]` in the test setup so the test is self-contained regardless of the local schema file.
 
-**If the issue is case sensitivity:** `dest_name` at `adapter.py:138` is `str(payload.get("dest", ""))` preserving case. If `allowed_nodes` in the schema uses different casing, normalize the comparison at line 172. But check the actual casing first before changing code.
+**Option B — Adapter default behavior:** If `commands.example.yml` (tracked) has `com_ping` with `nodes`, but the gitignored `commands.yml` doesn't, update `commands.example.yml` to include the `nodes` field and ensure the test loads from the example file or a fixture derived from it.
+
+**Option C — Case-sensitivity fix in adapter:** If the `nodes` list exists but the comparison fails due to casing, normalize in `adapter.py:172`:
+
+```python
+if allowed_nodes and dest_name not in allowed_nodes:
+```
+
+Check actual casing before applying this.
+
+The key requirement: after the fix, `git clone` + `conda run -n gnuradio python -m pytest tests/` must pass without any local schema file present.
 
 - [ ] **Step 4: Run the test to verify it passes**
 
@@ -153,14 +164,12 @@ Expected: All tests pass (0 failures)
 
 ```bash
 cd "/Users/irfan/Documents/MAVERIC GSS/MAVERIC GSS CODE"
-git add mav_gss_lib/web_runtime/api.py mav_gss_lib/missions/maveric/adapter.py
+git add mav_gss_lib/web_runtime/api.py mav_gss_lib/missions/maveric/adapter.py tests/test_tx_plugin.py
 git commit -m "$(cat <<'EOF'
 Fix two contract regressions: import comment parsing, node whitelist
 EOF
 )"
 ```
-
-Note: if the fix was in `commands.yml` (gitignored), only commit the code files that changed. The schema file is intentionally not tracked.
 
 ---
 
@@ -168,7 +177,9 @@ Note: if the fix was in `commands.yml` (gitignored), only commit the code files 
 
 **Context:** TX queue mutation logic is scattered across `api.py` (import/export), `runtime.py` (make_delay, make_note, validate_mission_cmd, sanitize_queue_items), and `services.py` (persistence, renumber, summary). This task consolidates pure queue operations into one module.
 
-**Critical constraint:** `TxService` remains the runtime state owner — it holds `queue`, `history`, `sending`. The new module owns stateless logic only. All method signatures, return shapes, and persistence semantics must match the current code exactly.
+**Critical constraints:**
+- `TxService` remains the runtime state owner — it holds `queue`, `history`, `sending`. The new module owns stateless logic only.
+- **Behavior must remain identical:** No JSON shape changes (frontend expects `size` and `payload` in `queue_items_json`). No persistence semantics changes (`save_queue` must delete file when empty). No queue-ordering behavior changes. No import/export behavior changes. This is a pure code-movement refactor — if any test fails, the extraction introduced a bug, not exposed one.
 
 **Files:**
 - Create: `mav_gss_lib/web_runtime/tx_queue.py`
@@ -1073,8 +1084,63 @@ EOF
 **Files:**
 - Modify: `mav_gss_lib/web_runtime/api.py` (the `/api/logs/{session_id}` endpoint, lines 449-497)
 - Modify: `mav_gss_lib/web/src/components/logs/LogViewer.tsx`
+- Add test: `tests/test_ops_web_runtime.py`
 
-- [ ] **Step 1: Update the /api/logs/{session_id} endpoint**
+- [ ] **Step 1: Write a regression test for paginated log entries**
+
+Add to `tests/test_ops_web_runtime.py` in `TestWebRuntimeWorkflows`:
+
+```python
+def test_log_pagination_respects_offset_and_limit(self):
+    """Paginated log endpoint returns bounded results with has_more."""
+    import json as _json
+    from pathlib import Path
+
+    # Write a small JSONL log file with 5 entries
+    log_dir = Path(self.runtime.cfg["general"]["log_dir"]) / "json"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    session_id = "downlink_20260408_120000"
+    log_file = log_dir / f"{session_id}.jsonl"
+    entries = []
+    for i in range(5):
+        entry = {
+            "n": i + 1,
+            "time": f"2026-04-08T12:00:{i:02d}Z",
+            "raw_hex": f"{i:02x}" * 10,
+            "frame_type": "HDLC",
+            "size": 20,
+        }
+        entries.append(_json.dumps(entry))
+    log_file.write_text("\n".join(entries) + "\n")
+
+    # Call the endpoint helper with offset=1, limit=2
+    from mav_gss_lib.web_runtime.api import api_log_entries
+    from unittest.mock import AsyncMock
+
+    req = _request_for(self.runtime)
+    result = asyncio.run(api_log_entries(
+        session_id=session_id,
+        request=req,
+        cmd=None,
+        time_from=None,
+        time_to=None,
+        offset=1,
+        limit=2,
+    ))
+    self.assertIsInstance(result, dict)
+    self.assertIn("entries", result)
+    self.assertIn("has_more", result)
+    self.assertEqual(len(result["entries"]), 2)
+    self.assertTrue(result["has_more"])  # 5 entries, offset 1 + limit 2 = entries 2,3 with more remaining
+    self.assertEqual(result["offset"], 1)
+    self.assertEqual(result["limit"], 2)
+```
+
+Run: `conda run -n gnuradio python -m pytest tests/test_ops_web_runtime.py::TestWebRuntimeWorkflows::test_log_pagination_respects_offset_and_limit -v`
+
+Expected: FAIL (endpoint still returns a plain list, not a dict).
+
+- [ ] **Step 2: Update the /api/logs/{session_id} endpoint**
 
 In `mav_gss_lib/web_runtime/api.py`, modify `api_log_entries` to accept pagination params. Preserve the existing session path validation (exact `log_dir / f"{session_id}.jsonl"` with parent check):
 
@@ -1218,11 +1284,26 @@ cd "/Users/irfan/Documents/MAVERIC GSS/MAVERIC GSS CODE/mav_gss_lib/web" && npm 
 
 Expected: All tests pass, build succeeds.
 
-- [ ] **Step 4: Commit checkpoint — log pagination**
+- [ ] **Step 4: Run the pagination test**
+
+```bash
+cd "/Users/irfan/Documents/MAVERIC GSS/MAVERIC GSS CODE" && conda run -n gnuradio python -m pytest tests/test_ops_web_runtime.py::TestWebRuntimeWorkflows::test_log_pagination_respects_offset_and_limit -v
+```
+
+Expected: PASS
+
+- [ ] **Step 5: Run full test suite and build**
+
+```bash
+cd "/Users/irfan/Documents/MAVERIC GSS/MAVERIC GSS CODE" && conda run -n gnuradio python -m pytest tests/ -q
+cd "/Users/irfan/Documents/MAVERIC GSS/MAVERIC GSS CODE/mav_gss_lib/web" && npm run build
+```
+
+- [ ] **Step 6: Commit checkpoint — log pagination**
 
 ```bash
 cd "/Users/irfan/Documents/MAVERIC GSS/MAVERIC GSS CODE"
-git add mav_gss_lib/web_runtime/api.py mav_gss_lib/web/src/components/logs/LogViewer.tsx mav_gss_lib/web/dist/
+git add mav_gss_lib/web_runtime/api.py mav_gss_lib/web/src/components/logs/LogViewer.tsx tests/test_ops_web_runtime.py mav_gss_lib/web/dist/
 git commit -m "$(cat <<'EOF'
 Add pagination to log replay endpoint
 
