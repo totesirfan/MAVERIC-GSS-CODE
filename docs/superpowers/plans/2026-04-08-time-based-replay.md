@@ -320,19 +320,31 @@ Add these callbacks after the existing `handleScrub` callback:
   const handlePointerLeave = useCallback(() => {
     setTooltipTime(null)
   }, [])
+
+  const handleDragEnd = useCallback(() => {
+    setDragging(false)
+  }, [])
 ```
 
 - [ ] **Step 3: Attach handlers and tooltip to the scrubber wrapper div**
 
-Update the `{/* Scrubber */}` wrapper `<div>` (the `relative flex-1 group` div added in Task 5). Add `onPointerDown` to detect drag start on the Slider, and `onValueCommit` to detect drag end. The tooltip is suppressed while `dragging` is true.
+Update the `{/* Scrubber */}` wrapper `<div>` (the `relative flex-1 group` div added in Task 5):
+
+- `onPointerDown` sets `dragging` true and clears the tooltip
+- `onPointerUp` and `onPointerCancel` on the **wrapper div** clear `dragging` as a safety net (fires even if `onValueCommit` doesn't — e.g., click without value change, or canceled interaction)
+- `onValueCommit` also clears `dragging` for the normal drag-release path
+- The wrapper div gets a conditional `data-dragging` attribute; the thumb uses it for drag-visible styling so it stays visible even if the pointer leaves the wrapper mid-drag
 
 ```tsx
       {/* Scrubber */}
       <div
         ref={scrubberRef}
         className="relative flex-1 group"
+        data-dragging={dragging || undefined}
         onPointerMove={handlePointerMove}
         onPointerLeave={handlePointerLeave}
+        onPointerUp={handleDragEnd}
+        onPointerCancel={handleDragEnd}
       >
         {tooltipTime && (
           <div
@@ -354,9 +366,9 @@ Update the `{/* Scrubber */}` wrapper `<div>` (the `relative flex-1 group` div a
           value={[allEntries.length > 0 ? parseReplayTime(allEntries[position]) - startTime : 0]}
           onValueChange={handleScrub}
           onPointerDown={() => { setDragging(true); setTooltipTime(null) }}
-          onValueCommit={() => setDragging(false)}
+          onValueCommit={handleDragEnd}
           style={{ '--slider-track': colors.borderSubtle } as React.CSSProperties}
-          className="w-full cursor-pointer [&_[data-slot=slider-track]]:h-1 [&_[data-slot=slider-track]]:group-hover:h-1.5 [&_[data-slot=slider-track]]:transition-all [&_[data-slot=slider-track]]:bg-[var(--slider-track)] [&_[data-slot=slider-range]]:bg-amber-400 [&_[data-slot=slider-thumb]]:size-3 [&_[data-slot=slider-thumb]]:opacity-0 [&_[data-slot=slider-thumb]]:group-hover:opacity-100 [&_[data-slot=slider-thumb]]:transition-opacity [&_[data-slot=slider-thumb]]:border-0 [&_[data-slot=slider-thumb]]:bg-amber-400"
+          className="w-full cursor-pointer [&_[data-slot=slider-track]]:h-1 [&_[data-slot=slider-track]]:group-hover:h-1.5 [&_[data-slot=slider-track]]:transition-all [&_[data-slot=slider-track]]:bg-[var(--slider-track)] [&_[data-slot=slider-range]]:bg-amber-400 [&_[data-slot=slider-thumb]]:size-3 [&_[data-slot=slider-thumb]]:opacity-0 [&_[data-slot=slider-thumb]]:group-hover:opacity-100 [&[data-dragging]_[data-slot=slider-thumb]]:opacity-100 [&_[data-slot=slider-thumb]]:transition-opacity [&_[data-slot=slider-thumb]]:border-0 [&_[data-slot=slider-thumb]]:bg-amber-400"
         />
       </div>
 ```
