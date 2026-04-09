@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import mav_gss_lib.web_runtime.services as services
+import mav_gss_lib.web_runtime.tx_service as tx_service
 from mav_gss_lib.web_runtime.runtime import make_mission_cmd, sanitize_queue_items, validate_mission_cmd
 from mav_gss_lib.web_runtime.state import create_runtime
 
@@ -45,11 +45,11 @@ class TestTxRuntime(unittest.TestCase):
         self.runtime.tx.broadcast = _capture
         self.runtime.tx.send_queue_update = _capture_queue_update
         self.runtime.tx.log = None
-        self._orig_send_pdu = services.send_pdu
-        services.send_pdu = self._fake_send_pdu
+        self._orig_send_pdu = tx_service.send_pdu
+        tx_service.send_pdu = self._fake_send_pdu
 
     def tearDown(self):
-        services.send_pdu = self._orig_send_pdu
+        tx_service.send_pdu = self._orig_send_pdu
         self.tmp.cleanup()
 
     def _fake_send_pdu(self, _sock, payload):
