@@ -141,6 +141,7 @@ export function ReplayPanel({ sessionId, replacePackets, onStop }: ReplayPanelPr
   const tickStartRef = useRef(0)     // wall-clock time when current tick started
   const tickFromMs = useRef(0)       // slider offset at tick start
   const tickToMs = useRef(0)         // slider offset at tick end (next packet)
+  const tickDurationRef = useRef(0)  // actual delay duration for this tick (ms)
 
   // Sync refs
   useEffect(() => { playingRef.current = playing }, [playing])
@@ -201,25 +202,26 @@ export function ReplayPanel({ sessionId, replacePackets, onStop }: ReplayPanelPr
   }, [sessionId, replacePackets])
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  // Smooth slider animation loop
+  // Smooth slider animation loop — duration matches the actual playback delay
   const animateSlider = useCallback(() => {
     const now = performance.now()
     const elapsed = now - tickStartRef.current
     const from = tickFromMs.current
     const to = tickToMs.current
-    const duration = to === from ? 1 : Math.abs(to - from) / speedRef.current
-    const t = Math.min(elapsed / duration, 1)
+    const duration = tickDurationRef.current
+    const t = duration > 0 ? Math.min(elapsed / duration, 1) : 1
     setSliderOffsetMs(from + (to - from) * t)
     if (t < 1 && playingRef.current) {
       rafRef.current = requestAnimationFrame(animateSlider)
     }
   }, [])
 
-  const startSliderAnimation = useCallback((fromOffset: number, toOffset: number) => {
+  const startSliderAnimation = useCallback((fromOffset: number, toOffset: number, delay: number) => {
     cancelAnimationFrame(rafRef.current)
     tickStartRef.current = performance.now()
     tickFromMs.current = fromOffset
     tickToMs.current = toOffset
+    tickDurationRef.current = delay
     rafRef.current = requestAnimationFrame(animateSlider)
   }, [animateSlider])
 
@@ -245,10 +247,10 @@ export function ReplayPanel({ sessionId, replacePackets, onStop }: ReplayPanelPr
     const nextPos = pos + 1
     const delay = gaps[nextPos] / speedRef.current
 
-    // Start smooth slider interpolation toward next packet's time
+    // Start smooth slider interpolation — duration matches the actual playback delay
     const curOffset = parseReplayTime(entries[pos]) - t0
     const nextOffset = parseReplayTime(entries[nextPos]) - t0
-    startSliderAnimation(curOffset, nextOffset)
+    startSliderAnimation(curOffset, nextOffset, delay)
 
     timerRef.current = setTimeout(() => {
       posRef.current = nextPos
