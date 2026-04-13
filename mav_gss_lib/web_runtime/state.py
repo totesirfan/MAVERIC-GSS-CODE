@@ -86,6 +86,14 @@ class WebRuntime:
         self.session_clients: list = []
         self.session_lock = threading.Lock()
 
+        # Preflight state
+        self.preflight_results: list[dict] = []
+        self.preflight_done: bool = False
+        self.preflight_running: bool = False   # single-run guard
+        self.preflight_task = None             # asyncio.Task reference
+        self.preflight_clients: list = []
+        self.preflight_lock = threading.Lock()
+
         self.rx = RxService(self)
         self.tx = TxService(self)
 

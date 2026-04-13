@@ -13,6 +13,5 @@ rx:
   zmq_port: 52001
   zmq_addr: tcp://127.0.0.1:52001
 general:
-  version: 1.0.0
   log_dir: logs
   generated_commands_dir: generated_commands

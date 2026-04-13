@@ -15,6 +15,8 @@ import { Toaster } from '@/components/ui/sonner'
 import { Skeleton } from '@/components/ui/skeleton'
 import { MainDashboard } from '@/components/MainDashboard'
 import { getPluginPages, type PluginPageDef } from '@/plugins/registry'
+import { usePreflight } from '@/hooks/usePreflight'
+import { PreflightScreen } from '@/components/shared/PreflightScreen'
 
 /** Check if app is running in a pop-out panel mode */
 function getPanelMode(): 'tx' | 'rx' | null {
@@ -47,6 +49,7 @@ export default function App() {
       <TxProvider>
         <RxProvider>
           <AppShell />
+          <PreflightOverlay />
         </RxProvider>
       </TxProvider>
     </SessionProvider>
@@ -213,6 +216,35 @@ function PopOutTx() {
       />
       </div>
     </div>
+  )
+}
+
+/** Frosted overlay that blurs the dashboard during preflight, then lifts to reveal it */
+function PreflightOverlay() {
+  const preflight = usePreflight()
+  const [dismissing, setDismissing] = useState(false)
+  const [dismissed, setDismissed] = useState(false)
+
+  // No auto-dismiss — the overlay stays visible until the user presses LAUNCH.
+  // After LAUNCH triggers dismissing=true, unmount after the unblur animation (800ms).
+  useEffect(() => {
+    if (dismissing) {
+      const t = setTimeout(() => setDismissed(true), 850)
+      return () => clearTimeout(t)
+    }
+  }, [dismissing])
+
+  if (dismissed) return null
+
+  return (
+    <PreflightScreen
+      checks={preflight.checks}
+      summary={preflight.summary}
+      connected={preflight.connected}
+      dismissing={dismissing}
+      onContinue={() => setDismissing(true)}
+      onRerun={preflight.rerun}
+    />
   )
 }
 

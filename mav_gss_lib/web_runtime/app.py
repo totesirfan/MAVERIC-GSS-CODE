@@ -25,6 +25,7 @@ from .api import router as api_router
 from .rx import router as rx_router
 from .runtime import sanitize_queue_items
 from .session_ws import router as session_router
+from .preflight_ws import router as preflight_router, run_preflight_and_broadcast
 from .tx import router as tx_router
 from mav_gss_lib.transport import PUB_STATUS, zmq_cleanup
 from .state import WEB_DIR, create_runtime, get_runtime
@@ -57,6 +58,11 @@ async def lifespan(app: FastAPI):
 
     runtime.rx.start_receiver()
     runtime.rx.broadcast_task = asyncio.create_task(runtime.rx.broadcast_loop())
+
+    # Schedule preflight to run AFTER server starts serving.
+    # create_task() queues the coroutine; it executes once lifespan yields
+    # and uvicorn begins accepting connections.
+    runtime.preflight_task = asyncio.create_task(run_preflight_and_broadcast(runtime))
     yield
 
     runtime.rx.broadcast_stop = True
@@ -103,6 +109,7 @@ def create_app() -> FastAPI:
     app.include_router(rx_router)
     app.include_router(tx_router)
     app.include_router(session_router)
+    app.include_router(preflight_router)
 
     # Auto-mount mission plugin routers
     import importlib

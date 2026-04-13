@@ -200,3 +200,21 @@ export interface LogSession {
   packets: number
   path: string
 }
+
+// ---- Preflight ----
+
+export interface PreflightCheck {
+  group: string
+  label: string
+  status: 'ok' | 'fail' | 'warn' | 'skip'
+  fix: string
+  detail: string
+}
+
+export interface PreflightSummary {
+  total: number
+  passed: number
+  failed: number
+  warnings: number
+  ready: boolean
+}

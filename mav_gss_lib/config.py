@@ -9,6 +9,7 @@ Falls back to hardcoded defaults if the file is missing.
 Author:  Irfan Annuar - USC ISI SERC
 """
 
+import json
 import os
 import tempfile
 from pathlib import Path
@@ -19,6 +20,16 @@ import yaml
 _LIB_DIR = Path(__file__).resolve().parent
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_GSS_PATH = _LIB_DIR / "gss.yml"
+
+
+def _read_version() -> str:
+    """Single source of truth: web/package.json."""
+    pkg_json = _LIB_DIR / "web" / "package.json"
+    try:
+        with open(pkg_json) as f:
+            return json.load(f).get("version", "0.0.0")
+    except (OSError, ValueError):
+        return "0.0.0"
 
 
 _DEFAULTS = {
@@ -32,7 +43,7 @@ _DEFAULTS = {
     },
     "general": {
         "mission":      "maveric",
-        "version":      "5.1.0",
+        "version":      _read_version(),
         "log_dir":      "logs",
         "generated_commands_dir": "generated_commands",
     },

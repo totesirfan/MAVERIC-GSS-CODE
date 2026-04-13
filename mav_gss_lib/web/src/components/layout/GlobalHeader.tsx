@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Satellite, Settings, HelpCircle, FileText, Maximize, Minimize, Camera, ArrowLeft } from 'lucide-react'
+import { Settings, HelpCircle, FileText, Maximize, Minimize, Camera, ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
@@ -105,7 +105,7 @@ export function GlobalHeader({
 
       {/* Brand */}
       <div className="usc-brand flex items-center gap-2 mr-4 cursor-default">
-        <Satellite className="usc-icon size-4 transition-colors" style={{ color: colors.label }} />
+        <img src="/maveric-patch.webp" alt="" className="usc-icon size-5" />
         <span className="usc-maveric font-bold text-sm tracking-wide transition-colors" style={{ color: colors.value }}>{missionName}</span>
         <span className="usc-gss font-bold text-sm tracking-wide transition-colors" style={{ color: colors.value }}>GSS</span>
         <span className="text-[11px]" style={{ color: colors.dim }}>v{version}</span>
