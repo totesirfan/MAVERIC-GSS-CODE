@@ -9,6 +9,22 @@ import { GssInput } from '@/components/ui/gss-input'
 const springConfig = { type: 'spring' as const, stiffness: 500, damping: 30, mass: 0.8 }
 let hasLoadedConfigSidebar = false
 
+function diffConfig(current: any, base: any): any {
+  if (current === base) return undefined
+  if (current === null || base === null || typeof current !== 'object' || typeof base !== 'object') {
+    return current
+  }
+  if (Array.isArray(current) || Array.isArray(base)) {
+    return JSON.stringify(current) === JSON.stringify(base) ? undefined : current
+  }
+  const out: Record<string, unknown> = {}
+  for (const key of Object.keys(current)) {
+    const sub = diffConfig(current[key], base[key])
+    if (sub !== undefined) out[key] = sub
+  }
+  return Object.keys(out).length === 0 ? undefined : out
+}
+
 /* -- helper sub-components ---------------------------------------- */
 
 function InfoRow({ icon, label, value }: { icon?: React.ReactNode; label: string; value: string }) {
@@ -171,16 +187,20 @@ export function ConfigSidebar({ open, onClose }: ConfigSidebarProps) {
   }, [open])
 
   const handleSave = useCallback(() => {
-    if (cfg) {
-      authFetch('/api/config', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(cfg),
-      }).then(() => {
-        initialRef.current = JSON.parse(JSON.stringify(cfg))
-        setDirty(false)
-      }).catch(() => {})
+    if (!cfg || !initialRef.current) return
+    const update = diffConfig(cfg, initialRef.current) ?? {}
+    if (Object.keys(update).length === 0) {
+      setDirty(false)
+      return
     }
+    authFetch('/api/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(update),
+    }).then(() => {
+      initialRef.current = JSON.parse(JSON.stringify(cfg))
+      setDirty(false)
+    }).catch(() => {})
   }, [cfg])
 
   const handleCancel = useCallback(() => {
