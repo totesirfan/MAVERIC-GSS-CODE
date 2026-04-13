@@ -8,6 +8,7 @@ Author:  Irfan Annuar - USC ISI SERC
 
 from __future__ import annotations
 
+import copy
 import os
 
 from fastapi import APIRouter, Request
@@ -96,6 +97,35 @@ async def api_config_get(request: Request):
     return get_runtime(request).cfg
 
 
+_STRICT_MISSION_TOP_KEYS = {"nodes", "ptypes", "node_descriptions"}
+_STRICT_MISSION_GENERAL_KEYS = {
+    "mission_name",
+    "gs_node",
+    "command_defs",
+    "command_defs_resolved",
+    "command_defs_warning",
+    "rx_title",
+    "tx_title",
+    "splash_subtitle",
+}
+
+
+def _strip_persisted_junk(update: dict) -> dict:
+    """Remove keys that must never be written to gss.yml.
+
+    Strips strictly mission-owned top-level sections and runtime-derived
+    fields inside `general`. Preserves `ax25`, `csp`, and `tx.*` because
+    those are operator-overridable per CLAUDE.md.
+    """
+    for key in _STRICT_MISSION_TOP_KEYS:
+        update.pop(key, None)
+    general = update.get("general")
+    if isinstance(general, dict):
+        for key in _STRICT_MISSION_GENERAL_KEYS:
+            general.pop(key, None)
+    return update
+
+
 @router.put("/api/config")
 async def api_config_put(update: dict, request: Request):
     runtime = get_runtime(request)
@@ -116,8 +146,6 @@ async def api_config_put(update: dict, request: Request):
 
     with runtime.cfg_lock:
         deep_merge(runtime.cfg, update)
-        # Save only the raw operator YAML + update, not platform defaults or mission data.
-        # This prevents defaults from leaking into the operator's gss.yml.
         import yaml as _yaml
         from mav_gss_lib.config import _DEFAULT_GSS_PATH
         raw_operator = {}
@@ -125,7 +153,9 @@ async def api_config_put(update: dict, request: Request):
         if os.path.isfile(gss_path):
             with open(gss_path) as _f:
                 raw_operator = _yaml.safe_load(_f) or {}
-        deep_merge(raw_operator, update)
+        operator_update = _strip_persisted_junk(copy.deepcopy(update))
+        deep_merge(raw_operator, operator_update)
+        raw_operator = _strip_persisted_junk(raw_operator)
         save_gss_config(raw_operator)
         apply_csp(runtime.cfg, runtime.csp)
         apply_ax25(runtime.cfg, runtime.ax25)
