@@ -114,6 +114,122 @@ class TxService:
         """Broadcast the current queue plus send-state snapshot."""
         await self.broadcast({"type": "queue_update", "items": self.queue_items_json(), "summary": self.queue_summary(), "sending": self.sending.copy()})
 
+    # ── run_send helpers ──────────────────────────────────────────────
+
+    def _pop_front(self) -> None:
+        """Drop the front item without renumbering. Used for `note` items."""
+        with self.send_lock:
+            if self.queue:
+                self.queue.pop(0)
+            self.save_queue()
+
+    def _pop_front_and_renumber(self) -> None:
+        """Drop the front item and renumber surviving commands."""
+        with self.send_lock:
+            if self.queue:
+                self.queue.pop(0)
+            self.renumber_queue()
+            self.save_queue()
+
+    async def _wait_ms(self, ms: int) -> bool:
+        """Sleep in 100ms slices, checking the abort flag. Returns True if aborted."""
+        remaining = ms
+        while remaining > 0 and not self.abort.is_set():
+            await asyncio.sleep(0.1)
+            remaining -= 100
+        return self.abort.is_set()
+
+    async def _run_delay_item(self, item, sent: int, total: int) -> bool:
+        """Execute a `delay` queue item. Returns True if the send was aborted."""
+        with self.send_lock:
+            self.sending["sent_at"] = 0
+            self.sending["waiting"] = True
+        await self.broadcast({
+            "type": "send_progress", "sent": sent, "total": total,
+            "current": f"delay {item['delay_ms']}ms", "waiting": True,
+        })
+        aborted = await self._wait_ms(item["delay_ms"])
+        with self.send_lock:
+            self.sending["waiting"] = False
+        if aborted:
+            return True
+        self._pop_front_and_renumber()
+        return False
+
+    async def _run_inter_cmd_delay(self, default_delay: int) -> bool:
+        """Wait the inter-command gap between two back-to-back commands."""
+        with self.send_lock:
+            self.sending["waiting"] = True
+        aborted = await self._wait_ms(default_delay)
+        with self.send_lock:
+            self.sending["waiting"] = False
+        return aborted
+
+    async def _run_guard_wait(self, item) -> bool:
+        """Broadcast guard prompt and block until approved or aborted."""
+        with self.send_lock:
+            self.sending["guarding"] = True
+        self.guard_ok.clear()
+        await self.broadcast({
+            "type": "guard_confirm", "index": 0,
+            "display": item.get("display", {}),
+        })
+        while not self.guard_ok.is_set() and not self.abort.is_set():
+            await asyncio.sleep(0.1)
+        with self.send_lock:
+            self.sending["guarding"] = False
+        return self.abort.is_set()
+
+    def _build_frame(self, raw_cmd: bytes, uplink_mode: str, send_csp, send_ax25) -> bytes:
+        """Wrap a raw command in CSP + the configured uplink framing."""
+        csp_packet = send_csp.wrap(raw_cmd)
+        if uplink_mode == "ASM+Golay" and GOLAY_OK:
+            return build_asm_golay_frame(csp_packet)
+        ax25_frame = send_ax25.wrap(csp_packet)
+        return build_ax25_gfsk_frame(ax25_frame)
+
+    def _record_sent(self, item, raw_cmd: bytes, payload: bytes, send_csp, send_ax25, uplink_mode: str) -> dict:
+        """Write the TX log entry and append a history item; return the history entry."""
+        if self.log:
+            try:
+                self.log.write_mission_command(
+                    self.count,
+                    item.get("display", {}),
+                    item.get("payload", {}),
+                    raw_cmd, payload, send_ax25, send_csp,
+                    uplink_mode=uplink_mode,
+                )
+            except Exception as exc:
+                logging.warning("TX log write failed: %s", exc)
+
+        hist_entry = {
+            "n": self.count,
+            "ts": datetime.now().strftime("%H:%M:%S"),
+            "type": "mission_cmd",
+            "display": item.get("display", {}),
+            "payload": item.get("payload", {}),
+            "size": len(payload),
+        }
+        self.history.append(hist_entry)
+        if len(self.history) > self.runtime.max_history:
+            del self.history[: len(self.history) - self.runtime.max_history]
+        return hist_entry
+
+    async def _finalize_send(self, sent: int) -> None:
+        """Common cleanup path for send_complete / send_aborted."""
+        with self.send_lock:
+            self.save_queue()
+            self.sending.update(active=False, idx=-1, total=0, guarding=False, sent_at=0, waiting=False)
+
+        remaining = len(self.queue)
+        if self.abort.is_set():
+            await self.broadcast({"type": "send_aborted", "sent": sent, "remaining": remaining})
+        else:
+            await self.broadcast({"type": "send_complete", "sent": sent})
+
+        await self.send_queue_update()
+        await self.broadcast({"type": "history", "items": self.history[-self.runtime.max_history :]})
+
     async def run_send(self):
         """Run the serialized TX send loop until queue exhaustion or abort."""
         if self.zmq_sock is None:
@@ -146,96 +262,41 @@ class TxService:
                 await self.send_queue_update()
 
                 if item["type"] == "note":
-                    with self.send_lock:
-                        if self.queue:
-                            self.queue.pop(0)
-                        self.save_queue()
+                    self._pop_front()
                     continue
 
                 if item["type"] == "delay":
-                    with self.send_lock:
-                        self.sending["sent_at"] = 0
-                        self.sending["waiting"] = True
-                    await self.broadcast({"type": "send_progress", "sent": sent, "total": total, "current": f"delay {item['delay_ms']}ms", "waiting": True})
                     prev_was_cmd = False
-                    remaining_ms = item["delay_ms"]
-                    while remaining_ms > 0 and not self.abort.is_set():
-                        await asyncio.sleep(0.1)
-                        remaining_ms -= 100
-                    with self.send_lock:
-                        self.sending["waiting"] = False
-                    if self.abort.is_set():
+                    if await self._run_delay_item(item, sent, total):
                         break
-                    with self.send_lock:
-                        if self.queue:
-                            self.queue.pop(0)
-                        self.renumber_queue()
-                        self.save_queue()
                     continue
 
                 if prev_was_cmd and default_delay > 0:
-                    with self.send_lock:
-                        self.sending["waiting"] = True
-                    remaining_ms = default_delay
-                    while remaining_ms > 0 and not self.abort.is_set():
-                        await asyncio.sleep(0.1)
-                        remaining_ms -= 100
-                    with self.send_lock:
-                        self.sending["waiting"] = False
-                    if self.abort.is_set():
+                    if await self._run_inter_cmd_delay(default_delay):
                         break
 
                 if item.get("guard"):
-                    with self.send_lock:
-                        self.sending["guarding"] = True
-                    self.guard_ok.clear()
-                    display = item.get("display", {})
-                    await self.broadcast({
-                        "type": "guard_confirm", "index": 0,
-                        "display": display,
-                    })
-                    while not self.guard_ok.is_set() and not self.abort.is_set():
-                        await asyncio.sleep(0.1)
-                    with self.send_lock:
-                        self.sending["guarding"] = False
-                    if self.abort.is_set():
+                    if await self._run_guard_wait(item):
                         break
 
                 raw_cmd = item.get("raw_cmd", b"")
                 if not raw_cmd:
                     await self.broadcast({"type": "send_error", "error": f"empty raw_cmd for {item.get('display', {}).get('title', '?')}"})
-                    with self.send_lock:
-                        if self.queue:
-                            self.queue.pop(0)
-                        self.renumber_queue()
-                        self.save_queue()
+                    self._pop_front_and_renumber()
                     break
 
                 try:
-                    csp_packet = send_csp.wrap(raw_cmd)
-                    if uplink_mode == "ASM+Golay" and GOLAY_OK:
-                        payload = build_asm_golay_frame(csp_packet)
-                    else:
-                        ax25_frame = send_ax25.wrap(csp_packet)
-                        payload = build_ax25_gfsk_frame(ax25_frame)
+                    payload = self._build_frame(raw_cmd, uplink_mode, send_csp, send_ax25)
                 except Exception as exc:
                     logging.error("Frame build failed for %s: %s", item.get("cmd", "?"), exc)
                     await self.broadcast({"type": "send_error", "error": f"frame build failed: {exc}"})
-                    with self.send_lock:
-                        if self.queue:
-                            self.queue.pop(0)
-                        self.renumber_queue()
-                        self.save_queue()
+                    self._pop_front_and_renumber()
                     break
 
                 if not send_pdu(sock, payload):
                     logging.error("ZMQ send failed for %s", item.get("cmd", "?"))
                     await self.broadcast({"type": "send_error", "error": "ZMQ send failed"})
-                    with self.send_lock:
-                        if self.queue:
-                            self.queue.pop(0)
-                        self.renumber_queue()
-                        self.save_queue()
+                    self._pop_front_and_renumber()
                     break
 
                 with self.send_lock:
@@ -243,29 +304,7 @@ class TxService:
                 self.count += 1
                 sent += 1
 
-                if self.log:
-                    try:
-                        self.log.write_mission_command(
-                            self.count,
-                            item.get("display", {}),
-                            item.get("payload", {}),
-                            raw_cmd, payload, send_ax25, send_csp,
-                            uplink_mode=uplink_mode,
-                        )
-                    except Exception as exc:
-                        logging.warning("TX log write failed: %s", exc)
-
-                hist_entry = {
-                    "n": self.count,
-                    "ts": datetime.now().strftime("%H:%M:%S"),
-                    "type": "mission_cmd",
-                    "display": item.get("display", {}),
-                    "payload": item.get("payload", {}),
-                    "size": len(payload),
-                }
-                self.history.append(hist_entry)
-                if len(self.history) > self.runtime.max_history:
-                    del self.history[: len(self.history) - self.runtime.max_history]
+                hist_entry = self._record_sent(item, raw_cmd, payload, send_csp, send_ax25, uplink_mode)
 
                 await self.broadcast({"type": "sent", "data": hist_entry})
                 current_label = item.get("display", {}).get("title", "?")
@@ -280,15 +319,4 @@ class TxService:
                     self.save_queue()
                 prev_was_cmd = True
         finally:
-            with self.send_lock:
-                self.save_queue()
-                self.sending.update(active=False, idx=-1, total=0, guarding=False, sent_at=0, waiting=False)
-
-            remaining = len(self.queue)
-            if self.abort.is_set():
-                await self.broadcast({"type": "send_aborted", "sent": sent, "remaining": remaining})
-            else:
-                await self.broadcast({"type": "send_complete", "sent": sent})
-
-            await self.send_queue_update()
-            await self.broadcast({"type": "history", "items": self.history[-self.runtime.max_history :]})
+            await self._finalize_send(sent)

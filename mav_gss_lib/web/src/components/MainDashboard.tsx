@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense, type ComponentProps } from 'react'
 import { useShortcuts, type Shortcut } from '@/hooks/useShortcuts'
 import { GlobalHeader } from '@/components/layout/GlobalHeader'
 import { SplitPane } from '@/components/layout/SplitPane'
-import { useRx } from '@/hooks/RxProvider'
+import { useRxStatus, useRxPackets, useRxStats } from '@/hooks/RxProvider'
 import { useTx } from '@/hooks/TxProvider'
 import { useSessionContext } from '@/hooks/SessionProvider'
 import { RxPanel } from '@/components/rx/RxPanel'
@@ -113,8 +113,45 @@ interface MainDashboardProps {
   onPluginClick: (id: string) => void
 }
 
+/** Sentinel that watches the packet stream for CRC failures and toasts them.
+ *  Rendered at the dashboard root so only this tiny node rerenders per flush. */
+function RxCrcToastSentinel() {
+  const packets = useRxPackets()
+  const lastCheckedNum = useRef(-1)
+  useEffect(() => {
+    if (packets.length === 0) return
+    const last = packets[packets.length - 1]
+    if (last.num <= lastCheckedNum.current) return
+    lastCheckedNum.current = last.num
+    const flags = last._rendering?.row?.values?.flags
+    const hasCrcFail = Array.isArray(flags) && flags.some(
+      (f: unknown) => typeof f === 'object' && f !== null && (f as Record<string, string>).tag === 'CRC',
+    )
+    const cmdLabel = String(last._rendering?.row?.values?.cmd ?? 'unknown').split(' ')[0] || 'unknown'
+    if (hasCrcFail) showToast(`CRC-16 FAIL: ${cmdLabel} #${last.num} — verify link quality`, 'warning', 'rx')
+  }, [packets])
+  return null
+}
+
+/** Wraps AlarmStrip with a packets subscription so MainDashboard doesn't need one. */
+function AlarmStripWithPackets({ status, replayMode, sessionResetGen }: {
+  status: ReturnType<typeof useRxStatus>['status']
+  replayMode: boolean
+  sessionResetGen?: number
+}) {
+  const packets = useRxPackets()
+  return <AlarmStrip status={status} packets={packets} replayMode={replayMode} sessionResetGen={sessionResetGen} />
+}
+
+/** Wraps RxPanel with packets + stats subscriptions, keeping RxPanel's API unchanged. */
+function RxPanelWithPackets(props: Omit<ComponentProps<typeof RxPanel>, 'packets' | 'packetStats'>) {
+  const packets = useRxPackets()
+  const stats = useRxStats()
+  return <RxPanel {...props} packets={packets} packetStats={stats} />
+}
+
 export function MainDashboard({ config, onConfigChange, missionName, version, plugins, onPluginClick }: MainDashboardProps) {
-  const rx = useRx()
+  const rx = useRxStatus()
   const columns = rx.columns
   const tx = useTx()
   const session = useSessionContext()
@@ -160,21 +197,6 @@ export function MainDashboard({ config, onConfigChange, missionName, version, pl
     if (tx.error) showToast(tx.error, 'error', 'tx')
   }, [tx.error])
 
-  // Show RX CRC failures as toasts
-  const lastCrcCheckedNum = useRef(-1)
-  useEffect(() => {
-    if (rx.packets.length === 0) return
-    const last = rx.packets[rx.packets.length - 1]
-    if (last.num <= lastCrcCheckedNum.current) return
-    lastCrcCheckedNum.current = last.num
-    const flags = last._rendering?.row?.values?.flags
-    const hasCrcFail = Array.isArray(flags) && flags.some(
-      (f: unknown) => typeof f === 'object' && f !== null && (f as Record<string, string>).tag === 'CRC',
-    )
-    const cmdLabel = String(last._rendering?.row?.values?.cmd ?? 'unknown').split(' ')[0] || 'unknown'
-    if (hasCrcFail) showToast(`CRC-16 FAIL: ${cmdLabel} #${last.num} — verify link quality`, 'warning', 'rx')
-  }, [rx.packets])
-
   const uplinkMode = config?.tx?.uplink_mode ?? ''
 
   return (
@@ -190,7 +212,8 @@ export function MainDashboard({ config, onConfigChange, missionName, version, pl
         session={session}
       />
       <RenameSessionDialog session={session} />
-      <AlarmStrip status={rx.status} packets={rx.packets} replayMode={rx.replayMode} sessionResetGen={rx.sessionResetGen} />
+      <RxCrcToastSentinel />
+      <AlarmStripWithPackets status={rx.status} replayMode={rx.replayMode} sessionResetGen={rx.sessionResetGen} />
       <div className="flex-1 overflow-hidden p-4">
         <SplitPane
           left={
@@ -212,10 +235,9 @@ export function MainDashboard({ config, onConfigChange, missionName, version, pl
             />
           }
           right={
-            <RxPanel
+            <RxPanelWithPackets
               config={config}
-              packets={rx.packets} status={rx.status}
-              packetStats={rx.stats}
+              status={rx.status}
               columns={columns}
               replayMode={rx.replayMode}
               replaySession={replaySession}

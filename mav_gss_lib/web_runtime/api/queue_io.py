@@ -67,8 +67,6 @@ async def import_file(filename: str, request: Request):
     denied = require_api_token(request)
     if denied:
         return denied
-    if runtime.tx.sending["active"]:
-        return JSONResponse(status_code=409, content={"error": "cannot modify queue during send"})
     import_dir = runtime.generated_commands_dir().resolve()
     filepath = (import_dir / filename).resolve()
     if filepath.parent != import_dir:
@@ -78,14 +76,18 @@ async def import_file(filename: str, request: Request):
     raw_items, skipped = parse_import_file(filepath, runtime=runtime)
     items, invalid = sanitize_queue_items(raw_items, runtime=runtime)
     skipped += invalid
-    space = MAX_QUEUE - len(runtime.tx.queue)
-    if space <= 0:
-        return JSONResponse(status_code=400, content={"error": f"queue full ({MAX_QUEUE} items max)"})
-    if len(items) > space:
-        return JSONResponse(status_code=400, content={"error": f"import has {len(items)} items but only {space} queue slots available"})
-    runtime.tx.queue.extend(items)
-    runtime.tx.renumber_queue()
-    runtime.tx.save_queue()
+
+    with runtime.tx.send_lock:
+        if runtime.tx.sending["active"]:
+            return JSONResponse(status_code=409, content={"error": "cannot modify queue during send"})
+        space = MAX_QUEUE - len(runtime.tx.queue)
+        if space <= 0:
+            return JSONResponse(status_code=400, content={"error": f"queue full ({MAX_QUEUE} items max)"})
+        if len(items) > space:
+            return JSONResponse(status_code=400, content={"error": f"import has {len(items)} items but only {space} queue slots available"})
+        runtime.tx.queue.extend(items)
+        runtime.tx.renumber_queue()
+        runtime.tx.save_queue()
     await runtime.tx.send_queue_update()
     return {"loaded": len(items), "skipped": skipped}
 

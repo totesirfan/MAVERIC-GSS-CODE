@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, Suspense } from 'react'
 import { useShortcuts } from '@/hooks/useShortcuts'
 import { SessionProvider, useSessionContext, useConfig } from '@/hooks/SessionProvider'
 import { TxProvider } from '@/hooks/TxProvider'
-import { RxProvider, useRx } from '@/hooks/RxProvider'
+import { RxProvider, useRxStatus, useRxPackets } from '@/hooks/RxProvider'
 import { colors } from '@/lib/colors'
 import { GlobalHeader, RenameSessionDialog } from '@/components/layout/GlobalHeader'
 import { useTxSocket } from '@/hooks/useTxSocket'
@@ -140,6 +140,15 @@ function AppShell() {
   )
 }
 
+/** Tiny wrapper that subscribes to the packets context so the shell doesn't. */
+function PluginAlarmStrip({ status, sessionResetGen }: {
+  status: import('@/lib/types').RxStatus
+  sessionResetGen: number
+}) {
+  const packets = useRxPackets()
+  return <AlarmStrip status={status} packets={packets} replayMode={false} sessionResetGen={sessionResetGen} />
+}
+
 /** Plugin page shell — owns RX socket for AlarmStrip */
 function PluginPageShell({ missionName, version, page, plugins, onBackClick, plugin, configLoaded }: {
   missionName: string
@@ -150,7 +159,7 @@ function PluginPageShell({ missionName, version, page, plugins, onBackClick, plu
   plugin: PluginPageDef | undefined
   configLoaded: boolean
 }) {
-  const rx = useRx()
+  const rx = useRxStatus()
   const session = useSessionContext()
 
   return (
@@ -167,7 +176,7 @@ function PluginPageShell({ missionName, version, page, plugins, onBackClick, plu
         session={session}
       />
       <RenameSessionDialog session={session} />
-      <AlarmStrip status={rx.status} packets={rx.packets} replayMode={false} sessionResetGen={rx.sessionResetGen} />
+      <PluginAlarmStrip status={rx.status} sessionResetGen={rx.sessionResetGen} />
       {plugin ? (
         <Suspense fallback={
           <div className="flex-1 flex items-center justify-center">
