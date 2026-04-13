@@ -7,6 +7,7 @@
 fastapi
 uvicorn
 websockets
+httpx
 PyYAML
 pyzmq
 crcmod
