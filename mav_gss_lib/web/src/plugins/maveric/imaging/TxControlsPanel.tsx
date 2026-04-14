@@ -307,12 +307,23 @@ export function TxControlsPanel({
               cam_capture_img
             </div>
             <div className="flex items-end gap-2">
-              <GssInput
-                className="flex-1 font-mono"
-                placeholder="filename (e.g. limb_004)"
-                value={capFn}
-                onChange={e => setCapFn(e.target.value)}
-              />
+              <div className="relative flex-1">
+                <GssInput
+                  className="font-mono pr-9"
+                  placeholder="filename"
+                  value={capFn}
+                  onChange={e => setCapFn(e.target.value)}
+                />
+                {capFn.trim() !== '' && !/\.jpe?g$/i.test(capFn.trim()) && (
+                  <span
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] font-mono pointer-events-none"
+                    style={{ color: colors.dim }}
+                    title="auto-appended on send"
+                  >
+                    .jpg
+                  </span>
+                )}
+              </div>
               <Button
                 size="sm"
                 onClick={() => {
