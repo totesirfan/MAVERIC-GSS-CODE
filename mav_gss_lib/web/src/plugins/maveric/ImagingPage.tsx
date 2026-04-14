@@ -11,7 +11,7 @@ import { QueuePanel } from './imaging/QueuePanel';
 import { fetchImagingStatus, DEFAULT_TARGET_ARG } from './imaging/helpers';
 import type { PairedFile, FileLeaf, ImagingTab, MissingRange } from './imaging/types';
 
-const IMAGING_CMD_REGEX = /^(img|cam)_/;
+const IMAGING_CMD_REGEX = /^(img|cam|lcd)_/;
 const ERROR_PTYPES = new Set(['ERR', 'NACK', 'FAIL', 'TIMEOUT']);
 const FALLBACK_IMAGING_NODES = new Set(['HLNV', 'ASTR']);
 

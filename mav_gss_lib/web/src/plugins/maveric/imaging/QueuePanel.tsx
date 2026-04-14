@@ -39,7 +39,7 @@ export function QueuePanel({
       if (item.type !== 'mission_cmd') return;
       const payload = item.payload as Record<string, unknown>;
       const cmdId = String(payload.cmd_id ?? '');
-      if (!/^(img|cam)_/.test(cmdId)) return;
+      if (!/^(img|cam|lcd)_/.test(cmdId)) return;
       rows.push({
         absoluteIndex: idx,
         item,
