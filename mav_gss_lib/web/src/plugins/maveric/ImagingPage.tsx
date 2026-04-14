@@ -1,270 +1,349 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
-import { showToast } from '@/components/shared/StatusToast'
-import { usePluginServices } from '@/hooks/usePluginServices'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
+import { showToast } from '@/components/shared/StatusToast';
+import { usePluginServices } from '@/hooks/usePluginServices';
 
-import { RxLogPanel, type ImagingLogRow } from './imaging/RxLogPanel'
-import { TxControlsPanel, type PendingCmd } from './imaging/TxControlsPanel'
-import { ProgressPanel } from './imaging/ProgressPanel'
-import { PreviewPanel } from './imaging/PreviewPanel'
-import { fetchImagingStatus, type ImagingFileStatus } from './imaging/helpers'
+import { RxLogPanel, type ImagingLogRow } from './imaging/RxLogPanel';
+import { TxControlsPanel } from './imaging/TxControlsPanel';
+import { ProgressPanel } from './imaging/ProgressPanel';
+import { PreviewPanel } from './imaging/PreviewPanel';
+import { QueuePanel } from './imaging/QueuePanel';
+import { fetchImagingStatus, DEFAULT_TARGET_ARG } from './imaging/helpers';
+import type { PairedFile, FileLeaf, ImagingTab, MissingRange } from './imaging/types';
 
-/**
- * MAVERIC imaging plugin page — host for the RX log, TX controls, progress
- * grid, and JPEG preview. This component owns global imaging state (files,
- * selection, chunks) and delegates rendering to the panels under ./imaging/.
- */
+const IMAGING_CMD_REGEX = /^(img|cam)_/;
+const ERROR_PTYPES = new Set(['ERR', 'NACK', 'FAIL', 'TIMEOUT']);
+const FALLBACK_IMAGING_NODES = new Set(['HLNV', 'ASTR']);
+
+interface ImagingProgressMsg {
+  type: 'imaging_progress';
+  filename: string;
+  received: number;
+  total: number | null;
+  complete: boolean;
+}
+
 export default function ImagingPage() {
   const {
-    packets: rxPackets, config, queueCommand, txConnected,
-    subscribeRxCustom, sessionResetGen, fetchSchema,
-    sendAll, abortSend, sendProgress, guardConfirm, approveGuard, rejectGuard,
-  } = usePluginServices()
+    packets: rxPackets,
+    config,
+    queueCommand,
+    txConnected,
+    subscribeRxCustom,
+    sessionResetGen,
+    fetchSchema,
+    sendAll,
+    abortSend,
+    sendProgress,
+    pendingQueue,
+    removeQueueItem,
+  } = usePluginServices();
 
-  // ── Imaging file/chunk state ────────────────────────────────────────
-  const [files, setFiles] = useState<ImagingFileStatus[]>([])
-  const [selectedFile, setSelectedFile] = useState<string>('')
-  const [chunks, setChunks] = useState<number[]>([])
+  // ── Paired file state ───────────────────────────────────────────
+  const [files, setFiles] = useState<PairedFile[]>([]);
+  const [selectedStem, setSelectedStem] = useState<string>('');
+  const [previewTab, setPreviewTab] = useState<ImagingTab>('thumb');
 
-  // ── RX log state (filtered view of shared RX buffer) ────────────────
-  const [packets, setPackets] = useState<ImagingLogRow[]>([])
-  const [receiving, setReceiving] = useState(false)
-  const receivingTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // ── TX routing + schema ─────────────────────────────────────────
+  const [destNode, setDestNode] = useState('');
+  const [targetArg, setTargetArg] = useState(DEFAULT_TARGET_ARG); // '2' = thumb, per thumb-first workflow
+  const [nodes, setNodes] = useState<string[]>([]);
+  const [schema, setSchema] = useState<Record<string, Record<string, unknown>> | null>(null);
 
-  // ── TX routing + schema ─────────────────────────────────────────────
-  const [destNode, setDestNode] = useState('')
-  const [nodes, setNodes] = useState<string[]>([])
-  const [schema, setSchema] = useState<Record<string, Record<string, unknown>> | null>(null)
+  // ── Delete confirm ──────────────────────────────────────────────
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
-  // ── Pending command + delete confirm ─────────────────────────────────
-  const [pendingCmd, setPendingCmd] = useState<PendingCmd | null>(null)
-  const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
+  // ── RX log state (imaging-filtered view of shared RX buffer) ────
+  const [rxRows, setRxRows] = useState<ImagingLogRow[]>([]);
+  const [receiving, setReceiving] = useState(false);
+  const receivingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ── Schema fetch (once) ──────────────────────────────────────────────
+  // ── Preview refresh version ─────────────────────────────────────
+  const [previewVersion, setPreviewVersion] = useState(0);
+
+  // Schema fetch
   useEffect(() => {
-    fetchSchema().then(setSchema).catch(() => {})
-  }, [fetchSchema])
+    fetchSchema().then(setSchema).catch(() => {});
+  }, [fetchSchema]);
 
-  // ── Resolve imaging-capable routing nodes from config + schema ──────
+  // Derive imaging-capable routing nodes from schema (not hardcoded)
+  const imagingNodeSet = useMemo<Set<string>>(() => {
+    const fromSchema = (schema?.img_get_chunk as { nodes?: string[] } | undefined)?.nodes;
+    if (fromSchema && fromSchema.length > 0) return new Set(fromSchema);
+    return FALLBACK_IMAGING_NODES;
+  }, [schema]);
+
   useEffect(() => {
-    if (!config || !schema) return
-    const imgCmd = schema?.img_get_chunk ?? schema?.img_cnt_chunks
-    const allowedNodes: string[] = (imgCmd?.nodes as string[]) ?? []
-    const nodeMap: Record<string, string> = config?.nodes ?? {}
-    let nodeNames: string[]
+    if (!config || !schema) return;
+    const imgCmd = schema?.img_get_chunk ?? schema?.img_cnt_chunks;
+    const allowedNodes: string[] = ((imgCmd as { nodes?: string[] } | undefined)?.nodes) ?? [];
+    const nodeMap: Record<string, string> = config?.nodes ?? {};
+    let nodeNames: string[];
     if (allowedNodes.length > 0) {
-      nodeNames = allowedNodes.filter(n => Object.values(nodeMap).includes(n))
+      nodeNames = allowedNodes.filter((n) => Object.values(nodeMap).includes(n));
     } else {
-      const gsNode = config?.general?.gs_node ?? ''
-      nodeNames = Object.values(nodeMap).filter((n): n is string => n !== gsNode)
+      const gsNode = config?.general?.gs_node ?? '';
+      nodeNames = Object.values(nodeMap).filter((n): n is string => n !== gsNode);
     }
-    setNodes(nodeNames)
-    if (nodeNames.length > 0) setDestNode(prev => prev || nodeNames[0])
-  }, [config, schema])
+    setNodes(nodeNames);
+    if (nodeNames.length > 0) setDestNode((prev) => prev || nodeNames[0]);
+  }, [config, schema]);
 
-  // ── Initial status fetch ────────────────────────────────────────────
+  // Initial status fetch
   useEffect(() => {
-    let cancelled = false
-    fetchImagingStatus().then(f => {
-      if (cancelled) return
-      setFiles(f)
-      if (f.length > 0) setSelectedFile(prev => prev || f[0].filename)
-    })
-    return () => { cancelled = true }
-  }, [])
+    let cancelled = false;
+    fetchImagingStatus().then((f) => {
+      if (cancelled) return;
+      setFiles(f);
+      if (f.length > 0) setSelectedStem((prev) => prev || f[0].stem);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  // ── Session reset: clear state + refetch — only on ACTUAL changes,
-  //    not when we mount with a pre-existing non-zero reset gen ──────
-  const mountResetGen = useRef(sessionResetGen)
+  // Session reset — only refires on *actual* changes after mount
+  const mountResetGen = useRef(sessionResetGen);
   useEffect(() => {
-    if (sessionResetGen === mountResetGen.current) return
-    let cancelled = false
-    setPackets([])
-    setReceiving(false)
-    setFiles([])
-    setSelectedFile('')
-    setChunks([])
-    fetchImagingStatus().then(f => {
-      if (cancelled) return
-      setFiles(f)
-      if (f.length > 0) setSelectedFile(f[0].filename)
-    })
-    return () => { cancelled = true }
-  }, [sessionResetGen])
+    if (sessionResetGen === mountResetGen.current) return;
+    setRxRows([]);
+    setReceiving(false);
+    setFiles([]);
+    setSelectedStem('');
+    fetchImagingStatus().then((f) => {
+      setFiles(f);
+      if (f.length > 0) setSelectedStem(f[0].stem);
+    });
+  }, [sessionResetGen]);
 
-  // ── Clean up the receiving-badge timeout on unmount ─────────────────
   useEffect(() => {
     return () => {
-      if (receivingTimer.current) clearTimeout(receivingTimer.current)
-    }
-  }, [])
+      if (receivingTimer.current) clearTimeout(receivingTimer.current);
+    };
+  }, []);
 
-  // ── Live imaging_progress broadcasts from the adapter ───────────────
+  // Keep a ref to the latest files so the broadcast handler can read
+  // them without depending on a closure that React would replace each
+  // render. Updated whenever files changes.
+  const filesRef = useRef<PairedFile[]>([]);
+  useEffect(() => {
+    filesRef.current = files;
+  }, [files]);
+
+  // ── Merge imaging_progress broadcasts into local state ─────────
+  // Do NOT refetch the full status on every chunk — the backend broadcasts
+  // one progress message per chunk during a live pass. Instead, find the
+  // matching pair + leaf and patch its fields in place. Snapshot filesRef
+  // at the top of the handler so auto-select uses a consistent view.
   useEffect(() => {
     return subscribeRxCustom((msg) => {
-      if (msg.type !== 'imaging_progress') return
-      const p = msg as unknown as ImagingFileStatus
-      setFiles(prev => {
-        const existing = prev.find(f => f.filename === p.filename)
-        if (existing) {
-          return prev.map(f => f.filename === p.filename
-            ? { ...f, received: p.received, total: p.total, complete: p.complete }
-            : f)
-        }
-        return [...prev, p]
-      })
-      setSelectedFile(p.filename)
-    })
-  }, [subscribeRxCustom])
+      if (msg.type !== 'imaging_progress') return;
+      const progress = msg as unknown as ImagingProgressMsg;
+      const fn = progress.filename;
+      if (!fn) return;
 
-  // ── Derive imaging-only RX log rows from shared RX buffer ───────────
+      const snapshot = filesRef.current;
+      const targetPair = snapshot.find(
+        (p) => p.full?.filename === fn || p.thumb?.filename === fn,
+      );
+
+      if (targetPair) {
+        // Known pair — patch the matching leaf in place.
+        setFiles((prev) => {
+          const idx = prev.findIndex((p) => p.stem === targetPair.stem);
+          if (idx < 0) return prev;
+          const pair = prev[idx];
+          const nextPair: PairedFile = { ...pair };
+          if (pair.full?.filename === fn) {
+            nextPair.full = {
+              ...pair.full,
+              received: progress.received,
+              total: progress.total ?? pair.full.total,
+              complete: progress.complete,
+            };
+          } else if (pair.thumb?.filename === fn) {
+            nextPair.thumb = {
+              ...pair.thumb,
+              received: progress.received,
+              total: progress.total ?? pair.thumb.total,
+              complete: progress.complete,
+            };
+          }
+          const next = [...prev];
+          next[idx] = nextPair;
+          return next;
+        });
+        // Auto-select the touched pair only if the operator isn't already
+        // looking at it — avoids stomping an intentional selection.
+        setSelectedStem((prev) => {
+          if (prev === targetPair.stem) return prev;
+          const prevPair = snapshot.find((p) => p.stem === prev);
+          if (prevPair && (prevPair.full?.filename === fn || prevPair.thumb?.filename === fn)) {
+            return prev;
+          }
+          return targetPair.stem;
+        });
+      } else {
+        // Unknown filename — rare path (first touch of a scheduled-capture
+        // recovery file). Full refetch, then auto-select from the new list.
+        fetchImagingStatus().then((fresh) => {
+          setFiles(fresh);
+          const match = fresh.find(
+            (p) => p.full?.filename === fn || p.thumb?.filename === fn,
+          );
+          if (match) setSelectedStem(match.stem);
+        });
+      }
+    });
+  }, [subscribeRxCustom]);
+
+  // Imaging-filtered RX log
   const imagingPackets = useMemo<ImagingLogRow[]>(() => {
-    const rows: ImagingLogRow[] = []
+    const rows: ImagingLogRow[] = [];
     for (const p of rxPackets) {
-      const cmdRaw = String(p._rendering?.row?.values?.cmd ?? '')
-      if (!cmdRaw.startsWith('img_cnt_chunks') && !cmdRaw.startsWith('img_get_chunk')) continue
-      const parts = cmdRaw.split(' ')
+      const cmdRaw = String(p._rendering?.row?.values?.cmd ?? '');
+      const ptype = String(p._rendering?.row?.values?.ptype ?? '').toUpperCase();
+      const node = String(p._rendering?.row?.values?.src ?? '');
+      const isImagingCmd = IMAGING_CMD_REGEX.test(cmdRaw);
+      const isImagingError = ERROR_PTYPES.has(ptype) && imagingNodeSet.has(node);
+      if (!isImagingCmd && !isImagingError) continue;
+      const parts = cmdRaw.split(' ');
       rows.push({
         num: p.num,
         time: p.time,
         cmd: parts[0] ?? '',
         args: parts.slice(1).join(' '),
-      })
+      });
     }
-    return rows
-  }, [rxPackets])
+    return rows;
+  }, [rxPackets, imagingNodeSet]);
 
-  // Mirror new imaging rows into local state and pulse "receiving" badge
-  const prevImagingCount = useRef(0)
+  const prevRxCount = useRef(0);
   useEffect(() => {
-    if (imagingPackets.length > prevImagingCount.current) {
-      setPackets(imagingPackets.slice(-500))
-      setReceiving(true)
-      if (receivingTimer.current) clearTimeout(receivingTimer.current)
-      receivingTimer.current = setTimeout(() => setReceiving(false), 1500)
+    if (imagingPackets.length > prevRxCount.current) {
+      setRxRows(imagingPackets.slice(-500));
+      setReceiving(true);
+      if (receivingTimer.current) clearTimeout(receivingTimer.current);
+      receivingTimer.current = setTimeout(() => setReceiving(false), 1500);
     }
-    prevImagingCount.current = imagingPackets.length
-  }, [imagingPackets])
+    prevRxCount.current = imagingPackets.length;
+  }, [imagingPackets]);
 
-  // ── Fetch chunk list for the selected file on progress changes ──────
-  const selectedProgress = useMemo(
-    () => files.find(f => f.filename === selectedFile),
-    [files, selectedFile],
-  )
+  // Selected pair + preview version bump on progress
+  const selected = useMemo(
+    () => files.find((f) => f.stem === selectedStem) ?? null,
+    [files, selectedStem],
+  );
 
   useEffect(() => {
-    if (!selectedFile) { setChunks([]); return }
-    const ctrl = new AbortController()
-    fetch(`/api/plugins/imaging/chunks/${encodeURIComponent(selectedFile)}`, { signal: ctrl.signal })
-      .then(r => r.json())
-      .then(data => setChunks(data.chunks ?? []))
-      .catch(err => { if (err?.name !== 'AbortError') setChunks([]) })
-    return () => ctrl.abort()
-  }, [selectedFile, selectedProgress?.received])
+    setPreviewVersion((v) => v + 1);
+  }, [selectedStem, selected?.full?.received, selected?.thumb?.received]);
 
-  // ── Preview version — bump on every chunk arrival so the preview
-  //    builds progressively as the image assembles ─────────────────────
-  const [previewVersion, setPreviewVersion] = useState(0)
-  useEffect(() => {
-    if (!selectedFile) return
-    setPreviewVersion(v => v + 1)
-  }, [selectedFile, selectedProgress?.received, selectedProgress?.complete])
+  // Stage re-request — auto-routes target per side
+  const stageRerequest = useCallback(
+    (side: 'thumb' | 'full', leaf: FileLeaf, ranges: MissingRange[]) => {
+      const forcedTarget = side === 'thumb' ? '2' : '1';
+      for (const r of ranges) {
+        queueCommand({
+          cmd_id: 'img_get_chunk',
+          args: {
+            Filename: leaf.filename,
+            'Start Chunk': String(r.start),
+            'Num Chunks': String(r.count),
+            Destination: forcedTarget,
+          },
+          dest: destNode,
+          echo: ((schema?.img_get_chunk as Record<string, unknown>)?.echo as string) ?? 'NONE',
+          ptype: ((schema?.img_get_chunk as Record<string, unknown>)?.ptype as string) ?? 'CMD',
+        });
+      }
+      showToast(
+        `Staged ${ranges.length} re-request${ranges.length === 1 ? '' : 's'} (${side})`,
+        'success',
+        'tx',
+      );
+    },
+    [destNode, queueCommand, schema],
+  );
 
-  // ── Command staging: stash (args + destNode snapshot) and wait for Confirm ──
-  const stageCommand = useCallback((cmdId: string, args: Record<string, string>, label: string) => {
-    if (!txConnected) { showToast('TX not connected', 'error', 'tx'); return }
-    if (!destNode) { showToast('No destination node selected', 'error', 'tx'); return }
-    // Snapshot destNode at stage time — confirming later uses THIS value,
-    // not whatever the operator has since clicked.
-    setPendingCmd({ cmdId, args, label, destNode })
-  }, [destNode, txConnected])
-
-  const confirmSend = useCallback(() => {
-    if (!pendingCmd) return
-    queueCommand({
-      cmd_id: pendingCmd.cmdId,
-      args: pendingCmd.args,
-      dest: pendingCmd.destNode,
-      echo: (schema?.[pendingCmd.cmdId] as Record<string, unknown>)?.echo as string ?? 'NONE',
-      ptype: (schema?.[pendingCmd.cmdId] as Record<string, unknown>)?.ptype as string ?? 'CMD',
-    })
-    sendAll()
-    setPendingCmd(null)
-  }, [pendingCmd, queueCommand, schema, sendAll])
-
-  const cancelPending = useCallback(() => setPendingCmd(null), [])
-
-  // ── Delete with proper HTTP error checking ──────────────────────────
+  // Delete file (GSS local). After refetch, reset selection if the
+  // previously-selected stem no longer exists in the fresh list.
   const performDelete = useCallback((filename: string) => {
     fetch(`/api/plugins/imaging/file/${encodeURIComponent(filename)}`, { method: 'DELETE' })
-      .then(async r => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`)
-        const body = await r.json().catch(() => ({}))
-        if (body && body.ok === false) throw new Error(body.error ?? 'delete failed')
-        return body
-      })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then(() => {
-        setFiles(prev => prev.filter(f => f.filename !== filename))
-        setSelectedFile(prev => (prev === filename ? '' : prev))
-        showToast(`Deleted ${filename}`, 'success', 'tx')
+        fetchImagingStatus().then((fresh) => {
+          setFiles(fresh);
+          setSelectedStem((prev) =>
+            fresh.find((f) => f.stem === prev) ? prev : (fresh[0]?.stem ?? ''),
+          );
+        });
+        showToast(`Deleted ${filename}`, 'success', 'tx');
       })
-      .catch((err) => {
-        showToast(`Failed to delete ${filename}: ${String(err?.message ?? err)}`, 'error', 'tx')
-      })
-  }, [])
-
-  const handleDelete = useCallback((filename: string) => setDeleteTarget(filename), [])
+      .catch((err) => showToast(`Failed to delete: ${err.message}`, 'error', 'tx'));
+  }, []);
 
   return (
     <div className="flex-1 flex overflow-hidden p-4 gap-4">
-      {/* ── Left column — RX log + TX controls ─────────────────── */}
-      <div className="flex flex-col gap-4 shrink-0" style={{ width: 520 }}>
-        <RxLogPanel packets={packets} receiving={receiving} />
+      {/* Left column — fixed 560px width (SplitPane integration deferred) */}
+      <div className="flex flex-col gap-4 shrink-0" style={{ width: 560 }}>
+        {/* RX Log — wrapper pins it to 200px so the internal flex-1 fills it */}
+        <div className="h-[200px] shrink-0 flex flex-col">
+          <RxLogPanel packets={rxRows} receiving={receiving} />
+        </div>
         <TxControlsPanel
           nodes={nodes}
           destNode={destNode}
           onDestNodeChange={setDestNode}
-          suggestedFilename={selectedFile}
-          suggestedTotal={selectedProgress?.total ?? null}
-          stageCommand={stageCommand}
-          pendingCmd={pendingCmd}
-          onConfirmSend={confirmSend}
-          onCancelPending={cancelPending}
+          targetArg={targetArg}
+          onTargetChange={setTargetArg}
+          selected={selected}
+          previewTab={previewTab}
+          queueCommand={queueCommand}
+          schema={schema}
+          txConnected={txConnected}
+        />
+        <QueuePanel
+          pendingQueue={pendingQueue}
           sendProgress={sendProgress}
-          onAbort={abortSend}
-          guardConfirm={guardConfirm}
-          onApproveGuard={approveGuard}
-          onRejectGuard={rejectGuard}
+          sendAll={sendAll}
+          abortSend={abortSend}
+          removeQueueItem={removeQueueItem}
         />
       </div>
 
-      {/* ── Right column — progress + preview ──────────────────── */}
-      <div className="flex-1 flex flex-col gap-4">
+      {/* Right column */}
+      <div className="flex-1 flex flex-col gap-4 min-w-0">
         <ProgressPanel
           files={files}
-          selectedFile={selectedFile}
-          selectedProgress={selectedProgress}
-          chunks={chunks}
-          onSelect={setSelectedFile}
-          onDelete={handleDelete}
+          selected={selected}
+          onSelect={setSelectedStem}
+          onDelete={setDeleteTarget}
+          onStageRerequest={stageRerequest}
         />
         <PreviewPanel
-          selectedFile={selectedFile}
+          selected={selected}
+          activeTab={previewTab}
+          onTabChange={setPreviewTab}
           version={previewVersion}
-          hasFiles={files.length > 0}
         />
       </div>
 
       <ConfirmDialog
         open={deleteTarget !== null}
         title="Delete image?"
-        detail={deleteTarget
-          ? `${deleteTarget} and all its chunks will be removed from disk. This cannot be undone.`
-          : undefined}
+        detail={
+          deleteTarget
+            ? `${deleteTarget} and all its chunks will be removed from disk. This cannot be undone.`
+            : undefined
+        }
         variant="destructive"
-        onConfirm={() => { if (deleteTarget) performDelete(deleteTarget); setDeleteTarget(null) }}
+        onConfirm={() => {
+          if (deleteTarget) performDelete(deleteTarget);
+          setDeleteTarget(null);
+        }}
         onCancel={() => setDeleteTarget(null)}
       />
     </div>
-  )
+  );
 }
