@@ -37,6 +37,12 @@ REQUIREMENTS_PATH = REPO_ROOT / "requirements.txt"
 REQUIREMENTS_HASH_PATH = REPO_ROOT / ".mav_requirements_hash"
 VENV_DIR = REPO_ROOT / ".venv"
 
+# Developer opt-out sentinel. If this file exists at the repo root, the updater
+# refuses to fetch or apply anything — the Updates check renders as a skip with
+# "dev mode" as the reason, and the APPLY UPDATE button never appears. Create
+# with `touch .mav_dev`. Gitignored so it doesn't leak to operator clones.
+DEV_SENTINEL_PATH = REPO_ROOT / ".mav_dev"
+
 # Hard prerequisites — cannot be auto-installed. If missing, print instructions
 # and exit. The operator must resolve these one-time, then relaunch.
 _HARD_PREREQUISITES: list[tuple[str, str]] = [
@@ -196,27 +202,61 @@ def check_for_updates(timeout_s: float = 10.0) -> UpdateStatus:
 
     Handles detached HEAD by returning fetch_failed=True with a clear reason.
     When HEAD already matches origin, skips the diff/log calls as optimization.
+
+    Dev sentinel: if .mav_dev exists at the repo root, short-circuits with
+    fetch_failed=True so the Updates check renders as a skip in dev mode.
+    No git calls are made — developers stay on whatever commit they choose.
     """
     status = UpdateStatus()
 
-    # Requirements hash — computed regardless of git state so the "retry partial
-    # failure" path still fires even when offline.
-    try:
-        current_hash = _compute_requirements_hash()
-        persisted_hash = _read_persisted_hash()
-        status.requirements_out_of_sync = (
-            persisted_hash is None or persisted_hash != current_hash
-        )
-    except Exception:
-        # If requirements.txt itself is unreadable, flag out of sync so the
-        # operator sees something rather than silently passing.
-        status.requirements_out_of_sync = True
+    # Dev opt-out — short-circuit before touching git, pip, or the filesystem.
+    # This is the developer escape hatch: `touch .mav_dev` at the repo root
+    # permanently disables the updater for this checkout without editing code.
+    if DEV_SENTINEL_PATH.exists():
+        status.fetch_failed = True
+        status.fetch_error = "dev mode (.mav_dev present)"
+        return status
 
-    # Missing deps — independent of git fetch
+    # Missing deps — independent of git fetch. Scan first so the hash-seeding
+    # decision below can trust find_spec() results.
     try:
         status.missing_pip_deps = _scan_missing_pip_deps()
     except Exception:
         status.missing_pip_deps = []
+
+    # Requirements hash — computed regardless of git state so the "retry partial
+    # failure" path still fires even when offline.
+    #
+    # First-observation seeding: on a fresh clone onto a machine that already
+    # has all pip deps installed (the typical developer case), .mav_requirements_hash
+    # is missing but every import resolves. Without seeding, the Updates check
+    # would show the misleading "retrying previously failed dependency install"
+    # label on the first-ever launch of a perfectly healthy environment.
+    # Seed the hash silently whenever we observe a matching-env state, so only
+    # genuine drift (missing imports or stale hash after a new requirements.txt)
+    # triggers the retry label.
+    try:
+        current_hash = _compute_requirements_hash()
+        persisted_hash = _read_persisted_hash()
+        if persisted_hash is None:
+            # First observation — trust the current env if imports resolve.
+            if not status.missing_pip_deps:
+                try:
+                    _write_persisted_hash()
+                    status.requirements_out_of_sync = False
+                except Exception:
+                    # Hash write failed (read-only fs?) — fall back to flagging
+                    # as out-of-sync so we still show something actionable.
+                    status.requirements_out_of_sync = True
+            else:
+                # Missing deps on first observation → legitimate install needed.
+                status.requirements_out_of_sync = True
+        else:
+            status.requirements_out_of_sync = persisted_hash != current_hash
+    except Exception:
+        # If requirements.txt itself is unreadable, flag out of sync so the
+        # operator sees something rather than silently passing.
+        status.requirements_out_of_sync = True
 
     # Update-applied marker (set by child process after an os.execv restart)
     status.update_applied_sha = os.environ.pop("MAV_UPDATE_APPLIED", None)

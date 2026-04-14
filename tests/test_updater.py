@@ -79,6 +79,16 @@ class TestCheckForUpdates(unittest.TestCase):
             "log HEAD..origin/main --pretty=format:%h|%s": _cp(0, ""),
             "diff --name-only HEAD..origin/main": _cp(0, ""),
         }
+        # Force the dev sentinel to appear absent so every test in this class
+        # is deterministic regardless of whether the developer running the
+        # suite has `.mav_dev` present at the repo root. Tests that need to
+        # exercise the dev-mode short-circuit should stop this patcher and
+        # install their own.
+        fake_dev_path = mock.MagicMock()
+        fake_dev_path.exists.return_value = False
+        patcher = mock.patch.object(updater, "DEV_SENTINEL_PATH", fake_dev_path)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def _fake_run_git(self, args, timeout):
         key = " ".join(args)
@@ -149,13 +159,31 @@ class TestCheckForUpdates(unittest.TestCase):
         self.assertTrue(status.fetch_failed)
         self.assertEqual(status.fetch_error, "detached HEAD — not on a branch")
 
-    def test_missing_requirements_hash_triggers_out_of_sync(self):
+    def test_missing_hash_with_healthy_env_seeds_silently(self):
+        # First launch on a working dev env: no hash file exists, but all
+        # pip deps import cleanly. The updater should silently seed the hash
+        # and report in-sync — not nag the operator with "retrying previously
+        # failed dependency install" on every fresh clone.
         with mock.patch.object(updater, "_run_git", side_effect=self._fake_run_git), \
              mock.patch.object(updater, "_scan_missing_pip_deps", return_value=[]), \
              mock.patch.object(updater, "_compute_requirements_hash", return_value="h"), \
-             mock.patch.object(updater, "_read_persisted_hash", return_value=None):
+             mock.patch.object(updater, "_read_persisted_hash", return_value=None), \
+             mock.patch.object(updater, "_write_persisted_hash") as write_mock:
+            status = check_for_updates()
+        self.assertFalse(status.requirements_out_of_sync)
+        write_mock.assert_called_once()
+
+    def test_missing_hash_with_missing_deps_flags_out_of_sync(self):
+        # First launch on a broken env: hash missing AND imports failing → do
+        # NOT silently seed. The operator should see an install prompt.
+        with mock.patch.object(updater, "_run_git", side_effect=self._fake_run_git), \
+             mock.patch.object(updater, "_scan_missing_pip_deps", return_value=["httpx"]), \
+             mock.patch.object(updater, "_compute_requirements_hash", return_value="h"), \
+             mock.patch.object(updater, "_read_persisted_hash", return_value=None), \
+             mock.patch.object(updater, "_write_persisted_hash") as write_mock:
             status = check_for_updates()
         self.assertTrue(status.requirements_out_of_sync)
+        write_mock.assert_not_called()
 
     def test_stale_requirements_hash_triggers_out_of_sync(self):
         with mock.patch.object(updater, "_run_git", side_effect=self._fake_run_git), \
@@ -172,6 +200,24 @@ class TestCheckForUpdates(unittest.TestCase):
              mock.patch.object(updater, "_read_persisted_hash", return_value="same"):
             status = check_for_updates()
         self.assertFalse(status.requirements_out_of_sync)
+
+    def test_dev_sentinel_short_circuits(self):
+        # .mav_dev at repo root → no git calls, no pip scans. The updater
+        # returns a fetch_failed status with a dev-mode reason so the Updates
+        # check renders as skip and the button never appears.
+        # Stop the class-level patcher that forces the sentinel absent, then
+        # install a present-sentinel patch for this test only.
+        mock.patch.stopall()
+        fake_dev_path = mock.MagicMock()
+        fake_dev_path.exists.return_value = True
+        with mock.patch.object(updater, "DEV_SENTINEL_PATH", fake_dev_path), \
+             mock.patch.object(updater, "_run_git") as git_mock, \
+             mock.patch.object(updater, "_scan_missing_pip_deps") as scan_mock:
+            status = check_for_updates()
+        self.assertTrue(status.fetch_failed)
+        self.assertIn(".mav_dev", status.fetch_error or "")
+        git_mock.assert_not_called()
+        scan_mock.assert_not_called()
 
 
 # =============================================================================

@@ -146,7 +146,16 @@ async def _build_updates_event(runtime) -> dict:
         result_status, result_label = ("ok", label)
     elif status.fetch_failed:
         meta["fetch_error"] = status.fetch_error
-        result_status, result_label = ("skip", "Update check skipped · could not reach origin")
+        # Dev mode is an intentional opt-out, not a failure. Emit 'ok' so the
+        # developer still gets the green LAUNCH button and "ALL CHECKS PASSED"
+        # summary — the row label makes the configured state clear without
+        # nagging on every launch.
+        if status.fetch_error and ".mav_dev" in status.fetch_error:
+            result_status, result_label = ("ok", "Dev mode · updates disabled")
+        elif status.fetch_error and "detached HEAD" in status.fetch_error:
+            result_status, result_label = ("skip", "Detached HEAD · updates disabled")
+        else:
+            result_status, result_label = ("skip", "Update check skipped · could not reach origin")
     elif nothing_to_do:
         result_status, result_label = ("ok", f"Up to date ({status.current_sha[:7]})")
     else:
