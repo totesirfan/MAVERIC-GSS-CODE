@@ -1,292 +1,409 @@
-import { useState, useEffect, useRef } from 'react'
-import { Send, StopCircle } from 'lucide-react'
-import { motion } from 'framer-motion'
-import { Button } from '@/components/ui/button'
-import { GssInput } from '@/components/ui/gss-input'
-import { ConfirmBar } from '@/components/shared/ConfirmBar'
-import { showToast } from '@/components/shared/StatusToast'
-import { colors } from '@/lib/colors'
-import { FilenameInput } from './FilenameInput'
-import { withJpg, DEFAULT_DEST_ARG, DEFAULT_CHUNK_SIZE } from './helpers'
-import type { SendProgress, GuardConfirm } from '@/lib/types'
-
-export interface PendingCmd {
-  cmdId: string
-  args: Record<string, string>
-  label: string
-  destNode: string
-}
+import { useState, useEffect, useRef } from 'react';
+import {
+  Send,
+  Camera,
+  Wrench,
+  Download,
+  Power,
+  PowerOff,
+  Eraser,
+  Image,
+  ImageMinus,
+} from 'lucide-react';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Button } from '@/components/ui/button';
+import { GssInput } from '@/components/ui/gss-input';
+import { showToast } from '@/components/shared/StatusToast';
+import { colors } from '@/lib/colors';
+import { withJpg, DEFAULT_CHUNK_SIZE } from './helpers';
+import type { PairedFile, ImagingTab } from './types';
 
 interface TxControlsPanelProps {
-  nodes: string[]
-  destNode: string
-  onDestNodeChange: (n: string) => void
-
-  /** Filename of the currently-selected file in the progress panel; auto-fills Get Chunk form. */
-  suggestedFilename?: string
-  /** Known total chunk count for `suggestedFilename`; fills start=0 / count=total in the Get Chunk form. */
-  suggestedTotal?: number | null
-
-  stageCommand: (cmdId: string, args: Record<string, string>, label: string) => void
-
-  pendingCmd: PendingCmd | null
-  onConfirmSend: () => void
-  onCancelPending: () => void
-
-  sendProgress: SendProgress | null
-  onAbort: () => void
-
-  guardConfirm: GuardConfirm | null
-  onApproveGuard: () => void
-  onRejectGuard: () => void
+  nodes: string[];
+  destNode: string;
+  onDestNodeChange: (n: string) => void;
+  targetArg: string;
+  onTargetChange: (t: string) => void;
+  /** Currently-selected paired file (drives auto-fill per active preview tab) */
+  selected: PairedFile | null;
+  /** Which side the Preview is currently showing — auto-fill source */
+  previewTab: ImagingTab;
+  /** Stage a command into the main TX queue */
+  queueCommand: (cmd: {
+    cmd_id: string;
+    args: Record<string, string>;
+    dest: string;
+    echo: string;
+    ptype: string;
+  }) => void;
+  /** Schema for looking up echo/ptype per command */
+  schema: Record<string, Record<string, unknown>> | null;
+  txConnected: boolean;
 }
 
-/**
- * TX Controls card for the imaging page. Owns its own form state and
- * auto-fills the Get Chunk form when the caller provides a suggested
- * filename / known total. The card's bottom bar renders one of three
- * shared status strips (confirm / guard / send progress).
- */
+type TabName = 'download' | 'camera' | 'edit';
+
 export function TxControlsPanel({
-  nodes, destNode, onDestNodeChange,
-  suggestedFilename, suggestedTotal,
-  stageCommand,
-  pendingCmd, onConfirmSend, onCancelPending,
-  sendProgress, onAbort,
-  guardConfirm, onApproveGuard, onRejectGuard,
+  nodes,
+  destNode,
+  onDestNodeChange,
+  targetArg,
+  onTargetChange,
+  selected,
+  previewTab,
+  queueCommand,
+  schema,
+  txConnected,
 }: TxControlsPanelProps) {
-  const [cntFilename, setCntFilename] = useState('')
-  const [cntDestArg, setCntDestArg] = useState('')
-  const [cntChunkSize, setCntChunkSize] = useState('')
+  const [activeTab, setActiveTab] = useState<TabName>('download');
 
-  const [getFilename, setGetFilename] = useState('')
-  const [getStartChunk, setGetStartChunk] = useState('')
-  const [getNumChunks, setGetNumChunks] = useState('')
-  const [getDestArg, setGetDestArg] = useState('')
+  // ── Download tab form state + auto-fill ─────────────────────────
+  const [cntFn, setCntFn] = useState('');
+  const [cntSize, setCntSize] = useState(DEFAULT_CHUNK_SIZE);
+  const [getFn, setGetFn] = useState('');
+  const [getStart, setGetStart] = useState('');
+  const [getCount, setGetCount] = useState('');
+  const autoRef = useRef({ cntFn: '', getFn: '', start: '', count: '' });
 
-  // Track the values this component last *auto-filled* into each field.
-  // Auto-fill only overwrites if the current value is empty or still matches
-  // the last-autofilled value, so manual edits are never clobbered.
-  const autoRef = useRef({ cntFn: '', getFn: '', start: '', num: '' })
+  // Source filename = whichever leaf matches the Preview's active tab.
+  // If one side is null (prefix unset, orphan pair), fall back to the
+  // side that exists so auto-fill still works.
+  const effectiveLeaf = selected
+    ? !selected.thumb
+      ? selected.full
+      : !selected.full
+      ? selected.thumb
+      : previewTab === 'thumb'
+      ? selected.thumb
+      : selected.full
+    : null;
+  const suggestedFilename = effectiveLeaf?.filename ?? '';
+  const suggestedTotal = effectiveLeaf?.total ?? null;
 
-  // Auto-fill filenames when the parent points us at a file.
-  // Capture the ref values into locals *before* the setState updaters run,
-  // otherwise the lazy updaters would read the already-mutated ref.
   useEffect(() => {
-    if (!suggestedFilename) return
-    const lastCntFn = autoRef.current.cntFn
-    const lastGetFn = autoRef.current.getFn
-    setCntFilename(prev => (prev === '' || prev === lastCntFn) ? suggestedFilename : prev)
-    setGetFilename(prev => (prev === '' || prev === lastGetFn) ? suggestedFilename : prev)
-    autoRef.current.cntFn = suggestedFilename
-    autoRef.current.getFn = suggestedFilename
-  }, [suggestedFilename])
+    if (!suggestedFilename) return;
+    const lastCnt = autoRef.current.cntFn;
+    const lastGet = autoRef.current.getFn;
+    setCntFn(prev => (prev === '' || prev === lastCnt ? suggestedFilename : prev));
+    setGetFn(prev => (prev === '' || prev === lastGet ? suggestedFilename : prev));
+    autoRef.current.cntFn = suggestedFilename;
+    autoRef.current.getFn = suggestedFilename;
+  }, [suggestedFilename]);
 
-  // Auto-fill start/count when the total is known. Keeps manual edits.
   useEffect(() => {
-    if (!suggestedFilename) return
-    if (suggestedTotal == null || suggestedTotal <= 0) return
-    const newStart = '0'
-    const newNum = String(suggestedTotal)
-    const lastStart = autoRef.current.start
-    const lastNum = autoRef.current.num
-    setGetStartChunk(prev => (prev === '' || prev === lastStart) ? newStart : prev)
-    setGetNumChunks(prev => (prev === '' || prev === lastNum) ? newNum : prev)
-    autoRef.current.start = newStart
-    autoRef.current.num = newNum
-  }, [suggestedFilename, suggestedTotal])
+    if (!suggestedFilename || suggestedTotal == null || suggestedTotal <= 0) return;
+    const lastStart = autoRef.current.start;
+    const lastCount = autoRef.current.count;
+    setGetStart(prev => (prev === '' || prev === lastStart ? '0' : prev));
+    setGetCount(prev => (prev === '' || prev === lastCount ? String(suggestedTotal) : prev));
+    autoRef.current.start = '0';
+    autoRef.current.count = String(suggestedTotal);
+  }, [suggestedFilename, suggestedTotal]);
 
-  const disableSend = !!sendProgress || !!guardConfirm || !!pendingCmd
+  // Camera tab
+  const [capFn, setCapFn] = useState('');
 
-  const handleCntChunks = () => {
-    if (!cntFilename.trim()) {
-      showToast('Filename required', 'error', 'tx')
-      return
+  // Edit on Pi tab
+  const [compFn, setCompFn] = useState('');
+  const [compQ, setCompQ] = useState('80');
+  const [rszFn, setRszFn] = useState('');
+  const [rszW, setRszW] = useState('640');
+  const [rszH, setRszH] = useState('480');
+  const [thmbFn, setThmbFn] = useState('');
+  const [delFp, setDelFp] = useState('');
+
+  // ── Stage helpers ──────────────────────────────────────────────
+  const stage = (cmdId: string, args: Record<string, string>) => {
+    if (!txConnected) {
+      showToast('TX not connected', 'error', 'tx');
+      return;
     }
-    const fn = withJpg(cntFilename.trim())
-    const dest = cntDestArg.trim() || DEFAULT_DEST_ARG
-    const size = cntChunkSize.trim() || DEFAULT_CHUNK_SIZE
-    stageCommand(
-      'img_cnt_chunks',
-      { Filename: fn, Destination: dest, 'Chunk Size': size },
-      `img_cnt_chunks ${fn} target=${dest} size=${size}`,
-    )
-  }
-
-  const handleGetChunk = () => {
-    if (!getFilename.trim()) {
-      showToast('Filename required', 'error', 'tx')
-      return
+    if (!destNode) {
+      showToast('No destination node selected', 'error', 'tx');
+      return;
     }
-    const start = getStartChunk.trim()
-    if (!start) {
-      showToast('Start chunk required', 'error', 'tx')
-      return
-    }
-    const fn = withJpg(getFilename.trim())
-    const count = getNumChunks.trim() || '1'
-    const dest = getDestArg.trim() || DEFAULT_DEST_ARG
-    stageCommand(
-      'img_get_chunk',
-      { Filename: fn, 'Start Chunk': start, 'Num Chunks': count, Destination: dest },
-      `img_get_chunk ${fn} start=${start} n=${count} target=${dest}`,
-    )
-  }
+    queueCommand({
+      cmd_id: cmdId,
+      args,
+      dest: destNode,
+      echo: (schema?.[cmdId] as Record<string, unknown>)?.echo as string ?? 'NONE',
+      ptype: (schema?.[cmdId] as Record<string, unknown>)?.ptype as string ?? 'CMD',
+    });
+  };
 
-  return (
-    <div className="rounded-lg border overflow-hidden" style={{ borderColor: colors.borderSubtle, backgroundColor: colors.bgPanel }}>
-      <div className="flex items-center gap-2 px-3 py-1.5 border-b" style={{ borderColor: colors.borderSubtle }}>
-        <Send className="size-3.5" style={{ color: colors.dim }} />
-        <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: colors.label }}>TX Controls</span>
-      </div>
-      <div className="p-3 space-y-3">
-        {/* Routing — node on the CSP header */}
-        <div>
-          <div className="text-[11px] font-medium mb-1" style={{ color: colors.dim }}>Route to node</div>
-          <div className="flex flex-wrap gap-1">
-            {nodes.map(n => (
-              <button
-                key={n}
-                onClick={() => onDestNodeChange(n)}
-                className="px-2 py-0.5 rounded text-[11px] font-medium border"
-                style={{
-                  borderColor: destNode === n ? colors.label : colors.borderSubtle,
-                  backgroundColor: destNode === n ? `${colors.label}18` : 'transparent',
-                  color: destNode === n ? colors.label : colors.dim,
-                }}
-                title={`Route imaging command to ${n}`}
-              >
-                {n}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Count Chunks */}
-        <div>
-          <div className="text-[11px] font-medium mb-1" style={{ color: colors.dim }}>Count Chunks</div>
-          <div className="flex gap-2">
-            <FilenameInput value={cntFilename} onChange={setCntFilename} onEnter={handleCntChunks} />
-            <GssInput
-              className="!w-16"
-              placeholder="target"
-              title="Satellite-side target arg (wire value — not the routing node)"
-              value={cntDestArg}
-              onChange={e => setCntDestArg(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') handleCntChunks() }}
-            />
-            <GssInput
-              className="!w-20"
-              placeholder="chunk size"
-              title={`Bytes per chunk (default ${DEFAULT_CHUNK_SIZE})`}
-              value={cntChunkSize}
-              onChange={e => setCntChunkSize(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') handleCntChunks() }}
-            />
-            <Button
-              size="sm"
-              onClick={handleCntChunks}
-              disabled={disableSend}
-              className="h-7 px-3 text-[11px] shrink-0"
-              style={{ backgroundColor: colors.label, color: colors.bgApp }}
-            >
-              Send
-            </Button>
-          </div>
-        </div>
-
-        {/* Get Chunk */}
-        <div>
-          <div className="text-[11px] font-medium mb-1" style={{ color: colors.dim }}>Get Chunk</div>
-          <div className="flex gap-2">
-            <FilenameInput value={getFilename} onChange={setGetFilename} onEnter={handleGetChunk} />
-            <GssInput
-              className="!w-16"
-              placeholder="start"
-              title="First chunk index to request"
-              value={getStartChunk}
-              onChange={e => setGetStartChunk(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') handleGetChunk() }}
-            />
-            <GssInput
-              className="!w-16"
-              placeholder="count"
-              title="Number of chunks to request starting from `start`"
-              value={getNumChunks}
-              onChange={e => setGetNumChunks(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') handleGetChunk() }}
-            />
-            <GssInput
-              className="!w-16"
-              placeholder="target"
-              title="Satellite-side target arg (wire value — not the routing node)"
-              value={getDestArg}
-              onChange={e => setGetDestArg(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') handleGetChunk() }}
-            />
-            <Button
-              size="sm"
-              onClick={handleGetChunk}
-              disabled={disableSend}
-              className="h-7 px-3 text-[11px] shrink-0"
-              style={{ backgroundColor: colors.label, color: colors.bgApp }}
-            >
-              Send
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      {/* Bottom status strip — confirm send / guard / send progress */}
-      {pendingCmd && !guardConfirm && !sendProgress ? (
-        <ConfirmBar
-          label={`Send ${pendingCmd.label}?`}
-          color={colors.success}
-          onConfirm={onConfirmSend}
-          onCancel={onCancelPending}
-        />
-      ) : guardConfirm ? (
-        <ConfirmBar
-          label={`GUARD — ${guardConfirm.display.title}${guardConfirm.display.subtitle ? ` — ${guardConfirm.display.subtitle}` : ''}`}
-          color={colors.warning}
-          onConfirm={onApproveGuard}
-          onCancel={onRejectGuard}
-        />
-      ) : sendProgress ? (
-        <SendProgressBar sendProgress={sendProgress} onAbort={onAbort} />
-      ) : null}
-    </div>
-  )
-}
-
-function SendProgressBar({ sendProgress, onAbort }: { sendProgress: SendProgress; onAbort: () => void }) {
   return (
     <div
-      className="flex items-center justify-between px-3 py-1.5 border-t shrink-0 relative overflow-hidden"
-      style={{ borderColor: colors.info, backgroundColor: `${colors.info}18` }}
+      className="rounded-lg border overflow-hidden flex flex-col flex-1 min-h-0"
+      style={{
+        borderColor: colors.borderSubtle,
+        backgroundColor: colors.bgPanel,
+        boxShadow: '0 1px 3px rgba(0,0,0,0.4)',
+      }}
     >
-      <motion.div
-        className="absolute inset-y-0 left-0"
-        style={{ backgroundColor: `${colors.info}22` }}
-        initial={{ width: '0%' }}
-        animate={{ width: `${(sendProgress.sent / Math.max(sendProgress.total, 1)) * 100}%` }}
-        transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-      />
-      <span className="text-xs font-bold truncate mr-2 relative z-10" style={{ color: colors.info }}>
-        Sent {sendProgress.sent}/{sendProgress.total}
-        {sendProgress.waiting ? (
-          <span className="ml-1" style={{ color: colors.warning }}>— delay</span>
-        ) : (
-          <span className="ml-1" style={{ color: colors.dim }}>— {sendProgress.current}</span>
-        )}
-      </span>
-      <button
-        onClick={onAbort}
-        className="text-[11px] px-3 py-0.5 rounded font-bold btn-feedback relative z-10 flex items-center gap-1"
-        style={{ backgroundColor: colors.danger, color: colors.bgApp }}
+      {/* Header — title + Route + Target chips */}
+      <div
+        className="flex items-center gap-2 px-3 py-1.5 border-b flex-wrap"
+        style={{ borderColor: colors.borderSubtle }}
       >
-        <StopCircle className="size-3.5" /> Abort
-      </button>
+        <Send className="size-3.5" style={{ color: colors.dim }} />
+        <span
+          className="text-[11px] font-bold uppercase tracking-wider"
+          style={{ color: colors.value }}
+        >
+          TX Controls
+        </span>
+        <div className="flex-1" />
+        <div className="flex items-center gap-1">
+          {nodes.map(n => (
+            <button
+              key={n}
+              onClick={() => onDestNodeChange(n)}
+              className="px-2 rounded-sm border font-mono text-[11px]"
+              style={{
+                height: 20,
+                color: colors.active,
+                borderColor: `${colors.active}40`,
+                backgroundColor: `${colors.active}0A`,
+                opacity: destNode === n ? 1 : 0.4,
+                transition: 'opacity 120ms',
+              }}
+              title={`Route · ${n}`}
+            >
+              {n}
+            </button>
+          ))}
+        </div>
+        <div className="w-px h-4 bg-[#222]" />
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => onTargetChange('1')}
+            className="inline-flex items-center gap-1 px-2 rounded-sm border font-mono text-[11px]"
+            style={{
+              height: 20,
+              color: colors.active,
+              borderColor: `${colors.active}40`,
+              backgroundColor: `${colors.active}0A`,
+              opacity: targetArg === '1' ? 1 : 0.4,
+              transition: 'opacity 120ms',
+            }}
+            title="target 1 — full-size images"
+          >
+            <Image className="size-2.5" />1 · full
+          </button>
+          <button
+            onClick={() => onTargetChange('2')}
+            className="inline-flex items-center gap-1 px-2 rounded-sm border font-mono text-[11px]"
+            style={{
+              height: 20,
+              color: colors.active,
+              borderColor: `${colors.active}40`,
+              backgroundColor: `${colors.active}0A`,
+              opacity: targetArg === '2' ? 1 : 0.4,
+              transition: 'opacity 120ms',
+            }}
+            title="target 2 — thumbnails"
+          >
+            <ImageMinus className="size-2.5" />2 · thumb
+          </button>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabName)} className="flex-1 flex flex-col min-h-0">
+        <TabsList className="h-auto px-2 border-b rounded-none" style={{ borderColor: colors.borderSubtle }}>
+          <TabsTrigger value="download" className="gap-1.5 text-[10px] px-3 py-2 uppercase tracking-wider">
+            <Download className="size-3" />Download
+          </TabsTrigger>
+          <TabsTrigger value="camera" className="gap-1.5 text-[10px] px-3 py-2 uppercase tracking-wider">
+            <Camera className="size-3" />Camera
+          </TabsTrigger>
+          <TabsTrigger value="edit" className="gap-1.5 text-[10px] px-3 py-2 uppercase tracking-wider">
+            <Wrench className="size-3" />Edit on Pi
+          </TabsTrigger>
+        </TabsList>
+
+        {/* Download */}
+        <TabsContent value="download" className="flex-1 overflow-y-auto p-3 space-y-4 mt-0">
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: colors.dim }}>
+              Count Chunks <span className="font-mono normal-case ml-1" style={{ color: colors.sep }}>img_cnt_chunks</span>
+            </div>
+            <div className="flex items-end gap-2">
+              <GssInput
+                className="flex-1 font-mono"
+                placeholder="filename"
+                value={cntFn}
+                onChange={e => setCntFn(e.target.value)}
+              />
+              <GssInput
+                className="w-[70px] font-mono"
+                placeholder="chunk size"
+                value={cntSize}
+                onChange={e => setCntSize(e.target.value)}
+              />
+              <Button
+                size="sm"
+                onClick={() =>
+                  stage('img_cnt_chunks', {
+                    Filename: cntFn.trim(),
+                    Destination: targetArg,
+                    'Chunk Size': cntSize.trim() || DEFAULT_CHUNK_SIZE,
+                  })
+                }
+                style={{ backgroundColor: colors.active, color: colors.bgApp }}
+              >
+                Stage
+              </Button>
+            </div>
+          </div>
+
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: colors.dim }}>
+              Get Chunk <span className="font-mono normal-case ml-1" style={{ color: colors.sep }}>img_get_chunk · contiguous range</span>
+            </div>
+            <div className="flex items-end gap-2">
+              <GssInput
+                className="flex-1 font-mono"
+                placeholder="filename"
+                value={getFn}
+                onChange={e => setGetFn(e.target.value)}
+              />
+              <GssInput
+                className="w-[52px] font-mono"
+                placeholder="start"
+                value={getStart}
+                onChange={e => setGetStart(e.target.value)}
+              />
+              <GssInput
+                className="w-[52px] font-mono"
+                placeholder="count"
+                value={getCount}
+                onChange={e => setGetCount(e.target.value)}
+              />
+              <Button
+                size="sm"
+                disabled={!suggestedTotal}
+                title={!suggestedTotal ? 'Run img_cnt_chunks or cam_capture_img first' : undefined}
+                onClick={() =>
+                  stage('img_get_chunk', {
+                    Filename: getFn.trim(),
+                    'Start Chunk': getStart.trim(),
+                    'Num Chunks': getCount.trim(),
+                    Destination: targetArg,
+                  })
+                }
+                style={{ backgroundColor: colors.active, color: colors.bgApp }}
+              >
+                Stage
+              </Button>
+            </div>
+            {!suggestedTotal && (
+              <div className="mt-1 text-[10px] italic" style={{ color: colors.dim }}>
+                Run <span className="font-mono" style={{ color: colors.value }}>img_cnt_chunks</span> or <span className="font-mono" style={{ color: colors.value }}>cam_capture_img</span> first.
+              </div>
+            )}
+          </div>
+        </TabsContent>
+
+        {/* Camera */}
+        <TabsContent value="camera" className="flex-1 overflow-y-auto p-3 space-y-3 mt-0">
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: colors.dim }}>
+              cam_capture_img
+            </div>
+            <div className="flex items-end gap-2">
+              <GssInput
+                className="flex-1 font-mono"
+                placeholder="filename (e.g. limb_004)"
+                value={capFn}
+                onChange={e => setCapFn(e.target.value)}
+              />
+              <Button
+                size="sm"
+                onClick={() => {
+                  const fn = capFn.trim();
+                  if (!fn) {
+                    showToast('Filename required', 'error', 'tx');
+                    return;
+                  }
+                  stage('cam_capture_img', { Filename: withJpg(fn) });
+                }}
+                style={{ backgroundColor: colors.active, color: colors.bgApp }}
+              >
+                Stage
+              </Button>
+            </div>
+          </div>
+
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: colors.dim }}>
+              Power / Cleanup
+            </div>
+            <div className="flex gap-1.5">
+              <Button size="sm" variant="secondary" className="flex-1" onClick={() => stage('cam_on', {})}>
+                <Power className="size-3" /> cam_on
+              </Button>
+              <Button size="sm" variant="secondary" className="flex-1" onClick={() => stage('cam_off', {})}>
+                <PowerOff className="size-3" /> cam_off
+              </Button>
+              <Button size="sm" variant="secondary" className="flex-1" onClick={() => stage('cam_cleanup', {})}>
+                <Eraser className="size-3" /> cam_cleanup
+              </Button>
+            </div>
+          </div>
+        </TabsContent>
+
+        {/* Edit on Pi */}
+        <TabsContent value="edit" className="flex-1 overflow-y-auto p-3 space-y-3 mt-0">
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: colors.dim }}>
+              img_compress
+            </div>
+            <div className="flex items-end gap-2">
+              <GssInput className="flex-1 font-mono" placeholder="filename" value={compFn} onChange={e => setCompFn(e.target.value)} />
+              <GssInput className="w-[60px] font-mono" placeholder="qual" value={compQ} onChange={e => setCompQ(e.target.value)} />
+              <Button size="sm" onClick={() => stage('img_compress', { Filename: compFn.trim(), Quality: compQ.trim() || '80' })} style={{ backgroundColor: colors.active, color: colors.bgApp }}>
+                Stage
+              </Button>
+            </div>
+          </div>
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: colors.dim }}>
+              img_resize
+            </div>
+            <div className="flex items-end gap-2">
+              <GssInput className="flex-1 font-mono" placeholder="filename" value={rszFn} onChange={e => setRszFn(e.target.value)} />
+              <GssInput className="w-[52px] font-mono" placeholder="W" value={rszW} onChange={e => setRszW(e.target.value)} />
+              <GssInput className="w-[52px] font-mono" placeholder="H" value={rszH} onChange={e => setRszH(e.target.value)} />
+              <Button size="sm" onClick={() => stage('img_resize', { Filename: rszFn.trim(), Width: rszW.trim(), Height: rszH.trim() })} style={{ backgroundColor: colors.active, color: colors.bgApp }}>
+                Stage
+              </Button>
+            </div>
+          </div>
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: colors.dim }}>
+              img_dfl_thumb
+            </div>
+            <div className="flex items-end gap-2">
+              <GssInput className="flex-1 font-mono" placeholder="filename" value={thmbFn} onChange={e => setThmbFn(e.target.value)} />
+              <Button size="sm" onClick={() => stage('img_dfl_thumb', { Filename: thmbFn.trim() })} style={{ backgroundColor: colors.active, color: colors.bgApp }}>
+                Stage
+              </Button>
+            </div>
+          </div>
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: colors.danger }}>
+              img_delete
+            </div>
+            <div className="flex items-end gap-2">
+              <GssInput className="flex-1 font-mono" placeholder="filepath (full path on Pi)" value={delFp} onChange={e => setDelFp(e.target.value)} />
+              <Button size="sm" onClick={() => stage('img_delete', { Filepath: delFp.trim() })} style={{ backgroundColor: colors.danger, color: colors.bgApp }}>
+                Stage
+              </Button>
+            </div>
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
-  )
+  );
 }
