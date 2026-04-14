@@ -214,8 +214,8 @@ class TestMavericBuildTxCommand(unittest.TestCase):
     def test_build_tx_command_with_args(self):
         adapter = self._make_adapter()
         result = adapter.build_tx_command({
-            "cmd_id": "ping",
-            "args": {"Type": "hello"},
+            "cmd_id": "gnc_set_mode",
+            "args": {"Mode": "NOMINAL"},
             "dest": "LPPM",
             "echo": "NONE",
             "ptype": "CMD",
@@ -225,7 +225,7 @@ class TestMavericBuildTxCommand(unittest.TestCase):
         self.assertIn("detail_blocks", display)
         self.assertNotIn("fields", display)
         all_field_names = [f["name"] for b in display["detail_blocks"] for f in b["fields"]]
-        self.assertIn("Type", all_field_names)
+        self.assertIn("Mode", all_field_names)
 
     def test_build_tx_command_rejects_unknown_cmd(self):
         adapter = self._make_adapter()

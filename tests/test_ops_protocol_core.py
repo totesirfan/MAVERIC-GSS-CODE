@@ -23,8 +23,8 @@ class TestProtocolCore(unittest.TestCase):
 
     def test_schema_loads_from_repo(self):
         self.assertGreater(len(CMD_DEFS), 0)
-        self.assertIn("ping", CMD_DEFS)
-        self.assertIn("set_mode", CMD_DEFS)
+        self.assertIn("com_ping", CMD_DEFS)
+        self.assertIn("gnc_set_mode", CMD_DEFS)
 
     def test_command_roundtrip_ping(self):
         raw = build_cmd_raw(6, 2, "ping", "REQ")
@@ -59,7 +59,7 @@ class TestProtocolCore(unittest.TestCase):
         self.assertIsNotNone(cmd.get("sat_time"))
 
     def test_validate_args_rejects_missing_required_value(self):
-        valid, issues = validate_args("set_voltage", "", CMD_DEFS)
+        valid, issues = validate_args("gnc_set_mode", "", CMD_DEFS)
         self.assertFalse(valid)
         self.assertGreater(len(issues), 0)
 
@@ -81,7 +81,7 @@ class TestProtocolCore(unittest.TestCase):
         self.assertEqual(self.adapter.detect_frame_type({"transmitter": "mystery"}), "UNKNOWN")
 
     def test_adapter_normalizes_ax25_and_parses_schema_matched_command(self):
-        raw = build_cmd_raw(6, 2, "set_mode", "NOMINAL")
+        raw = build_cmd_raw(6, 2, "gnc_set_mode", "NOMINAL")
         wrapped = AX25Config().wrap(CSPConfig().wrap(raw))
         inner, stripped, warnings = self.adapter.normalize_frame("AX.25", wrapped)
         self.assertEqual(inner, CSPConfig().wrap(raw))
@@ -91,7 +91,7 @@ class TestProtocolCore(unittest.TestCase):
         parsed = self.adapter.parse_packet(inner)
         md = parsed.mission_data
         cmd, tail, ts_result = md["cmd"], md["cmd_tail"], md["ts_result"]
-        self.assertEqual(cmd["cmd_id"], "set_mode")
+        self.assertEqual(cmd["cmd_id"], "gnc_set_mode")
         self.assertEqual(cmd["args"], ["NOMINAL"])
         self.assertTrue(cmd["schema_match"])
         self.assertEqual(tail, b"")
@@ -117,10 +117,10 @@ class TestProtocolCore(unittest.TestCase):
         self.assertFalse(self.adapter.is_uplink_echo({"src": 2}))
 
     def test_adapter_build_and_validate_tx_command(self):
-        raw = self.adapter.build_raw_command(6, 2, 0, 1, "ping", "REQ")
+        raw = self.adapter.build_raw_command(6, 2, 0, 1, "gnc_set_mode", "NOMINAL")
         self.assertIsInstance(raw, (bytes, bytearray))
         self.assertGreater(len(raw), 0)
-        valid, issues = self.adapter.validate_tx_args("ping", "REQ")
+        valid, issues = self.adapter.validate_tx_args("gnc_set_mode", "NOMINAL")
         self.assertTrue(valid)
         self.assertEqual(issues, [])
 
