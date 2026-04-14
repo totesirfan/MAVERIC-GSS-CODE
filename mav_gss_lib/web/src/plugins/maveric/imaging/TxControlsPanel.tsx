@@ -216,11 +216,11 @@ export function TxControlsPanel({
           <TabsTrigger value="camera" className="gap-1.5 text-[10px] py-2 uppercase tracking-wider rounded-none">
             <Camera className="size-3" />Camera Control
           </TabsTrigger>
-          <TabsTrigger value="edit" className="gap-1.5 text-[10px] py-2 uppercase tracking-wider rounded-none">
-            <Wrench className="size-3" />Image Edit
-          </TabsTrigger>
           <TabsTrigger value="lcd" className="gap-1.5 text-[10px] py-2 uppercase tracking-wider rounded-none">
             <Monitor className="size-3" />LCD
+          </TabsTrigger>
+          <TabsTrigger value="edit" className="gap-1.5 text-[10px] py-2 uppercase tracking-wider rounded-none">
+            <Wrench className="size-3" />Image Edit
           </TabsTrigger>
         </TabsList>
 
