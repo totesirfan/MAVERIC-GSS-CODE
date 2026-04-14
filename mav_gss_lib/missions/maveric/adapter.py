@@ -136,13 +136,13 @@ class MavericMissionAdapter:
             return None
 
         cmd_id = cmd.get("cmd_id", "")
-        if cmd_id not in ("img_cnt_chunks", "img_get_chunk"):
+        if cmd_id not in ("img_cnt_chunks", "img_get_chunk", "cam_capture_img"):
             return None
 
         # Only feed the assembler from the real satellite response — skip
         # uplink echoes (CMD) and ACKs, whose wire args alias rx_args and
         # would poison chunk 0 before the real data arrives.
-        expected_ptype = "RES" if cmd_id == "img_cnt_chunks" else "FILE"
+        expected_ptype = "FILE" if cmd_id == "img_get_chunk" else "RES"
         if self.nodes.ptype_name(cmd.get("pkt_type")) != expected_ptype:
             return None
 
@@ -151,43 +151,63 @@ class MavericMissionAdapter:
         else:
             return None
 
+        def _progress_msg(fn: str) -> dict:
+            received, total = self.image_assembler.progress(fn)
+            return {
+                "type": "imaging_progress",
+                "filename": fn,
+                "received": received,
+                "total": total,
+                "complete": self.image_assembler.is_complete(fn),
+            }
+
+        if cmd_id in ("img_cnt_chunks", "cam_capture_img"):
+            # Four-field paired response: full filename + count, optional
+            # thumb filename + count. Populate whichever sides are present.
+            messages: list[dict] = []
+
+            full_fn = str(args_by_name.get("Filename", ""))
+            if full_fn:
+                try:
+                    self.image_assembler.set_total(full_fn, int(args_by_name.get("Num Chunks", "")))
+                    messages.append(_progress_msg(full_fn))
+                except (ValueError, TypeError):
+                    pass
+
+            thumb_fn = str(args_by_name.get("Thumb Filename", ""))
+            if thumb_fn:
+                try:
+                    self.image_assembler.set_total(thumb_fn, int(args_by_name.get("Thumb Num Chunks", "")))
+                    messages.append(_progress_msg(thumb_fn))
+                except (ValueError, TypeError):
+                    pass
+
+            return messages if messages else None
+
+        # img_get_chunk: unchanged per-chunk blob path (single filename).
         filename = str(args_by_name.get("Filename", ""))
         if not filename:
             return None
 
-        if cmd_id == "img_cnt_chunks":
-            count = args_by_name.get("Num Chunks", "")
+        chunk_num = args_by_name.get("Chunk Number", "")
+        chunk_size = args_by_name.get("Chunk Size", None)
+        data = args_by_name.get("Data", b"")
+        if isinstance(data, str):
             try:
-                self.image_assembler.set_total(filename, int(count))
-            except (ValueError, TypeError):
-                return None
-        elif cmd_id == "img_get_chunk":
-            chunk_num = args_by_name.get("Chunk Number", "")
-            chunk_size = args_by_name.get("Chunk Size", None)
-            data = args_by_name.get("Data", b"")
-            if isinstance(data, str):
-                try:
-                    data = bytes.fromhex(data)
-                except ValueError:
-                    data = data.encode()
-            # Truncate to declared Chunk Size — the OBC appends a trailing NUL
-            # to each blob (C-string terminator) that the generic blob parser
-            # otherwise includes in the chunk data.
-            try:
-                size_int = int(chunk_size) if chunk_size is not None else len(data)
-            except (ValueError, TypeError):
-                size_int = len(data)
-            data = data[:size_int]
-            try:
-                self.image_assembler.feed_chunk(filename, int(chunk_num), data, chunk_size=chunk_size)
-            except (ValueError, TypeError):
-                return None
+                data = bytes.fromhex(data)
+            except ValueError:
+                data = data.encode()
+        # Truncate to declared Chunk Size — the OBC appends a trailing NUL
+        # to each blob (C-string terminator) that the generic blob parser
+        # otherwise includes in the chunk data.
+        try:
+            size_int = int(chunk_size) if chunk_size is not None else len(data)
+        except (ValueError, TypeError):
+            size_int = len(data)
+        data = data[:size_int]
+        try:
+            self.image_assembler.feed_chunk(filename, int(chunk_num), data, chunk_size=chunk_size)
+        except (ValueError, TypeError):
+            return None
 
-        received, total = self.image_assembler.progress(filename)
-        return [{
-            "type": "imaging_progress",
-            "filename": filename,
-            "received": received,
-            "total": total,
-            "complete": self.image_assembler.is_complete(filename),
-        }]
+        return [_progress_msg(filename)]
