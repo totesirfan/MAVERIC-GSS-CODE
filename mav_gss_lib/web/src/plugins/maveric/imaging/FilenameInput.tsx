@@ -1,29 +1,34 @@
-import { GssInput } from '@/components/ui/gss-input'
-import { colors } from '@/lib/colors'
+import { GssInput } from '@/components/ui/gss-input';
+import { colors } from '@/lib/colors';
 
 interface FilenameInputProps {
-  value: string
-  onChange: (v: string) => void
-  onEnter: () => void
-  placeholder?: string
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  className?: string;
 }
 
 /**
- * Filename text input with a ghost `.jpg` suffix shown when the typed value
- * doesn't already end in `.jpg` / `.jpeg`. The suffix indicates the filename
- * will be auto-appended on send (see withJpg in helpers.ts).
+ * Filename text input with a ghost `.jpg` suffix shown when the typed
+ * value doesn't already end in `.jpg` / `.jpeg`. The suffix indicates
+ * the filename will be auto-appended on send (see `withJpg` in
+ * helpers.ts).
  */
-export function FilenameInput({ value, onChange, onEnter, placeholder = 'filename' }: FilenameInputProps) {
-  const trimmed = value.trim()
-  const needsSuffix = trimmed !== '' && !/\.jpe?g$/i.test(trimmed)
+export function FilenameInput({
+  value,
+  onChange,
+  placeholder = 'filename',
+  className = '',
+}: FilenameInputProps) {
+  const trimmed = value.trim();
+  const needsSuffix = trimmed !== '' && !/\.jpe?g$/i.test(trimmed);
   return (
-    <div className="relative flex-1">
+    <div className={`relative ${className}`}>
       <GssInput
-        className="w-full pr-9"
+        className="w-full pr-9 font-mono"
         placeholder={placeholder}
         value={value}
-        onChange={e => onChange(e.target.value)}
-        onKeyDown={e => { if (e.key === 'Enter') onEnter() }}
+        onChange={(e) => onChange(e.target.value)}
       />
       {needsSuffix && (
         <span
@@ -35,5 +40,5 @@ export function FilenameInput({ value, onChange, onEnter, placeholder = 'filenam
         </span>
       )}
     </div>
-  )
+  );
 }

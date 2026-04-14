@@ -16,6 +16,7 @@ import { GssInput } from '@/components/ui/gss-input';
 import { showToast } from '@/components/shared/StatusToast';
 import { colors } from '@/lib/colors';
 import { withJpg, DEFAULT_CHUNK_SIZE } from './helpers';
+import { FilenameInput } from './FilenameInput';
 import type { PairedFile, ImagingTab } from './types';
 
 interface TxControlsPanelProps {
@@ -154,57 +155,51 @@ export function TxControlsPanel({
         </span>
         <div className="flex-1" />
         <div className="flex items-center gap-1">
-          {nodes.map(n => (
-            <button
-              key={n}
-              onClick={() => onDestNodeChange(n)}
-              className="px-2 rounded-sm border font-mono text-[11px]"
-              style={{
-                height: 20,
-                color: colors.active,
-                borderColor: `${colors.active}40`,
-                backgroundColor: `${colors.active}0A`,
-                opacity: destNode === n ? 1 : 0.4,
-                transition: 'opacity 120ms',
-              }}
-              title={`Route · ${n}`}
-            >
-              {n}
-            </button>
-          ))}
+          {nodes.map(n => {
+            const active = destNode === n;
+            return (
+              <button
+                key={n}
+                onClick={() => onDestNodeChange(n)}
+                className="px-2 rounded-sm border font-mono text-[11px] color-transition btn-feedback"
+                style={{
+                  height: 20,
+                  color: active ? colors.label : colors.dim,
+                  borderColor: active ? colors.label : colors.borderSubtle,
+                  backgroundColor: active ? `${colors.label}18` : 'transparent',
+                }}
+                title={`Route · ${n}`}
+              >
+                {n}
+              </button>
+            );
+          })}
         </div>
         <div className="w-px h-4 bg-[#222]" />
         <div className="flex items-center gap-1">
-          <button
-            onClick={() => onTargetChange('1')}
-            className="inline-flex items-center gap-1 px-2 rounded-sm border font-mono text-[11px]"
-            style={{
-              height: 20,
-              color: colors.active,
-              borderColor: `${colors.active}40`,
-              backgroundColor: `${colors.active}0A`,
-              opacity: targetArg === '1' ? 1 : 0.4,
-              transition: 'opacity 120ms',
-            }}
-            title="target 1 — full-size images"
-          >
-            <Image className="size-2.5" />1 · full
-          </button>
-          <button
-            onClick={() => onTargetChange('2')}
-            className="inline-flex items-center gap-1 px-2 rounded-sm border font-mono text-[11px]"
-            style={{
-              height: 20,
-              color: colors.active,
-              borderColor: `${colors.active}40`,
-              backgroundColor: `${colors.active}0A`,
-              opacity: targetArg === '2' ? 1 : 0.4,
-              transition: 'opacity 120ms',
-            }}
-            title="target 2 — thumbnails"
-          >
-            <ImageMinus className="size-2.5" />2 · thumb
-          </button>
+          {(['1', '2'] as const).map(t => {
+            const active = targetArg === t;
+            const label = t === '1' ? '1 · full' : '2 · thumb';
+            const Icon = t === '1' ? Image : ImageMinus;
+            const title = t === '1' ? 'target 1 — full-size images' : 'target 2 — thumbnails';
+            return (
+              <button
+                key={t}
+                onClick={() => onTargetChange(t)}
+                className="inline-flex items-center gap-1 px-2 rounded-sm border font-mono text-[11px] color-transition btn-feedback"
+                style={{
+                  height: 20,
+                  color: active ? colors.label : colors.dim,
+                  borderColor: active ? colors.label : colors.borderSubtle,
+                  backgroundColor: active ? `${colors.label}18` : 'transparent',
+                }}
+                title={title}
+              >
+                <Icon className="size-2.5" />
+                {label}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -229,12 +224,7 @@ export function TxControlsPanel({
               Count Chunks <span className="font-mono normal-case ml-1" style={{ color: colors.sep }}>img_cnt_chunks</span>
             </div>
             <div className="flex items-end gap-2">
-              <GssInput
-                className="flex-1 font-mono"
-                placeholder="filename"
-                value={cntFn}
-                onChange={e => setCntFn(e.target.value)}
-              />
+              <FilenameInput className="flex-1" value={cntFn} onChange={setCntFn} />
               <GssInput
                 className="w-[70px] font-mono"
                 placeholder="chunk size"
@@ -245,7 +235,7 @@ export function TxControlsPanel({
                 size="sm"
                 onClick={() =>
                   stage('img_cnt_chunks', {
-                    Filename: cntFn.trim(),
+                    Filename: withJpg(cntFn.trim()),
                     Destination: targetArg,
                     'Chunk Size': cntSize.trim() || DEFAULT_CHUNK_SIZE,
                   })
@@ -262,12 +252,7 @@ export function TxControlsPanel({
               Get Chunk <span className="font-mono normal-case ml-1" style={{ color: colors.sep }}>img_get_chunk · contiguous range</span>
             </div>
             <div className="flex items-end gap-2">
-              <GssInput
-                className="flex-1 font-mono"
-                placeholder="filename"
-                value={getFn}
-                onChange={e => setGetFn(e.target.value)}
-              />
+              <FilenameInput className="flex-1" value={getFn} onChange={setGetFn} />
               <GssInput
                 className="w-[52px] font-mono"
                 placeholder="start"
@@ -286,7 +271,7 @@ export function TxControlsPanel({
                 title={!suggestedTotal ? 'Run img_cnt_chunks or cam_capture_img first' : undefined}
                 onClick={() =>
                   stage('img_get_chunk', {
-                    Filename: getFn.trim(),
+                    Filename: withJpg(getFn.trim()),
                     'Start Chunk': getStart.trim(),
                     'Num Chunks': getCount.trim(),
                     Destination: targetArg,
@@ -307,23 +292,7 @@ export function TxControlsPanel({
               cam_capture_img
             </div>
             <div className="flex items-end gap-2">
-              <div className="relative flex-1">
-                <GssInput
-                  className="font-mono pr-9"
-                  placeholder="filename"
-                  value={capFn}
-                  onChange={e => setCapFn(e.target.value)}
-                />
-                {capFn.trim() !== '' && !/\.jpe?g$/i.test(capFn.trim()) && (
-                  <span
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] font-mono pointer-events-none"
-                    style={{ color: colors.dim }}
-                    title="auto-appended on send"
-                  >
-                    .jpg
-                  </span>
-                )}
-              </div>
+              <FilenameInput className="flex-1" value={capFn} onChange={setCapFn} />
               <Button
                 size="sm"
                 onClick={() => {
@@ -366,9 +335,9 @@ export function TxControlsPanel({
               img_compress
             </div>
             <div className="flex items-end gap-2">
-              <GssInput className="flex-1 font-mono" placeholder="filename" value={compFn} onChange={e => setCompFn(e.target.value)} />
+              <FilenameInput className="flex-1" value={compFn} onChange={setCompFn} />
               <GssInput className="w-[60px] font-mono" placeholder="qual" value={compQ} onChange={e => setCompQ(e.target.value)} />
-              <Button size="sm" onClick={() => stage('img_compress', { Filename: compFn.trim(), Quality: compQ.trim() || '80' })} style={{ backgroundColor: colors.active, color: colors.bgApp }}>
+              <Button size="sm" onClick={() => stage('img_compress', { Filename: withJpg(compFn.trim()), Quality: compQ.trim() || '80' })} style={{ backgroundColor: colors.active, color: colors.bgApp }}>
                 Stage
               </Button>
             </div>
@@ -378,10 +347,10 @@ export function TxControlsPanel({
               img_resize
             </div>
             <div className="flex items-end gap-2">
-              <GssInput className="flex-1 font-mono" placeholder="filename" value={rszFn} onChange={e => setRszFn(e.target.value)} />
+              <FilenameInput className="flex-1" value={rszFn} onChange={setRszFn} />
               <GssInput className="w-[52px] font-mono" placeholder="W" value={rszW} onChange={e => setRszW(e.target.value)} />
               <GssInput className="w-[52px] font-mono" placeholder="H" value={rszH} onChange={e => setRszH(e.target.value)} />
-              <Button size="sm" onClick={() => stage('img_resize', { Filename: rszFn.trim(), Width: rszW.trim(), Height: rszH.trim() })} style={{ backgroundColor: colors.active, color: colors.bgApp }}>
+              <Button size="sm" onClick={() => stage('img_resize', { Filename: withJpg(rszFn.trim()), Width: rszW.trim(), Height: rszH.trim() })} style={{ backgroundColor: colors.active, color: colors.bgApp }}>
                 Stage
               </Button>
             </div>
@@ -391,8 +360,8 @@ export function TxControlsPanel({
               img_dfl_thumb
             </div>
             <div className="flex items-end gap-2">
-              <GssInput className="flex-1 font-mono" placeholder="filename" value={thmbFn} onChange={e => setThmbFn(e.target.value)} />
-              <Button size="sm" onClick={() => stage('img_dfl_thumb', { Filename: thmbFn.trim() })} style={{ backgroundColor: colors.active, color: colors.bgApp }}>
+              <FilenameInput className="flex-1" value={thmbFn} onChange={setThmbFn} />
+              <Button size="sm" onClick={() => stage('img_dfl_thumb', { Filename: withJpg(thmbFn.trim()) })} style={{ backgroundColor: colors.active, color: colors.bgApp }}>
                 Stage
               </Button>
             </div>

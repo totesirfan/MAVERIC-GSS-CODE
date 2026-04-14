@@ -92,10 +92,12 @@ export default function ImagingPage() {
   // Initial status fetch
   useEffect(() => {
     let cancelled = false;
+    // Don't auto-select on mount — legacy files on disk shouldn't
+    // auto-populate the TxControls filename inputs. Operator picks a
+    // file when they want to interact with one.
     fetchImagingStatus().then((f) => {
       if (cancelled) return;
       setFiles(f);
-      if (f.length > 0) setSelectedStem((prev) => prev || f[0].stem);
     });
     return () => {
       cancelled = true;
@@ -110,10 +112,7 @@ export default function ImagingPage() {
     setReceiving(false);
     setFiles([]);
     setSelectedStem('');
-    fetchImagingStatus().then((f) => {
-      setFiles(f);
-      if (f.length > 0) setSelectedStem(f[0].stem);
-    });
+    fetchImagingStatus().then(setFiles);
   }, [sessionResetGen]);
 
   useEffect(() => {
