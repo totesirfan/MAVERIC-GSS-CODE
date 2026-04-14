@@ -3,6 +3,10 @@ __pycache__/
 *.pyc
 *.pyo
 .pytest_cache/
+# Updater-managed venv bootstrap target (PEP 668 fallback)
+.venv/
+# Updater requirements.txt install marker (sha256 of last successful install)
+.mav_requirements_hash
 
 # === Node (dependency state only — dist/ is committed) ===
 node_modules/

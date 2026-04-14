@@ -209,6 +209,7 @@ export interface PreflightCheck {
   status: 'ok' | 'fail' | 'warn' | 'skip'
   fix: string
   detail: string
+  meta?: UpdatesCheckMeta | null
 }
 
 export interface PreflightSummary {
@@ -216,5 +217,33 @@ export interface PreflightSummary {
   passed: number
   failed: number
   warnings: number
+  skipped?: number
   ready: boolean
+}
+
+// ---- Updater ----
+
+export interface UpdatesCheckMeta {
+  branch: string
+  current_sha: string
+  behind_count: number
+  commits: { sha: string; subject: string }[]
+  missing_pip_deps: string[]
+  requirements_changed: boolean
+  requirements_out_of_sync: boolean
+  dirty: boolean
+  button: 'apply' | null
+  button_disabled: boolean
+  button_reason: string | null
+  fetch_error?: string
+}
+
+export type UpdatePhase = 'bootstrap_venv' | 'git_pull' | 'pip_install' | 'restart'
+
+export type UpdateUIState = 'idle' | 'confirming' | 'applying' | 'failed' | 'reloading'
+
+export interface UpdateProgress {
+  phase: UpdatePhase
+  status: 'pending' | 'running' | 'ok' | 'fail'
+  detail?: string
 }

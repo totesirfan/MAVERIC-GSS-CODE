@@ -2,7 +2,14 @@ import { useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Check, X, AlertTriangle, Minus, Loader2 } from 'lucide-react'
 import { colors } from '@/lib/colors'
-import type { PreflightCheck, PreflightSummary } from '@/lib/types'
+import type {
+  PreflightCheck,
+  PreflightSummary,
+  UpdatePhase,
+  UpdateProgress,
+  UpdatesCheckMeta,
+  UpdateUIState,
+} from '@/lib/types'
 
 const STATUS_ICON = {
   ok: Check,
@@ -24,7 +31,18 @@ const GROUP_LABELS: Record<string, string> = {
   config: 'Config Files',
   web_build: 'Web Build',
   zmq: 'ZMQ Addresses',
+  updates: 'Updates',
 }
+
+const PHASE_LABELS: Record<UpdatePhase, string> = {
+  git_pull:       'git pull',
+  pip_install:    'pip install',
+  bootstrap_venv: 'bootstrap venv',
+  restart:        'restart',
+}
+
+// Ordered phase list for rendering the applying/failed state.
+const PHASE_ORDER: UpdatePhase[] = ['git_pull', 'bootstrap_venv', 'pip_install', 'restart']
 
 // USC brand colors (official Cardinal & Gold) — https://identity.usc.edu/color/
 const USC_GOLD     = '#FFCC00'
@@ -36,9 +54,28 @@ interface Props {
   dismissing: boolean
   onContinue: () => void
   onRerun: () => void
+  updateState: UpdateUIState
+  updatePhases: Record<UpdatePhase, UpdateProgress>
+  onShowConfirm: () => void
+  onCancelConfirm: () => void
+  onApplyUpdate: () => void
+  onReloadPage: () => void
 }
 
-export function PreflightScreen({ checks, summary, connected, dismissing, onContinue, onRerun }: Props) {
+export function PreflightScreen({
+  checks,
+  summary,
+  connected,
+  dismissing,
+  onContinue,
+  onRerun,
+  updateState,
+  updatePhases,
+  onShowConfirm,
+  onCancelConfirm,
+  onApplyUpdate,
+  onReloadPage,
+}: Props) {
   const groups = useMemo(() => {
     const map = new Map<string, PreflightCheck[]>()
     for (const c of checks) {
@@ -49,7 +86,15 @@ export function PreflightScreen({ checks, summary, connected, dismissing, onCont
     return map
   }, [checks])
 
-  const allPassed = summary?.ready === true
+  // "All passed" requires no failures AND no warnings AND no skips.
+  // summary.ready only tracks failures, so we tighten the check for the
+  // visible label/button tone — e.g., an offline-skipped update check should
+  // not render as "ALL CHECKS PASSED" just because nothing failed.
+  const skipped = summary?.skipped ?? 0
+  const allPassed =
+    summary?.ready === true &&
+    summary.warnings === 0 &&
+    skipped === 0
   const hasFails = summary ? summary.failed > 0 : false
   const running = !summary && connected && checks.length > 0
 
@@ -172,6 +217,7 @@ export function PreflightScreen({ checks, summary, connected, dismissing, onCont
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.2 }}
+                  className={groupId === 'updates' ? 'col-span-2' : undefined}
                 >
                   <div
                     className="text-[10px] uppercase tracking-[0.18em] mb-1.5"
@@ -213,6 +259,17 @@ export function PreflightScreen({ checks, summary, connected, dismissing, onCont
                       )
                     })}
                   </div>
+                  {groupId === 'updates' && (
+                    <UpdatesGroupExtras
+                      meta={(groupChecks[0]?.meta as UpdatesCheckMeta | null | undefined) ?? null}
+                      updateState={updateState}
+                      updatePhases={updatePhases}
+                      onShowConfirm={onShowConfirm}
+                      onCancelConfirm={onCancelConfirm}
+                      onApplyUpdate={onApplyUpdate}
+                      onReloadPage={onReloadPage}
+                    />
+                  )}
                 </motion.div>
               ))}
             </AnimatePresence>
@@ -244,7 +301,7 @@ export function PreflightScreen({ checks, summary, connected, dismissing, onCont
             >
               {allPassed
                 ? 'ALL CHECKS PASSED'
-                : `${summary.failed} FAILED · ${summary.warnings} WARN`}
+                : `${summary.failed} FAILED · ${summary.warnings} WARN${skipped > 0 ? ` · ${skipped} SKIP` : ''}`}
             </span>
             <div className="flex flex-col items-center gap-2">
               <button
@@ -285,5 +342,240 @@ export function PreflightScreen({ checks, summary, connected, dismissing, onCont
         }
       `}</style>
     </motion.div>
+  )
+}
+
+// =============================================================================
+//  Updates group extras — button, confirm panel, phase list, failed/reloading
+// =============================================================================
+
+interface UpdatesExtrasProps {
+  meta: UpdatesCheckMeta | null
+  updateState: UpdateUIState
+  updatePhases: Record<UpdatePhase, UpdateProgress>
+  onShowConfirm: () => void
+  onCancelConfirm: () => void
+  onApplyUpdate: () => void
+  onReloadPage: () => void
+}
+
+function UpdatesGroupExtras({
+  meta,
+  updateState,
+  updatePhases,
+  onShowConfirm,
+  onCancelConfirm,
+  onApplyUpdate,
+  onReloadPage,
+}: UpdatesExtrasProps) {
+  // idle — render button if meta says so
+  if (updateState === 'idle') {
+    if (!meta || meta.button !== 'apply') return null
+    const disabled = meta.button_disabled
+    return (
+      <div className="mt-2 flex flex-col gap-1">
+        <button
+          disabled={disabled}
+          onClick={disabled ? undefined : onShowConfirm}
+          className="w-48 text-[11px] py-1.5 rounded tracking-widest"
+          style={{
+            color: disabled ? colors.textDisabled : colors.success,
+            border: `1px solid ${disabled ? colors.borderStrong : colors.success}66`,
+            background: 'transparent',
+            fontFamily: 'JetBrains Mono, monospace',
+            cursor: disabled ? 'not-allowed' : 'pointer',
+          }}
+        >
+          APPLY UPDATE
+        </button>
+        {disabled && meta.button_reason && (
+          <span className="text-[10px]" style={{ color: colors.textMuted }}>
+            {meta.button_reason}
+          </span>
+        )}
+      </div>
+    )
+  }
+
+  // confirming — header, commit list, planned phases, CONFIRM/CANCEL
+  if (updateState === 'confirming' && meta) {
+    const header = meta.behind_count > 0
+      ? `Apply ${meta.behind_count} commit${meta.behind_count === 1 ? '' : 's'}?`
+      : 'Install Python dependencies?'
+
+    // Mutually-exclusive pip bullet branches — match backend phase-skip logic.
+    const pipBullet: string | null = (() => {
+      if (meta.missing_pip_deps.length > 0) {
+        return `pip install -r requirements.txt (${meta.missing_pip_deps.length} new package${meta.missing_pip_deps.length === 1 ? '' : 's'})`
+      }
+      if (meta.requirements_changed) {
+        return 'pip install -r requirements.txt (refresh)'
+      }
+      if (meta.requirements_out_of_sync) {
+        return 'retry pip install -r requirements.txt (last install incomplete)'
+      }
+      return null
+    })()
+
+    return (
+      <div className="mt-3 space-y-2">
+        <div
+          className="text-[11px]"
+          style={{ color: colors.textPrimary, fontFamily: 'Inter, sans-serif' }}
+        >
+          {header}
+        </div>
+        {meta.behind_count > 0 && meta.commits.length > 0 && (
+          <div
+            className="max-h-32 overflow-auto text-[11px] space-y-0.5 pr-2"
+            style={{
+              color: colors.textSecondary,
+              fontFamily: 'JetBrains Mono, monospace',
+            }}
+          >
+            {meta.commits.map((c) => (
+              <div key={c.sha}>
+                <span style={{ color: colors.textMuted }}>{c.sha}</span>
+                {'  '}
+                {c.subject}
+              </div>
+            ))}
+          </div>
+        )}
+        <div
+          className="text-[11px] space-y-0.5"
+          style={{ color: colors.textSecondary, fontFamily: 'JetBrains Mono, monospace' }}
+        >
+          <div style={{ color: colors.textMuted }}>This will:</div>
+          {meta.behind_count > 0 && (
+            <div>• git pull origin {meta.branch}</div>
+          )}
+          {pipBullet && <div>• {pipBullet}</div>}
+          <div>• restart MAV_WEB.py</div>
+        </div>
+        <div className="flex gap-2 pt-1">
+          <button
+            onClick={onApplyUpdate}
+            className="text-[11px] px-4 py-1.5 rounded tracking-widest"
+            style={{
+              color: colors.bgApp,
+              background: colors.success,
+              fontFamily: 'JetBrains Mono, monospace',
+              fontWeight: 700,
+              border: 'none',
+              cursor: 'pointer',
+            }}
+          >
+            CONFIRM
+          </button>
+          <button
+            onClick={onCancelConfirm}
+            className="text-[11px] px-4 py-1.5 rounded tracking-widest"
+            style={{
+              color: colors.textSecondary,
+              border: `1px solid ${colors.borderStrong}`,
+              background: 'transparent',
+              fontFamily: 'JetBrains Mono, monospace',
+              cursor: 'pointer',
+            }}
+          >
+            CANCEL
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // applying / failed / reloading — phase list
+  if (updateState === 'applying' || updateState === 'failed' || updateState === 'reloading') {
+    return (
+      <div className="mt-3 space-y-2">
+        <PhaseList updatePhases={updatePhases} />
+        {updateState === 'reloading' && (
+          <div
+            className="flex items-center gap-2 text-[11px]"
+            style={{ color: colors.textSecondary, fontFamily: 'JetBrains Mono, monospace' }}
+          >
+            <Loader2 size={12} className="animate-spin" style={{ color: colors.active }} />
+            Restarting...
+          </div>
+        )}
+        {updateState === 'failed' && (
+          <button
+            onClick={onReloadPage}
+            className="text-[11px] px-4 py-1.5 rounded tracking-widest"
+            style={{
+              color: colors.warning,
+              border: `1px solid ${colors.warning}66`,
+              background: 'transparent',
+              fontFamily: 'JetBrains Mono, monospace',
+              cursor: 'pointer',
+            }}
+          >
+            RELOAD
+          </button>
+        )}
+      </div>
+    )
+  }
+
+  return null
+}
+
+function PhaseList({ updatePhases }: { updatePhases: Record<UpdatePhase, UpdateProgress> }) {
+  // Only show phases that are running, ok, or fail — pending phases are dim
+  // and shown after the first active one fires.
+  const hasAnyActive = PHASE_ORDER.some((p) => updatePhases[p].status !== 'pending')
+  return (
+    <div className="space-y-0.5">
+      {PHASE_ORDER.map((phase) => {
+        const st = updatePhases[phase]
+        if (!hasAnyActive && st.status === 'pending') return null
+        const label = PHASE_LABELS[phase]
+        let Icon: typeof Loader2 = Minus
+        let color: string = colors.neutral
+        let spin = false
+        if (st.status === 'running') {
+          Icon = Loader2
+          color = colors.active
+          spin = true
+        } else if (st.status === 'ok') {
+          Icon = Check
+          color = colors.success
+        } else if (st.status === 'fail') {
+          Icon = X
+          color = colors.danger
+        } else {
+          // pending
+          Icon = Minus
+          color = colors.textDisabled
+        }
+        return (
+          <div key={phase} className="flex items-start gap-2 py-px">
+            <Icon
+              size={12}
+              className={spin ? 'animate-spin' : undefined}
+              style={{ color, marginTop: 2, flexShrink: 0 }}
+            />
+            <div className="min-w-0 flex-1">
+              <span
+                className="text-[11px]"
+                style={{ color, fontFamily: 'JetBrains Mono, monospace' }}
+              >
+                {label}
+              </span>
+              {st.detail && (
+                <div
+                  className="text-[10px] truncate"
+                  style={{ color: colors.textMuted, fontFamily: 'JetBrains Mono, monospace' }}
+                >
+                  {st.detail}
+                </div>
+              )}
+            </div>
+          </div>
+        )
+      })}
+    </div>
   )
 }

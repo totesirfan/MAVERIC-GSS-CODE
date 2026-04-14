@@ -7,6 +7,12 @@ import socket
 import threading
 import time
 
+# Bootstrap runtime dependencies BEFORE any non-stdlib import.
+# If any critical dep is missing, this call self-installs and os.execv's.
+from mav_gss_lib.updater import bootstrap_dependencies
+bootstrap_dependencies()
+
+# Safe — all critical deps guaranteed importable past this line.
 import uvicorn
 
 from mav_gss_lib.config import load_gss_config

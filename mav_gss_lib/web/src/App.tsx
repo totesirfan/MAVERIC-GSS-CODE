@@ -251,8 +251,17 @@ function PreflightOverlay() {
       summary={preflight.summary}
       connected={preflight.connected}
       dismissing={dismissing}
-      onContinue={() => setDismissing(true)}
+      onContinue={() => {
+        preflight.signalLaunched()
+        setDismissing(true)
+      }}
       onRerun={preflight.rerun}
+      updateState={preflight.updateState}
+      updatePhases={preflight.updatePhases}
+      onShowConfirm={preflight.showConfirm}
+      onCancelConfirm={preflight.cancelConfirm}
+      onApplyUpdate={preflight.applyUpdate}
+      onReloadPage={preflight.reloadPage}
     />
   )
 }

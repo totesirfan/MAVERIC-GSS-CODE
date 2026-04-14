@@ -14,12 +14,14 @@ Author:  Irfan Annuar - USC ISI SERC
 
 from __future__ import annotations
 
+import asyncio
 import secrets
 import threading
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING, Optional
 
 from mav_gss_lib.config import (
     apply_ax25,
@@ -31,6 +33,9 @@ from mav_gss_lib.mission_adapter import load_mission_adapter
 from mav_gss_lib.protocols.ax25 import AX25Config
 from mav_gss_lib.protocols.csp import CSPConfig
 from .services import RxService, TxService
+
+if TYPE_CHECKING:
+    from mav_gss_lib.updater import UpdateStatus
 
 WEB_DIR = Path(__file__).resolve().parents[1] / "web" / "dist"
 HOST = "127.0.0.1"
@@ -93,6 +98,13 @@ class WebRuntime:
         self.preflight_task = None             # asyncio.Task reference
         self.preflight_clients: list = []
         self.preflight_lock = threading.Lock()
+
+        # Updater state — populated at lifespan start via schedule_update_check
+        self.update_status_future: Optional[asyncio.Future] = None
+        self.update_status: Optional["UpdateStatus"] = None
+        self.update_lock = threading.Lock()
+        self.update_in_progress: bool = False
+        self.launched: bool = False
 
         self.rx = RxService(self)
         self.tx = TxService(self)
