@@ -94,7 +94,7 @@ export function GlobalHeader({
     : session?.tag ?? ''
 
   return (
-    <header className="flex items-center h-9 px-4 shrink-0" style={{ backgroundColor: colors.bgApp }}>
+    <header className="flex items-center h-11 px-4 shrink-0" style={{ backgroundColor: colors.bgApp }}>
       {/* Back button when on plugin page */}
       {page && onBackClick ? (
         <Button variant="ghost" size="sm" onClick={onBackClick} className="h-7 px-2 gap-1.5 text-[11px] mr-2" style={{ color: colors.dim }}>
@@ -105,9 +105,12 @@ export function GlobalHeader({
 
       {/* Brand */}
       <div className="usc-brand flex items-center gap-2 mr-4 cursor-default">
-        <img src="/maveric-patch.webp" alt="" className="usc-icon size-5" />
-        <span className="usc-maveric font-bold text-sm tracking-wide transition-colors" style={{ color: colors.value }}>{missionName}</span>
-        <span className="usc-gss font-bold text-sm tracking-wide transition-colors" style={{ color: colors.value }}>GSS</span>
+        <img src="/usc-shield.png" alt="" className="h-10 w-auto" />
+        <img src="/maveric-patch.webp" alt="" className="usc-icon size-10" />
+        <div className="flex items-center">
+          <span className="usc-maveric font-bold text-lg tracking-wide transition-colors" style={{ color: colors.value }}>{missionName}</span>
+          <span className="usc-gss font-bold text-lg tracking-wide transition-colors" style={{ color: colors.value }}>&nbsp;GSS</span>
+        </div>
         <span className="text-[11px]" style={{ color: colors.dim }}>v{version}</span>
         {activePlugin && (
           <>

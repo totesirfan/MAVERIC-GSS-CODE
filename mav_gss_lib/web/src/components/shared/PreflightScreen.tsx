@@ -27,7 +27,6 @@ const GROUP_LABELS: Record<string, string> = {
 }
 
 // USC brand colors (official Cardinal & Gold) — https://identity.usc.edu/color/
-const USC_CARDINAL = '#990000'
 const USC_GOLD     = '#FFCC00'
 
 interface Props {
@@ -56,7 +55,7 @@ export function PreflightScreen({ checks, summary, connected, dismissing, onCont
 
   return (
     <motion.div
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center"
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-auto p-6"
       style={{
         backgroundColor: dismissing ? 'transparent' : 'rgba(8, 8, 8, 0.88)',
         backdropFilter: dismissing ? 'blur(0px)' : 'blur(10px)',
@@ -70,18 +69,19 @@ export function PreflightScreen({ checks, summary, connected, dismissing, onCont
         className="absolute pointer-events-none"
         style={{
           width: 380, height: 380,
-          top: '28%', left: '50%', transform: 'translate(-50%, -50%)',
+          top: '50%', left: '28%', transform: 'translate(-50%, -50%)',
           background: `radial-gradient(circle, ${colors.active}0A 0%, transparent 70%)`,
           animation: running ? 'preflight-pulse 3s ease-in-out infinite' : undefined,
         }}
       />
 
+      <div className="flex flex-col md:flex-row items-center md:items-stretch gap-10 md:gap-12 w-full max-w-5xl relative z-10">
       {/* Hero zone */}
-      <div className="flex flex-col items-center mb-8 relative z-10">
+      <div className="flex flex-col items-center md:items-start md:justify-center flex-shrink-0">
         <motion.img
           src="/maveric-patch.webp"
           alt="MAVERIC mission patch"
-          className="w-56 h-56 mb-6"
+          className="w-40 h-40 mb-5"
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, ease: 'easeOut' }}
@@ -89,19 +89,19 @@ export function PreflightScreen({ checks, summary, connected, dismissing, onCont
         />
 
         <motion.div
-          className="flex items-baseline gap-4 mb-4"
+          className="flex items-baseline gap-3 mb-3"
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.1 }}
         >
           <span
-            className="text-5xl font-bold tracking-widest"
+            className="text-4xl font-bold tracking-widest"
             style={{ color: colors.textPrimary, fontFamily: 'Inter, sans-serif' }}
           >
             MAVERIC
           </span>
           <span
-            className="text-5xl font-bold tracking-widest"
+            className="text-4xl font-bold tracking-widest"
             style={{ color: colors.textPrimary, fontFamily: 'Inter, sans-serif' }}
           >
             GSS
@@ -109,7 +109,7 @@ export function PreflightScreen({ checks, summary, connected, dismissing, onCont
         </motion.div>
 
         <motion.p
-          className="text-sm tracking-[0.2em] mb-5"
+          className="text-xs tracking-[0.2em] mb-4"
           style={{ color: colors.textMuted }}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -119,23 +119,37 @@ export function PreflightScreen({ checks, summary, connected, dismissing, onCont
         </motion.p>
 
         <motion.div
-          className="flex flex-col items-center gap-0.5"
+          className="flex flex-col items-start self-start gap-0.5"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.4, delay: 0.35 }}
         >
-          <span className="text-xs tracking-wide font-semibold" style={{ color: USC_CARDINAL }}>
-            UNIVERSITY OF SOUTHERN CALIFORNIA
-          </span>
-          <span className="text-xs tracking-wide" style={{ color: USC_GOLD }}>
-            SPACE ENGINEERING RESEARCH CENTER
+          <img
+            src="/usc-primary-logotype-dark.png"
+            alt="University of Southern California primary logotype"
+            className="h-auto w-[220px] mb-4 select-none"
+            style={{ opacity: 0.96 }}
+          />
+          <span
+            className="text-[14px]"
+            style={{
+              color: colors.textSecondary,
+              fontFamily: '"Adobe Caslon Pro", "Libre Caslon Text", Georgia, "Times New Roman", serif',
+              lineHeight: 1.2,
+            }}
+          >
+            <span style={{ color: USC_GOLD }}>S</span>pace{' '}
+            <span style={{ color: USC_GOLD }}>E</span>ngineering{' '}
+            <span style={{ color: USC_GOLD }}>R</span>esearch{' '}
+            <span style={{ color: USC_GOLD }}>C</span>enter
           </span>
         </motion.div>
       </div>
 
       {/* Check console — sized to fit all checks without scrolling */}
       <motion.div
-        className="w-full max-w-xl px-6 relative z-10"
+        className="w-full md:flex-1 md:max-w-2xl md:pl-10 md:border-l"
+        style={{ borderColor: colors.borderSubtle }}
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, delay: 0.5 }}
@@ -219,8 +233,7 @@ export function PreflightScreen({ checks, summary, connected, dismissing, onCont
             initial={{ opacity: 0, y: 4 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3, delay: 0.1 }}
-            className="mt-6 pt-4 flex flex-col items-center gap-4"
-            style={{ borderTop: `1px solid ${colors.borderSubtle}` }}
+            className="mt-6 flex flex-col items-center gap-4"
           >
             <span
               className="text-xs tracking-wider"
@@ -263,6 +276,7 @@ export function PreflightScreen({ checks, summary, connected, dismissing, onCont
           </motion.div>
         )}
       </motion.div>
+      </div>
 
       <style>{`
         @keyframes preflight-pulse {
