@@ -7,6 +7,8 @@ __pycache__/
 .venv/
 # Updater requirements.txt install marker (sha256 of last successful install)
 .mav_requirements_hash
+# Developer opt-out — touch .mav_dev at repo root to disable the self-updater
+.mav_dev
 
 # === Node (dependency state only — dist/ is committed) ===
 node_modules/
@@ -53,3 +55,6 @@ docs/superpowers/specs/
 # === Legacy / Retired ===
 legacy/
 perf_bench.py
+
+# === Mockups / scratch (local-only) ===
+mockups/
