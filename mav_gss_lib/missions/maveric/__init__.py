@@ -69,15 +69,19 @@ def init_mission(cfg: dict) -> dict:
     }
 
 
-def get_plugin_routers(adapter=None):
+def get_plugin_routers(adapter=None, config_accessor=None):
     """Return FastAPI routers for MAVERIC mission plugins.
 
     Args:
         adapter: MavericMissionAdapter with image_assembler attribute.
                  If None or has no assembler, returns empty list.
+        config_accessor: Optional zero-arg callable returning the live
+                 mission config dict. Passed through to plugin routers
+                 that need live config lookups (e.g., the imaging router
+                 reads ``imaging.thumb_prefix`` for pair grouping).
     """
     assembler = getattr(adapter, "image_assembler", None) if adapter else None
     if assembler is None:
         return []
     from mav_gss_lib.missions.maveric.imaging import get_imaging_router
-    return [get_imaging_router(assembler)]
+    return [get_imaging_router(assembler, config_accessor=config_accessor)]

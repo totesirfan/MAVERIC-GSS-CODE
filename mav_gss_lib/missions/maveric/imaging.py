@@ -363,15 +363,27 @@ class ImageAssembler:
 #  REST API ROUTER
 # =============================================================================
 
-def get_imaging_router(assembler: "ImageAssembler"):
+def get_imaging_router(assembler: "ImageAssembler", config_accessor=None):
+    """Build the imaging FastAPI router.
+
+    ``config_accessor`` is a zero-arg callable that returns the current
+    mission config dict. Passing a callable rather than a dict snapshot
+    lets the router respect live config edits via /api/config.
+    """
     from fastapi import APIRouter
     from fastapi.responses import FileResponse, JSONResponse
 
     router = APIRouter(prefix="/api/plugins/imaging", tags=["imaging"])
 
+    def _thumb_prefix() -> str:
+        if config_accessor is None:
+            return ""
+        cfg = config_accessor() or {}
+        return (cfg.get("imaging") or {}).get("thumb_prefix", "") or ""
+
     @router.get("/status")
     async def imaging_status():
-        return JSONResponse(assembler.status())
+        return JSONResponse(assembler.paired_status(_thumb_prefix()))
 
     @router.get("/files")
     async def imaging_files():

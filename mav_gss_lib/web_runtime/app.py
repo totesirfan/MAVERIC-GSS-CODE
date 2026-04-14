@@ -127,7 +127,7 @@ def create_app() -> FastAPI:
         mission_pkg = importlib.import_module(f"mav_gss_lib.missions.{mission_id}")
         get_routers = getattr(mission_pkg, "get_plugin_routers", None)
         if get_routers:
-            for router in get_routers(runtime.adapter):
+            for router in get_routers(runtime.adapter, config_accessor=lambda: runtime.cfg):
                 app.include_router(router)
                 logging.info("Mounted plugin router: %s", router.prefix)
     except Exception as exc:
