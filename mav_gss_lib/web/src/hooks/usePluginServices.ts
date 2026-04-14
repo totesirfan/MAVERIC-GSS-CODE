@@ -2,7 +2,7 @@ import { useCallback, useMemo } from 'react'
 import { useRx } from '@/hooks/RxProvider'
 import { useTx } from '@/hooks/TxProvider'
 import { useSessionContext, useConfig } from '@/hooks/SessionProvider'
-import type { RxPacket, RxStatus, GssConfig, SendProgress, GuardConfirm } from '@/lib/types'
+import type { RxPacket, RxStatus, GssConfig, SendProgress, GuardConfirm, TxQueueItem } from '@/lib/types'
 
 export type CommandSchema = Record<string, Record<string, unknown>>
 
@@ -23,6 +23,10 @@ export interface PluginServices {
   subscribeRxCustom: (fn: (msg: Record<string, unknown>) => void) => () => void
   sessionTag: string
   sessionResetGen: number
+  /** Live pending TX queue (shared with main TxPanel). Filter by cmd_id in consumers. */
+  pendingQueue: TxQueueItem[]
+  /** Remove an item from the queue by its index in the full unfiltered queue. */
+  removeQueueItem: (index: number) => void
 }
 
 export function usePluginServices(): PluginServices {
@@ -58,5 +62,7 @@ export function usePluginServices(): PluginServices {
     subscribeRxCustom: rx.subscribeCustom,
     sessionTag: session.tag,
     sessionResetGen: rx.sessionResetGen,
+    pendingQueue: tx.queue,
+    removeQueueItem: tx.deleteItem,
   }), [rx, tx, session, config, filterPackets, fetchSchema])
 }
