@@ -132,28 +132,42 @@ Frontend-only plugins need no backend changes. Plugins that need backend state (
 
 Mission packages can declare backend routers for their plugins. The platform discovers and mounts them automatically at startup — no manual `app.include_router()` edits needed.
 
-**Mission side** — the mission `__init__.py` exposes an optional `get_plugin_routers()` function:
+**Mission side** — the mission `__init__.py` exposes an optional `get_plugin_routers(adapter, config_accessor)` function:
 
 ```python
 # mav_gss_lib/missions/maveric/__init__.py
-def get_plugin_routers():
-    """Return FastAPI routers for mission plugins. Called once at app startup."""
+def get_plugin_routers(adapter=None, config_accessor=None):
+    """Return FastAPI routers for mission plugins. Called once at app startup.
+
+    Args:
+        adapter: the live mission adapter instance — plugins typically need
+                 state owned by the adapter (e.g., ImageAssembler).
+        config_accessor: zero-arg callable returning the live merged config
+                 dict. Plugin routers that read runtime config (e.g., the
+                 imaging router reads ``imaging.thumb_prefix`` for pair
+                 grouping) should use this rather than snapshotting config.
+    """
+    assembler = getattr(adapter, "image_assembler", None) if adapter else None
+    if assembler is None:
+        return []
     from .imaging import get_imaging_router
-    return [get_imaging_router()]
+    return [get_imaging_router(assembler, config_accessor=config_accessor)]
 ```
 
-The router factory receives no arguments. Each router should set its own prefix (e.g., `/api/plugins/imaging`).
+Each router should set its own prefix (e.g., `/api/plugins/imaging`).
 
-**Platform side** — `app.py` calls `get_plugin_routers()` on the active mission package and mounts whatever comes back:
+**Platform side** — `app.py` calls `get_plugin_routers()` on the active mission package and mounts whatever comes back, passing the live adapter and a config accessor:
 
 ```python
 # mav_gss_lib/web_runtime/app.py (in create_app)
-plugin_routers = getattr(mission_pkg, 'get_plugin_routers', lambda: [])()
-for router in plugin_routers:
-    app.include_router(router)
+mission_pkg = importlib.import_module(f"mav_gss_lib.missions.{mission_id}")
+get_routers = getattr(mission_pkg, "get_plugin_routers", None)
+if get_routers:
+    for router in get_routers(runtime.adapter, config_accessor=lambda: runtime.cfg):
+        app.include_router(router)
 ```
 
-This keeps `app.py` stable as plugins are added or removed. The mission package owns the list.
+This keeps `app.py` stable as plugins are added or removed. The mission package owns the list, and the adapter owns plugin state (assemblers, aggregators, etc.).
 
 ### Packet Hook (`on_packet_received`)
 
@@ -225,15 +239,18 @@ Plugin endpoints live under `/api/plugins/<plugin_id>/`:
 # mav_gss_lib/missions/maveric/imaging.py
 from fastapi import APIRouter
 
-def get_imaging_router():
+def get_imaging_router(assembler: "ImageAssembler", config_accessor=None):
     router = APIRouter(prefix="/api/plugins/imaging")
 
     @router.get("/status")
     async def status(request: Request):
+        # Uses assembler directly; config_accessor() for live config lookups
         ...
 
     return router
 ```
+
+The imaging router exposes `paired_status()` which groups image pairs (full + thumb) by filename prefix — the prefix is read live from `imaging.thumb_prefix` in config via `config_accessor()` so operators can retune it at runtime without restarting. `ImageAssembler.feed_chunk()` returns `(received, total, complete)`.
 
 ### WebSocket Integration
 

@@ -8,23 +8,31 @@ This document covers what a new maintainer needs to know to run, modify, and ext
 
 ```
 MAV_WEB.py
- └─ load_gss_config()                    reads mav_gss_lib/gss.yml + defaults
- └─ create_app()
-     └─ WebRuntime()
-         ├─ load_mission_adapter(cfg)
-         │   ├─ load_mission_metadata()   reads mission.yml or mission.example.yml → merges into cfg
-         │   ├─ init_mission(cfg)         populates node tables, loads commands.yml
-         │   └─ MavericMissionAdapter()   instantiated with cmd_defs
-         ├─ CSPConfig + AX25Config        from merged config
-         └─ RxService + TxService         with adapter reference
+ └─ bootstrap_dependencies()             updater.py — self-install missing deps
+ └─ create_app()                         web_runtime/app.py
+     └─ create_runtime()                 web_runtime/state.py
+         └─ WebRuntime.__init__()
+             ├─ load_gss_config()         reads mav_gss_lib/gss.yml + defaults
+             ├─ load_mission_adapter(cfg)
+             │   ├─ load_mission_metadata() reads mission.yml or mission.example.yml → merges into cfg
+             │   ├─ init_mission(cfg)     populates node tables, loads commands.yml, builds ImageAssembler
+             │   └─ MavericMissionAdapter() instantiated with cmd_defs + nodes + image_assembler
+             ├─ CSPConfig + AX25Config    from merged config
+             └─ RxService + TxService     with adapter reference
+     ├─ app.include_router(api, rx, tx, session_ws, preflight_ws)
+     └─ get_plugin_routers(adapter, config_accessor)  → auto-mount mission plugin routers
+ └─ uvicorn.run(127.0.0.1:8080)
      └─ FastAPI lifespan startup
          ├─ load TX queue from .pending_queue.jsonl
          ├─ init ZMQ PUB socket (TX)
          ├─ create SessionLog (RX) + TXLog (TX)
          ├─ start RX receiver thread (ZMQ SUB)
-         └─ start async broadcast loop (RX → WebSocket)
- └─ uvicorn.run(127.0.0.1:8080)
+         ├─ start async broadcast loop (RX → WebSocket)
+         ├─ schedule_update_check()       async updater check
+         └─ run_preflight_and_broadcast() async preflight check
 ```
+
+Note: `load_gss_config()` is called inside `WebRuntime.__init__` (see `web_runtime/state.py:70`), not at module top. The module-level `CFG = load_gss_config()` in `MAV_WEB.py` is unused bookkeeping for the console banner only.
 
 ## Required Local Files
 
@@ -59,14 +67,26 @@ ZMQ addresses are configurable in `gss.yml` under `rx.zmq_addr` and `tx.zmq_addr
 
 ```
 web_runtime/
-    state.py      WebRuntime class — owns all mutable backend state
-    app.py        FastAPI factory, lifespan (startup/shutdown), static file serving
-    runtime.py    Queue helpers: make_mission_cmd, make_delay, validate_mission_cmd, sanitize_queue_items
-    api.py        REST routes: /api/status, /api/config, /api/schema, /api/columns, /api/tx-columns, /api/logs, /api/selfcheck
-    rx.py         RX WebSocket handler (clients receive live packets)
-    tx.py         TX WebSocket handler (queue mutations, send control)
-    services.py   RxService (ZMQ SUB → pipeline → broadcast) + TxService (queue + send loop)
-    security.py   Session token validation
+    state.py         WebRuntime class — owns all mutable backend state, SHUTDOWN_DELAY = 15
+    app.py           FastAPI factory, lifespan, static file serving, plugin router auto-mount
+    runtime.py       Send-context helpers (build_send_context, cmd_line_to_payload)
+    api/             REST routes package
+      config.py      /api/status, /api/config, /api/selfcheck
+      schema.py      /api/schema, /api/columns, /api/tx-columns, /api/tx/capabilities
+      logs.py        /api/logs, /api/logs/{session_id}
+      queue_io.py    /api/import-files, /api/import/*, /api/export-queue
+      session.py     /api/session, /api/session/new, /api/logs/tag
+    rx.py            /ws/rx WebSocket handler (clients receive live packets)
+    tx.py            /ws/tx WebSocket handler (queue mutations, send control)
+    rx_service.py    RxService — ZMQ SUB receiver + async broadcast loop
+    tx_service.py    TxService — queue + send loop + ZMQ PUB lifetime
+    tx_queue.py      Pure queue helpers: make_mission_cmd, make_delay, make_note, validate, persist, import
+    tx_actions.py    Queue mutation actions invoked by tx.py
+    services.py      Re-export shim (RxService, TxService, broadcast_safe) — back-compat
+    _broadcast.py    broadcast_safe helper — drops dead WS clients
+    session_ws.py    /ws/session WebSocket session management
+    preflight_ws.py  /ws/preflight + run_preflight_and_broadcast + updater scheduling
+    security.py      CORS/CSP middleware
 ```
 
 ### Thread Model
@@ -291,7 +311,7 @@ These areas affect wire protocol correctness, RF safety, or mission operations. 
 |---|---|---|
 | **Command wire format** | `maveric/wire_format.py` (`CommandFrame.to_bytes`, `from_bytes`) | Byte-level encode/decode — any change can corrupt uplink/downlink frames |
 | **Protocol framing** | `protocols/crc.py`, `protocols/csp.py`, `protocols/ax25.py`, `protocols/golay.py` | CRC, KISS, AX.25, ASM+Golay — must match spacecraft radio firmware |
-| **TX send loop** | `web_runtime/services.py` (`TxService.run_send`) | Controls actual RF transmission timing, guard confirmation, abort |
+| **TX send loop** | `web_runtime/tx_service.py` (`TxService.run_send`) | Controls actual RF transmission timing, guard confirmation, abort |
 | **Command schema** | `maveric/commands.yml`, `maveric/schema.py` | Defines valid commands and argument types — errors can send malformed uplinks |
 | **Mission adapter boundary** | `mission_adapter.py` (`MissionAdapter` Protocol) | Contract between platform and mission — breaking changes affect all missions |
 | **Frame detection** | `protocols/frame_detect.py`, `parsing.py` (`RxPipeline`) | Misidentifying frames drops or corrupts received packets |

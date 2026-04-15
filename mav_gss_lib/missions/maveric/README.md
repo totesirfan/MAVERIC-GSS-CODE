@@ -7,26 +7,35 @@ loads it by convention at startup when `general.mission: maveric` is set in `gss
 ## What This Package Owns
 
 - **Packet parsing** — MAVERIC command wire format decoding, CSP v1 header extraction,
-  CRC-16 and CRC-32C integrity checks (`adapter.py`, `wire_format.py`)
+  CRC-16 and CRC-32C integrity checks (`adapter.py` → `rx_ops.py`, `wire_format.py`)
 - **Command building** — TX command construction from operator input, argument validation,
-  AX.25/CSP routing field assembly (`adapter.py` → `build_tx_command`)
+  AX.25/CSP routing field assembly (`adapter.py` → `tx_ops.py`, `cmd_parser.py`)
 - **Operator rendering** — structured data (column values, detail blocks, protocol blocks)
-  for the platform's generic UI containers (`adapter.py` rendering-slot methods)
-- **Wire format** — node/ptype definitions, `CommandFrame` encode/decode, schema-based
-  argument parsing (`wire_format.py`)
+  for the platform's generic UI containers (`rendering.py`)
+- **Log formatting** — mission-specific log record shaping for JSONL + text output (`log_format.py`)
+- **Wire format** — `CommandFrame` encode/decode, schema-based argument parsing (`wire_format.py`)
+- **Node/ptype tables** — ID↔name resolution and gs_node resolution (`nodes.py` + definitions in `mission.example.yml`)
+- **Command schema** — schema loading, validation, resolution (`schema.py`, `commands.yml`)
+- **Imaging plugin** — `ImageAssembler` chunk reassembly and FastAPI plugin router (`imaging.py`)
 - **TX builder UI** — MAVERIC command picker React component
-  (`mav_gss_lib/web/src/missions/maveric/TxBuilder.tsx`)
+  (`mav_gss_lib/web/src/plugins/maveric/TxBuilder.tsx`)
 - **Mission metadata** — node names, ptypes, AX.25/CSP defaults (`mission.example.yml`)
-- **Command schema** — `commands.yml` (gitignored; not in public repo)
 
 ## Files
 
 | File | Tracked | Purpose |
 |------|---------|---------|
-| `__init__.py` | Yes | Package entry point: `ADAPTER_API_VERSION`, `ADAPTER_CLASS`, `init_mission` |
-| `adapter.py` | Yes | `MavericMissionAdapter` — implements the `MissionAdapter` protocol |
-| `wire_format.py` | Yes | Node/ptype tables, `CommandFrame`, argument parsing |
-| `imaging.py` | Yes | MAVERIC imaging subsystem command helpers |
+| `__init__.py` | Yes | Package entry: `ADAPTER_API_VERSION`, `ADAPTER_CLASS`, `init_mission`, `get_plugin_routers` |
+| `adapter.py` | Yes | `MavericMissionAdapter` — implements the `MissionAdapter` protocol, delegates to sub-modules |
+| `nodes.py` | Yes | `NodeTable` dataclass + `init_nodes()` — node/ptype ID↔name resolution |
+| `wire_format.py` | Yes | `CommandFrame` encode/decode, argument type parsing |
+| `schema.py` | Yes | `load_command_defs()` — reads and validates `commands.yml` |
+| `cmd_parser.py` | Yes | TX command-line parser (`cmd_line_to_payload`) |
+| `rx_ops.py` | Yes | RX parsing operations — frame decode, CSP/CRC extraction |
+| `tx_ops.py` | Yes | TX building operations — encode, routing resolution, validation |
+| `rendering.py` | Yes | RX display rendering — row, detail_blocks, protocol_blocks, integrity_blocks |
+| `log_format.py` | Yes | Mission-specific log record formatting |
+| `imaging.py` | Yes | `ImageAssembler` + `get_imaging_router()` plugin REST endpoints |
 | `mission.example.yml` | Yes | Public-safe mission metadata (nodes, ptypes, AX.25/CSP defaults) |
 | `commands.example.yml` | Yes | Annotated command schema example — safe structure, redacted content |
 | `mission.yml` | No | Local private mission metadata override (gitignored) |

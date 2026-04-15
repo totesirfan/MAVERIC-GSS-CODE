@@ -116,7 +116,7 @@ cp mav_gss_lib/gss.example.yml mav_gss_lib/gss.yml   # first time only
 python3 MAV_WEB.py
 ```
 
-The web dashboard auto-opens at `http://127.0.0.1:8080`. The server shuts down 5 seconds after all browser tabs disconnect.
+The web dashboard auto-opens at `http://127.0.0.1:8080`. The server shuts down 15 seconds after all browser tabs disconnect.
 
 ### Web UI Development
 
@@ -201,30 +201,49 @@ mav_gss_lib/
         golay.py                ASM+Golay framing (AX100 Mode 5)
         frame_detect.py         Frame type detection and normalization
 
+    preflight.py                Local environment checks
+    updater.py                  Runtime dependency bootstrap
+
     missions/
+        template/               Minimal starter mission package
         maveric/
-            __init__.py          Mission entry point (API version, init hook)
+            __init__.py          Mission entry point (API version, init hook, plugin routers)
             adapter.py           MavericMissionAdapter (parse, render, encode)
-            wire_format.py       Command wire format, schema, node tables
+            nodes.py             NodeTable dataclass + init_nodes factory
+            wire_format.py       CommandFrame encode/decode
+            schema.py            Command schema loading + validation
+            cmd_parser.py        TX command line parser
+            rx_ops.py            RX packet parsing operations
+            tx_ops.py            TX command building operations
+            rendering.py         RX display rendering (row, detail, protocol, integrity)
+            log_format.py        Mission-specific log record formatting
+            imaging.py           Image chunk reassembly + plugin REST router
             mission.example.yml  Tracked public-safe mission metadata baseline
             mission.yml          Optional local mission metadata override
-            commands.yml         Command schema (gitignored)
-            imaging.py           Image chunk reassembly
+            commands.example.yml Annotated command schema example
+            commands.yml         Operational command schema (gitignored)
 
     web/
-        package.json
-        src/                    React + Vite + Tailwind + shadcn/ui
-        dist/                   Production build (committed)
+        package.json             Frontend dependencies and version
+        src/                     React + Vite + Tailwind + shadcn/ui
+        dist/                    Production build (committed)
 
     web_runtime/
-        app.py                  FastAPI factory + lifespan
-        state.py                WebRuntime container
-        runtime.py              Queue/TX helpers
-        api.py                  REST API routes
-        rx.py                   RX WebSocket handler
-        tx.py                   TX WebSocket handler
-        services.py             RxService + TxService
-        security.py             Session token validation
+        app.py                  FastAPI factory + lifespan (mounts plugin routers)
+        state.py                WebRuntime container (SHUTDOWN_DELAY, preflight state)
+        runtime.py              Send-context helpers
+        api/                    REST API package (config, schema, logs, queue_io, session)
+        rx.py                   /ws/rx WebSocket handler
+        tx.py                   /ws/tx WebSocket handler
+        rx_service.py           ZMQ SUB receiver + broadcast loop
+        tx_service.py           TX queue, send loop, history, persistence
+        tx_queue.py             Pure queue helpers (build, validate, persist, import)
+        tx_actions.py           Queue mutation actions
+        services.py             Re-export shim (back-compat)
+        _broadcast.py           broadcast_safe helper
+        session_ws.py           /ws/session handler
+        preflight_ws.py         /ws/preflight handler + updater scheduling
+        security.py             CORS/CSP middleware
 
 tests/                          Test suite (pytest)
     echo_mission.py             Example non-MAVERIC adapter for testing
@@ -287,5 +306,6 @@ source code, web UI, public-safe examples, documentation
 ## Documentation
 
 - `docs/maintainer_handoff.md` — Boot path, required files, config structure, mission contract, adaptation guide
-- `docs/superpowers/plans/2026-04-06-mission-decoupled-platform-spec.md` — Platform/mission separation architecture spec
 - `docs/adding-a-mission.md` — Guide for adding a new mission package
+- `docs/plugin-system.md` — Mission plugin pages (standalone tools beyond core RX/TX)
+- `docs/mission-help-contract.md` — Proposed contract for mission-owned operator help

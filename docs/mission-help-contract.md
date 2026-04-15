@@ -1,5 +1,12 @@
 # Mission-Owned Operator Help Contract
 
+> **Status: PROPOSAL — not yet implemented.** This document describes a future
+> contract for moving mission-specific command help out of the shared web UI.
+> As of this writing, `HelpModal.tsx` still hardcodes MAVERIC's `CMD [ARGS]`
+> and `[SRC] DEST ECHO TYPE CMD [ARGS]` syntax, no `/api/help` endpoint exists,
+> and `MissionAdapter` has no `command_help_items()` method. Treat the sections
+> below as a design sketch for the work, not a description of current behavior.
+
 This document defines the minimum contract for moving **mission-specific command help**
 out of the shared web UI and into the active mission package.
 
