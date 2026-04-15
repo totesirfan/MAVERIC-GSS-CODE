@@ -237,5 +237,28 @@ class TestDetailBlocksReplayContract(unittest.TestCase):
         self.assertEqual(by_name["V_BAT"], "7532")
 
 
+from mav_gss_lib.missions.maveric import log_format  # noqa: E402
+
+
+class TestLogFormatTelemetry(unittest.TestCase):
+
+    def setUp(self):
+        self.pkt = _make_pkt_from_payload(PAYLOAD_HEX)
+
+    def test_eps_hk_log_lines_include_hk_fields(self):
+        lines = log_format.format_log_lines(self.pkt, NODES)
+        text = "\n".join(lines)
+        self.assertIn("I_BUS", text)
+        self.assertIn("V_BAT", text)
+        self.assertIn("V_BUS", text)
+        self.assertIn("7532", text)
+
+    def test_eps_hk_log_lines_have_no_arg_plus_rows(self):
+        lines = log_format.format_log_lines(self.pkt, NODES)
+        for line in lines:
+            self.assertNotIn("ARG +", line,
+                             f"hide_schema_args=True should drop ARG + lines, got: {line!r}")
+
+
 if __name__ == "__main__":
     unittest.main()

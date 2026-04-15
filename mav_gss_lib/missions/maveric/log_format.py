@@ -119,22 +119,31 @@ def format_log_lines(pkt, nodes: NodeTable) -> list[str]:
 
     # Command
     cmd = md.get("cmd")
+    telemetry = md.get("telemetry")
+    hide_args = bool(telemetry and telemetry.get("hide_schema_args"))
+
     if cmd:
         lines.append(f"  {'CMD':<12}"
             f"Src:{nodes.node_name(cmd['src'])}  Dest:{nodes.node_name(cmd['dest'])}  "
             f"Echo:{nodes.node_name(cmd['echo'])}  Type:{nodes.ptype_name(cmd['pkt_type'])}")
         lines.append(f"  {'CMD ID':<12}{cmd['cmd_id']}")
 
-        if cmd.get("schema_match"):
-            for ta in cmd.get("typed_args", []):
-                lines.append(f"  {ta['name'].upper():<12}{format_arg_value(ta)}")
-            for i, extra in enumerate(cmd.get("extra_args", [])):
-                lines.append(f"  {f'ARG +{i}':<12}{extra}")
-        else:
-            if cmd.get("schema_warning"):
-                lines.append(f"  {'\u26a0 SCHEMA':<12}{cmd['schema_warning']}")
-            for i, arg in enumerate(cmd.get("args", [])):
-                lines.append(f"  {f'ARG {i}':<12}{arg}")
+        if not hide_args:
+            if cmd.get("schema_match"):
+                for ta in cmd.get("typed_args", []):
+                    lines.append(f"  {ta['name'].upper():<12}{format_arg_value(ta)}")
+                for i, extra in enumerate(cmd.get("extra_args", [])):
+                    lines.append(f"  {f'ARG +{i}':<12}{extra}")
+            else:
+                if cmd.get("schema_warning"):
+                    lines.append(f"  {'\u26a0 SCHEMA':<12}{cmd['schema_warning']}")
+                for i, arg in enumerate(cmd.get("args", [])):
+                    lines.append(f"  {f'ARG {i}':<12}{arg}")
+
+    if telemetry:
+        for f in telemetry["fields"]:
+            suffix = f" {f['unit']}" if f["unit"] else ""
+            lines.append(f"  {f['name']:<12}{f['value']}{suffix}")
 
     # CRC
     if cmd and cmd.get("crc") is not None:
