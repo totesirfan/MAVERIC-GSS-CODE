@@ -200,6 +200,42 @@ class TestDetailBlocksReplayContract(unittest.TestCase):
         self.assertNotIn("Arguments", labels,
                          "hide_schema_args=True should suppress the schema Arguments block")
 
+    def test_eps_hk_row_cmd_is_just_cmd_id(self):
+        row = self.adapter.packet_list_row(self.pkt)
+        self.assertEqual(row["values"]["cmd"], "eps_hk",
+                         "hide_schema_args=True should suppress row args string")
+
+    def test_build_rx_log_record_freezes_telemetry_into_rendering(self):
+        # Exercises the ACTUAL freeze point in parsing.build_rx_log_record,
+        # not just the adapter methods in isolation. If adapter/parsing
+        # integration ever regresses at the _rendering write step (e.g. a
+        # wrapper changes the dict shape or drops a key), this test fires.
+        # Covers the replay boundary end-to-end — what lands in the JSONL
+        # is exactly what the log viewer replays.
+        from mav_gss_lib.parsing import build_rx_log_record
+        record = build_rx_log_record(
+            self.pkt,
+            version="test",
+            meta={"transmitter": "test-fixture"},
+            adapter=self.adapter,
+        )
+        self.assertIn("_rendering", record)
+        rendering = record["_rendering"]
+
+        detail_labels = [b.get("label") for b in rendering["detail_blocks"]]
+        self.assertIn("EPS_HK", detail_labels,
+                      f"frozen detail_blocks were: {detail_labels}")
+        self.assertNotIn("Arguments", detail_labels,
+                         "frozen detail_blocks must not contain schema Arguments for eps_hk")
+
+        row_cmd = rendering["row"]["values"]["cmd"]
+        self.assertEqual(row_cmd, "eps_hk",
+                         f"frozen row cmd cell was: {row_cmd!r}")
+
+        hk = next(b for b in rendering["detail_blocks"] if b.get("label") == "EPS_HK")
+        by_name = {f["name"]: f["value"] for f in hk["fields"]}
+        self.assertEqual(by_name["V_BAT"], "7532")
+
 
 if __name__ == "__main__":
     unittest.main()

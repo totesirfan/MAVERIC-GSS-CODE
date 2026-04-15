@@ -45,22 +45,26 @@ def packet_list_row(pkt, nodes: NodeTable) -> dict:
     """Return row values keyed by column ID for one packet."""
     md = _md(pkt)
     cmd = md.get("cmd")
+    telemetry = md.get("telemetry")
+    hide_args = bool(telemetry and telemetry.get("hide_schema_args"))
+
     args_str = ""
-    if cmd and cmd.get("schema_match") and cmd.get("typed_args"):
-        important = [ta for ta in cmd["typed_args"] if ta.get("important")]
-        show = important if important else cmd["typed_args"]
-        parts = []
-        for ta in show:
-            val = ta.get("value", "")
-            if ta["type"] == "epoch_ms":
-                val = val.ms if hasattr(val, "ms") else (val["ms"] if isinstance(val, dict) and "ms" in val else val)
-            if isinstance(val, (bytes, bytearray)):
-                val = val.hex()
-            parts.append(str(val))
-        args_str = " ".join(parts)
-    elif cmd:
-        raw = cmd.get("args", [])
-        args_str = " ".join(str(a) for a in raw) if isinstance(raw, list) else str(raw)
+    if not hide_args:
+        if cmd and cmd.get("schema_match") and cmd.get("typed_args"):
+            important = [ta for ta in cmd["typed_args"] if ta.get("important")]
+            show = important if important else cmd["typed_args"]
+            parts = []
+            for ta in show:
+                val = ta.get("value", "")
+                if ta["type"] == "epoch_ms":
+                    val = val.ms if hasattr(val, "ms") else (val["ms"] if isinstance(val, dict) and "ms" in val else val)
+                if isinstance(val, (bytes, bytearray)):
+                    val = val.hex()
+                parts.append(str(val))
+            args_str = " ".join(parts)
+        elif cmd:
+            raw = cmd.get("args", [])
+            args_str = " ".join(str(a) for a in raw) if isinstance(raw, list) else str(raw)
 
     flags = []
     if cmd and cmd.get("crc_valid") is False:
