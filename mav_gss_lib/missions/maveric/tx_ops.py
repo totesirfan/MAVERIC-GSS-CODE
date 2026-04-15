@@ -87,10 +87,17 @@ def build_tx_command(payload, cmd_defs: dict, nodes: NodeTable):
             raise ValueError("args must be a str or dict")
         args_dict = args_input
         args_parts = []
+        gap_seen = False
         for arg_def in tx_args_schema:
             val = args_dict.get(arg_def["name"], "")
             if val:
+                if gap_seen:
+                    raise ValueError(
+                        f"cannot set '{arg_def['name']}' without setting earlier optional args"
+                    )
                 args_parts.append(str(val))
+            else:
+                gap_seen = True
         args_str = " ".join(args_parts)
         extra_tokens = []
 

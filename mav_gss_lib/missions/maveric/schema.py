@@ -91,6 +91,8 @@ def _parse_arg_list(raw_list):
         entry = {"name": name, "type": typ}
         if a.get("important"):
             entry["important"] = True
+        if a.get("optional"):
+            entry["optional"] = True
         args.append(entry)
     return args
 
@@ -143,6 +145,12 @@ def load_command_defs(path: str | None = None, nodes: NodeTable | None = None):
             spec = spec or {}
             tx_args = _parse_arg_list(spec.get("tx_args"))
             rx_args = _parse_arg_list(spec.get("rx_args"))
+            if len(tx_args) <= 5:
+                for a in tx_args:
+                    a["important"] = True
+            if len(rx_args) <= 5:
+                for a in rx_args:
+                    a["important"] = True
 
             # Resolve routing
             dest = None
@@ -246,9 +254,10 @@ def validate_args(cmd_id, args_str, cmd_defs):
     tx_args = defn["tx_args"]
     issues = []
 
-    if len(raw_args) < len(tx_args):
+    required = sum(1 for a in tx_args if not a.get("optional"))
+    if len(raw_args) < required:
         issues.append(
-            f"expected {len(tx_args)} args, got {len(raw_args)}"
+            f"expected at least {required} args, got {len(raw_args)}"
         )
 
     if len(raw_args) > len(tx_args) and not defn["variadic"]:

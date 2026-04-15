@@ -20,6 +20,9 @@
 #       - name: <str>       # Argument name (operator-facing label)
 #         type: <str>       # One of: str, int, float, epoch_ms, bool, blob
 #         important: <bool> # Show prominently in packet list row
+#         optional: <bool>  # Trailing-only. If set, this arg and any after it
+#                           # may be omitted from the wire payload. You cannot
+#                           # skip an optional mid-list — trailing only.
 #     rx_args:              # Arguments expected in the downlink response
 #       - name: <str>
 #         type: <str>
