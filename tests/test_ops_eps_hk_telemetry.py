@@ -129,5 +129,31 @@ class TestRegistryDispatch(unittest.TestCase):
         self.assertIsNone(decode_telemetry(cmd_cmd))
 
 
+from ops_test_support import CMD_DEFS  # noqa: E402
+from mav_gss_lib.missions.maveric import rx_ops  # noqa: E402
+
+
+class TestParsePacketAttachesTelemetry(unittest.TestCase):
+
+    def test_eps_hk_payload_attaches_telemetry(self):
+        raw = bytes.fromhex(PAYLOAD_HEX)
+        parsed = rx_ops.parse_packet(raw, CMD_DEFS)
+        tel = parsed.mission_data.get("telemetry")
+        self.assertIsNotNone(tel, "telemetry block missing from mission_data")
+        self.assertEqual(tel["cmd_id"], "eps_hk")
+        self.assertEqual(len(tel["fields"]), 48)
+        self.assertTrue(tel["hide_schema_args"])
+        by_name = {f["name"]: f["value"] for f in tel["fields"]}
+        self.assertEqual(by_name["V_BAT"], 7532)
+        self.assertEqual(by_name["V_BUS"], 9192)
+
+    def test_non_telemetry_packet_sets_none(self):
+        from mav_gss_lib.missions.maveric.wire_format import build_cmd_raw
+        cmd_bytes = bytes(build_cmd_raw(6, 2, "com_ping", "", echo=0, ptype=1))
+        csp_hdr = b"\x90\x06\x00\x00"
+        parsed = rx_ops.parse_packet(csp_hdr + cmd_bytes, CMD_DEFS)
+        self.assertIsNone(parsed.mission_data.get("telemetry"))
+
+
 if __name__ == "__main__":
     unittest.main()

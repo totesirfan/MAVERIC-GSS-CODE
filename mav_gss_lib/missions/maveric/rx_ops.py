@@ -14,6 +14,7 @@ from mav_gss_lib.protocols.csp import try_parse_csp_v1
 from mav_gss_lib.protocols.frame_detect import detect_frame_type, normalize_frame
 from mav_gss_lib.missions.maveric.wire_format import try_parse_command
 from mav_gss_lib.missions.maveric.schema import apply_schema
+from mav_gss_lib.missions.maveric.telemetry import decode_telemetry
 
 
 def detect(meta) -> str:
@@ -53,6 +54,13 @@ def parse_packet(inner_payload: bytes, cmd_defs: dict, warnings: list[str] | Non
                 f"CRC-32C mismatch: rx 0x{crc_rx:08x} != computed 0x{crc_comp:08x}"
             )
 
+    telemetry = None
+    if cmd:
+        try:
+            telemetry = decode_telemetry(cmd)
+        except ValueError as e:
+            warnings.append(f"telemetry decode failed: {e}")
+
     mission_data = {
         "csp": csp, "csp_plausible": csp_plausible,
         "cmd": cmd, "cmd_tail": cmd_tail,
@@ -62,6 +70,7 @@ def parse_packet(inner_payload: bytes, cmd_defs: dict, warnings: list[str] | Non
             "csp_crc32_rx": crc_rx,
             "csp_crc32_comp": crc_comp,
         },
+        "telemetry": telemetry,
     }
     return ParsedPacket(
         mission_data=mission_data,
