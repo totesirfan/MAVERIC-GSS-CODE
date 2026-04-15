@@ -50,6 +50,7 @@ export function useRxSocket() {
   const customListenersRef = useRef<Set<(msg: Record<string, unknown>) => void>>(new Set())
   const [sessionResetGen, setSessionResetGen] = useState(0)
   const [sessionResetTag, setSessionResetTag] = useState('')
+  const [blackoutUntil, setBlackoutUntil] = useState<number | null>(null)
 
   const syncVisiblePackets = useCallback(() => {
     if (flushTimerRef.current) {
@@ -106,6 +107,7 @@ export function useRxSocket() {
           statsRef.current = createEmptyStats()
           setPackets([])
           setStats(createEmptyStats())
+          setBlackoutUntil(null)
           setSessionResetTag((msg as Record<string, unknown>).tag as string ?? 'untitled')
           setSessionResetGen(g => g + 1)
         } else if (msg.type === 'status') {
@@ -114,6 +116,17 @@ export function useRxSocket() {
             pkt_rate: (msg.pkt_rate as number) || 0,
             silence_s: (msg.silence_s as number) || 0,
           })
+        } else if (msg.type === 'blackout') {
+          const rawMs = (msg as { ms?: unknown }).ms
+          const ms = typeof rawMs === 'number' ? rawMs : 0
+          if (ms > 0) {
+            setBlackoutUntil(performance.now() + ms)
+          } else {
+            // Explicit clear from the backend (operator disabled the feature
+            // while a prior window was still running). Null the deadline so
+            // the pill hides immediately instead of finishing the old countdown.
+            setBlackoutUntil(null)
+          }
         } else {
           for (const listener of customListenersRef.current) {
             listener(msg)
@@ -160,5 +173,5 @@ export function useRxSocket() {
     return () => { customListenersRef.current.delete(fn) }
   }, [])
 
-  return { packets, status, connected, stats, columns, clearPackets, replayMode, replacePackets, enterReplay, exitReplay, sessionResetGen, sessionResetTag, subscribeCustom }
+  return { packets, status, connected, stats, columns, clearPackets, replayMode, replacePackets, enterReplay, exitReplay, sessionResetGen, sessionResetTag, subscribeCustom, blackoutUntil }
 }

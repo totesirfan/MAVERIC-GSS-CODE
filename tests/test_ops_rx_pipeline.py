@@ -23,7 +23,7 @@ class TestRxPipelineBehavior(unittest.TestCase):
         self.ax25 = AX25Config()
 
     def test_duplicate_detection_flags_second_packet(self):
-        raw = build_cmd_raw(6, 2, "ping", "REQ")
+        raw = build_cmd_raw(6, 2, "com_ping", "")
         payload = self.ax25.wrap(self.csp.wrap(raw))
         first = self.pipeline.process(META_AX25, payload)
         second = self.pipeline.process(META_AX25, payload)
@@ -38,11 +38,11 @@ class TestRxPipelineBehavior(unittest.TestCase):
         self.assertEqual(pkt.mission_data["cmd"]["cmd_id"], "tlm_beacon")
 
     def test_golay_meta_is_classified_as_asm_golay(self):
-        raw = build_cmd_raw(6, 2, "ping", "REQ")
+        raw = build_cmd_raw(6, 2, "com_ping", "")
         payload = self.csp.wrap(raw)
         pkt = self.pipeline.process(META_GOLAY, payload)
         self.assertEqual(pkt.frame_type, "ASM+GOLAY")
-        self.assertEqual(pkt.mission_data["cmd"]["cmd_id"], "ping")
+        self.assertEqual(pkt.mission_data["cmd"]["cmd_id"], "com_ping")
 
     def test_log_record_contains_operationally_relevant_fields(self):
         raw = build_cmd_raw(6, 2, "set_mode", "NOMINAL")
@@ -56,7 +56,7 @@ class TestRxPipelineBehavior(unittest.TestCase):
         self.assertEqual(record["frame_type"], "AX.25")
 
     def test_unknown_frame_type_leaves_warning_and_raw_payload(self):
-        raw = build_cmd_raw(6, 2, "ping", "REQ")
+        raw = build_cmd_raw(6, 2, "com_ping", "")
         payload = self.csp.wrap(raw)
         pkt = self.pipeline.process({"transmitter": "mystery"}, payload)
         self.assertEqual(pkt.frame_type, "UNKNOWN")

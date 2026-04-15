@@ -57,7 +57,7 @@ class TestTxRuntime(unittest.TestCase):
         self.sent_payloads.append(payload)
         return True
 
-    def _make_item(self, cmd_id="ping", args="", dest="LPPM", guard=False):
+    def _make_item(self, cmd_id="com_ping", args="", dest="LPPM", guard=False):
         """Build a validated mission_cmd queue item."""
         payload = _make_payload(cmd_id, args, dest, guard)
         return validate_mission_cmd(payload, runtime=self.runtime)
@@ -80,13 +80,13 @@ class TestTxRuntime(unittest.TestCase):
             self.runtime.cfg["tx"]["uplink_mode"] = "ASM+Golay"
         try:
             with self.assertRaisesRegex(ValueError, "too large for ASM\\+Golay"):
-                validate_mission_cmd(_make_payload("ping", "A" * 220), runtime=self.runtime)
+                validate_mission_cmd(_make_payload("cfg_set_ll", "A" * 220), runtime=self.runtime)
         finally:
             with self.runtime.cfg_lock:
                 self.runtime.cfg["tx"]["uplink_mode"] = old_mode
 
     def test_queue_restore_sanitizes_invalid_entries(self):
-        valid = self._make_item("ping", "REQ")
+        valid = self._make_item("com_ping", "")
         invalid = {
             "type": "mission_cmd",
             "payload": _make_payload("not_real", "REQ"),
@@ -95,13 +95,13 @@ class TestTxRuntime(unittest.TestCase):
         self.assertEqual(skipped, 1)
         self.assertEqual(len(items), 2)
         self.assertEqual(items[0]["type"], "mission_cmd")
-        self.assertEqual(items[0]["display"]["title"], "ping")
+        self.assertEqual(items[0]["display"]["title"], "com_ping")
         self.assertEqual(items[1]["type"], "delay")
 
     def test_run_send_processes_delay_then_command(self):
         self.runtime.tx.queue = [
             {"type": "delay", "delay_ms": 100},
-            self._make_item("ping", "REQ"),
+            self._make_item("com_ping", ""),
         ]
         self.runtime.tx.renumber_queue()
         self.runtime.tx.sending.update(active=True, idx=-1, total=len(self.runtime.tx.queue), guarding=False, sent_at=0, waiting=False)
@@ -112,12 +112,12 @@ class TestTxRuntime(unittest.TestCase):
         self.assertEqual(self.runtime.tx.queue, [])
         self.assertEqual(len(self.runtime.tx.history), 1)
         self.assertEqual(self.runtime.tx.history[0]["type"], "mission_cmd")
-        self.assertEqual(self.runtime.tx.history[0]["display"]["title"], "ping")
+        self.assertEqual(self.runtime.tx.history[0]["display"]["title"], "com_ping")
         self.assertTrue(any(msg.get("type") == "send_complete" for msg in self.messages if isinstance(msg, dict)))
 
     def test_run_send_waits_for_guard_confirmation(self):
         self.runtime.tx.queue = [
-            self._make_item("ping", "REQ", guard=True),
+            self._make_item("com_ping", "", guard=True),
         ]
         self.runtime.tx.renumber_queue()
         self.runtime.tx.sending.update(active=True, idx=-1, total=1, guarding=False, sent_at=0, waiting=False)
@@ -140,7 +140,7 @@ class TestTxRuntime(unittest.TestCase):
 
     def test_run_send_abort_during_guard_keeps_queue_item(self):
         self.runtime.tx.queue = [
-            self._make_item("ping", "REQ", guard=True),
+            self._make_item("com_ping", "", guard=True),
         ]
         self.runtime.tx.renumber_queue()
         self.runtime.tx.sending.update(active=True, idx=-1, total=1, guarding=False, sent_at=0, waiting=False)
@@ -164,7 +164,7 @@ class TestTxRuntime(unittest.TestCase):
     def test_run_send_abort_during_delay_keeps_following_items(self):
         self.runtime.tx.queue = [
             {"type": "delay", "delay_ms": 500},
-            self._make_item("ping", "REQ"),
+            self._make_item("com_ping", ""),
         ]
         self.runtime.tx.renumber_queue()
         self.runtime.tx.sending.update(active=True, idx=-1, total=2, guarding=False, sent_at=0, waiting=False)
@@ -187,7 +187,7 @@ class TestTxRuntime(unittest.TestCase):
 
     def test_history_entry_includes_payload(self):
         """History entries must include payload for faithful requeue."""
-        self.runtime.tx.queue = [self._make_item("ping", "REQ")]
+        self.runtime.tx.queue = [self._make_item("com_ping", "")]
         self.runtime.tx.renumber_queue()
         self.runtime.tx.sending.update(active=True, idx=-1, total=1, guarding=False, sent_at=0, waiting=False)
 
@@ -196,18 +196,18 @@ class TestTxRuntime(unittest.TestCase):
         self.assertEqual(len(self.runtime.tx.history), 1)
         hist = self.runtime.tx.history[0]
         self.assertIn("payload", hist)
-        self.assertEqual(hist["payload"]["cmd_id"], "ping")
+        self.assertEqual(hist["payload"]["cmd_id"], "com_ping")
 
     def test_queue_projection_includes_payload(self):
         """Queue projection must include payload for faithful duplicate."""
-        item = self._make_item("ping", "REQ")
+        item = self._make_item("com_ping", "")
         self.runtime.tx.queue = [item]
         self.runtime.tx.renumber_queue()
 
         projected = self.runtime.tx.queue_items_json()
         self.assertEqual(len(projected), 1)
         self.assertIn("payload", projected[0])
-        self.assertEqual(projected[0]["payload"]["cmd_id"], "ping")
+        self.assertEqual(projected[0]["payload"]["cmd_id"], "com_ping")
 
 
 if __name__ == "__main__":

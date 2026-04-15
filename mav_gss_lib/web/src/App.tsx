@@ -285,6 +285,7 @@ function PopOutRx() {
           onStopReplay={() => {}}
           sessionResetGen={rx.sessionResetGen}
           sessionTag={rx.sessionResetTag || ''}
+          blackoutUntil={rx.blackoutUntil}
         />
       </div>
     </div>

@@ -243,6 +243,7 @@ class TxService:
         with self.runtime.cfg_lock:
             uplink_mode = self.runtime.cfg.get("tx", {}).get("uplink_mode", "AX.25")
             default_delay = self.runtime.cfg.get("tx", {}).get("delay_ms", 500)
+            blackout_ms = int(self.runtime.cfg.get("rx", {}).get("tx_blackout_ms", 0) or 0)
             send_csp = copy.copy(self.runtime.csp)
             send_ax25 = copy.copy(self.runtime.ax25)
 
@@ -298,6 +299,21 @@ class TxService:
                     await self.broadcast({"type": "send_error", "error": "ZMQ send failed"})
                     self._pop_front_and_renumber()
                     break
+
+                # Arm (or clear) the TX→RX blackout window so RxService drops
+                # packets arriving while the simulated radio is transmitting.
+                if blackout_ms > 0:
+                    self.runtime.tx_blackout_until = time.time() + blackout_ms / 1000.0
+                    await self.runtime.rx.broadcast({"type": "blackout", "ms": blackout_ms})
+                else:
+                    # Feature disabled at send time. If a prior batch armed a
+                    # deadline that is still in the future, emit an explicit
+                    # clear (ms=0) so every connected RX view — main dashboard
+                    # and pop-out alike — hides its indicator deterministically
+                    # instead of waiting for the old timer to drain.
+                    if self.runtime.tx_blackout_until > time.time():
+                        await self.runtime.rx.broadcast({"type": "blackout", "ms": 0})
+                    self.runtime.tx_blackout_until = 0.0
 
                 with self.send_lock:
                     self.sending["sent_at"] = time.time()

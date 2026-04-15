@@ -22,17 +22,17 @@ class TestAX25Path(unittest.TestCase):
         self.pipeline = RxPipeline(CMD_DEFS, {})
 
     def test_ax25_rx_pipeline_recovers_ping(self):
-        raw = build_cmd_raw(6, 2, "ping", "REQ")
+        raw = build_cmd_raw(6, 2, "com_ping", "")
         payload = self.ax25.wrap(self.csp.wrap(raw))
         pkt = self.pipeline.process(META_AX25, payload)
         self.assertEqual(pkt.frame_type, "AX.25")
-        self.assertEqual(pkt.mission_data["cmd"]["cmd_id"], "ping")
+        self.assertEqual(pkt.mission_data["cmd"]["cmd_id"], "com_ping")
         self.assertTrue(pkt.mission_data["cmd"]["crc_valid"])
         self.assertTrue(pkt.mission_data["crc_status"]["csp_crc32_valid"])
         self.assertTrue(pkt.mission_data["cmd"]["schema_match"])
 
     def test_ax25_marks_ground_echo(self):
-        raw = build_cmd_raw(6, 2, "ping", "REQ")
+        raw = build_cmd_raw(6, 2, "com_ping", "")
         payload = self.ax25.wrap(self.csp.wrap(raw))
         pkt = self.pipeline.process(META_AX25, payload)
         self.assertTrue(pkt.is_uplink_echo)
@@ -72,7 +72,7 @@ class TestAX25Path(unittest.TestCase):
         self.ax25.dest_ssid = 0
         self.ax25.src_call = "N0CALL"
         self.ax25.src_ssid = 1
-        raw = build_cmd_raw(6, 2, "ping", "REQ")
+        raw = build_cmd_raw(6, 2, "com_ping", "")
         payload = self.ax25.wrap(self.csp.wrap(raw))
         pkt = self.pipeline.process(META_AX25, payload)
         blocks = self.pipeline.adapter.protocol_blocks(pkt)

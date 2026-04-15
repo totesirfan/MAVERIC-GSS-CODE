@@ -180,6 +180,7 @@ export interface GssConfig {
   rx: {
     zmq_addr: string
     zmq_port: number
+    tx_blackout_ms?: number
   }
   general: {
     mission?: string

@@ -33,6 +33,7 @@ export function RxProvider({ children }: { children: ReactNode }) {
       rest.enterReplay,
       rest.exitReplay,
       rest.subscribeCustom,
+      rest.blackoutUntil,
     ],
   )
 

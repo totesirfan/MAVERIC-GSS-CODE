@@ -307,6 +307,7 @@ export function ConfigSidebar({ open, onClose }: ConfigSidebarProps) {
                   <TextField label="Frequency" value={cfg.tx.frequency} onChange={(v) => update('tx', 'frequency', v)} />
                   <TextField label="ZMQ Address" value={cfg.tx.zmq_addr} onChange={(v) => update('tx', 'zmq_addr', v)} />
                   <NumberField label="TX Delay (ms)" value={cfg.tx.delay_ms} onChange={(v) => update('tx', 'delay_ms', v)} />
+                  <NumberField label="TX→RX Blackout (ms)" value={cfg.rx.tx_blackout_ms ?? 0} onChange={(v) => update('rx', 'tx_blackout_ms', v)} />
                 </Section>
 
                 {/* Session Info */}

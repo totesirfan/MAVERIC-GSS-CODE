@@ -74,6 +74,10 @@ class WebRuntime:
         self.rx_status = ["OFFLINE"]
         self.tx_status = ["OFFLINE"]
 
+        # Wall-clock deadline (time.time()) until which RX packets are silently
+        # dropped to simulate ground-side T/R switching. 0.0 = feature idle.
+        self.tx_blackout_until: float = 0.0
+
         self.csp = CSPConfig()
         self.ax25 = AX25Config()
         apply_csp(self.cfg, self.csp)

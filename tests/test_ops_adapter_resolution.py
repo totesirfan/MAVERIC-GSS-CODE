@@ -142,8 +142,8 @@ class TestMavericResolution(unittest.TestCase):
         self.assertEqual(self.adapter.gs_node, 6)
 
     def test_parse_cmd_line_full(self):
-        src, dest, echo, ptype, cmd_id, args = self.adapter.parse_cmd_line("6 1 0 1 ping REQ")
-        self.assertEqual(cmd_id, "ping")
+        src, dest, echo, ptype, cmd_id, args = self.adapter.parse_cmd_line("6 1 0 1 com_ping")
+        self.assertEqual(cmd_id, "com_ping")
 
     def test_node_label_known(self):
         self.assertIn("GS", self.adapter.node_label(6))

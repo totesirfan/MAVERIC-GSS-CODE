@@ -45,6 +45,16 @@ class RxService:
         self.last_rx_at: float = 0.0
         self._was_traffic_active: bool = False
 
+    def _should_drop_rx(self, now: float) -> bool:
+        """Return True if *now* is inside the TX→RX blackout window.
+
+        Reads ``runtime.tx_blackout_until`` without locking — plain float
+        reads/writes are GIL-atomic on CPython, which is sufficient here.
+        Matches a real deaf radio: the packet is dropped before the pipeline
+        sees it, so rate/silence counters behave as if nothing arrived.
+        """
+        return now < self.runtime.tx_blackout_until
+
     def start_receiver(self) -> None:
         if self.thread_handle and self.thread_handle.is_alive():
             return
@@ -74,6 +84,8 @@ class RxService:
             self.status[0] = status
             result = receive_pdu(sock)
             if result is not None:
+                if self._should_drop_rx(time.time()):
+                    continue  # deaf during TX→RX blackout window
                 self.queue.put((self.runtime.session.generation, *result))
 
         zmq_cleanup(monitor, SUB_STATUS, status, sock, ctx)

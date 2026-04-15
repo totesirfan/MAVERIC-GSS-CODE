@@ -245,6 +245,7 @@ export function MainDashboard({ config, onConfigChange, missionName, version, pl
               onStopReplay={stopReplay}
               sessionResetGen={rx.sessionResetGen}
               sessionTag={rx.sessionResetTag || session.tag}
+              blackoutUntil={rx.blackoutUntil}
               externalShowHex={rxShowHex}
               externalShowFrame={rxShowFrame}
               externalShowWrapper={rxShowWrapper}

@@ -40,6 +40,7 @@ _DEFAULTS = {
     "rx": {
         "zmq_port": 52001,
         "zmq_addr": "tcp://127.0.0.1:52001",
+        "tx_blackout_ms": 0,
     },
     "general": {
         "mission":      "maveric",

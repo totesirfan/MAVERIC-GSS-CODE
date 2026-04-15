@@ -21,13 +21,13 @@ class TestGolayPath(unittest.TestCase):
         self.pipeline = RxPipeline(CMD_DEFS, {})
 
     def test_frame_size_is_fixed(self):
-        packet = self.csp.wrap(build_cmd_raw(6, 2, "ping", "REQ"))
+        packet = self.csp.wrap(build_cmd_raw(6, 2, "com_ping", ""))
         frame = build_asm_golay_frame(packet)
         self.assertEqual(len(frame), 312)
         self.assertEqual(frame[50:54].hex(), "930b51de")
 
     def test_golay_header_flag_bits_remain_zero(self):
-        packet = self.csp.wrap(build_cmd_raw(6, 2, "ping", "REQ"))
+        packet = self.csp.wrap(build_cmd_raw(6, 2, "com_ping", ""))
         frame = build_asm_golay_frame(packet)
         golay_header = frame[54:57]
         length_field = int.from_bytes(golay_header, "big") & 0xFFF
@@ -39,7 +39,7 @@ class TestGolayPath(unittest.TestCase):
             build_asm_golay_frame(bytes(MAX_PAYLOAD + 1))
 
     def test_gr_satellites_roundtrip_ping(self):
-        raw = build_cmd_raw(6, 2, "ping", "REQ")
+        raw = build_cmd_raw(6, 2, "com_ping", "")
         packet = self.csp.wrap(raw)
         frame = build_asm_golay_frame(packet)
         decoded = decode_golay_via_gr(frame)
@@ -47,7 +47,7 @@ class TestGolayPath(unittest.TestCase):
 
         pkt = self.pipeline.process(META_GOLAY, decoded)
         self.assertEqual(pkt.frame_type, "ASM+GOLAY")
-        self.assertEqual(pkt.mission_data["cmd"]["cmd_id"], "ping")
+        self.assertEqual(pkt.mission_data["cmd"]["cmd_id"], "com_ping")
         self.assertTrue(pkt.mission_data["cmd"]["crc_valid"])
         self.assertTrue(pkt.mission_data["crc_status"]["csp_crc32_valid"])
         self.assertTrue(pkt.mission_data["cmd"]["schema_match"])

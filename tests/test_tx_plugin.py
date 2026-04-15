@@ -510,7 +510,9 @@ class TestTxRendering(unittest.TestCase):
     def test_title_and_subtitle_preserved(self):
         result = self.adapter.build_tx_command(self.payload)
         self.assertEqual(result["display"]["title"], self.cmd_id)
-        self.assertIn("\u2192", result["display"]["subtitle"])
+        # subtitle carries the destination node name (routing hint shown in TX queue)
+        self.assertTrue(result["display"]["subtitle"])
+        self.assertEqual(result["display"]["subtitle"], self.payload["dest"])
 
 
 class TestCmdLineToPayload(unittest.TestCase):
@@ -714,7 +716,7 @@ class TestImagingCommandsRoundtrip(unittest.TestCase):
         adapter = self._make_adapter()
         result = adapter.build_tx_command({
             "cmd_id": "img_delete",
-            "args": {"Filepath": "/home/pi/full/limb_003.jpg"},
+            "args": {"Filename": "limb_003.jpg", "Dest": "1"},
             "dest": "HLNV", "echo": "NONE", "ptype": "CMD",
         })
         self._assert_raw(result)

@@ -27,23 +27,23 @@ class TestProtocolCore(unittest.TestCase):
         self.assertIn("gnc_set_mode", CMD_DEFS)
 
     def test_command_roundtrip_ping(self):
-        raw = build_cmd_raw(6, 2, "ping", "REQ")
+        raw = build_cmd_raw(6, 2, "com_ping", "")
         decoded, tail = CommandFrame.from_bytes(raw)
         self.assertIsNotNone(decoded)
-        self.assertEqual(decoded.cmd_id, "ping")
-        self.assertEqual(decoded.args_str, "REQ")
+        self.assertEqual(decoded.cmd_id, "com_ping")
+        self.assertEqual(decoded.args_str, "")
         self.assertTrue(decoded.crc_valid)
         self.assertEqual(tail, b"")
 
     def test_csp_crc_roundtrip(self):
-        raw = build_cmd_raw(6, 2, "ping", "REQ")
+        raw = build_cmd_raw(6, 2, "com_ping", "")
         packet = CSPConfig().wrap(raw)
         is_valid, rx_crc, comp_crc = verify_csp_crc32(packet)
         self.assertTrue(is_valid)
         self.assertEqual(rx_crc, comp_crc)
 
     def test_ax25_wrap_contains_ui_pid_marker(self):
-        raw = build_cmd_raw(6, 2, "ping", "REQ")
+        raw = build_cmd_raw(6, 2, "com_ping", "")
         ax25_payload = AX25Config().wrap(CSPConfig().wrap(raw))
         self.assertEqual(ax25_payload[14:16], b"\x03\xf0")
 
@@ -69,7 +69,7 @@ class TestProtocolCore(unittest.TestCase):
         self.assertIsNone(tail)
 
     def test_corrupted_csp_crc_is_detected(self):
-        raw = build_cmd_raw(6, 2, "ping", "REQ")
+        raw = build_cmd_raw(6, 2, "com_ping", "")
         packet = bytearray(CSPConfig().wrap(raw))
         packet[-1] ^= 0xFF
         is_valid, _rx_crc, _comp_crc = verify_csp_crc32(bytes(packet))
@@ -98,7 +98,7 @@ class TestProtocolCore(unittest.TestCase):
         self.assertIsNone(ts_result)
 
     def test_adapter_crc_and_uplink_echo_behavior(self):
-        inner = CSPConfig().wrap(build_cmd_raw(6, 2, "ping", "REQ"))
+        inner = CSPConfig().wrap(build_cmd_raw(6, 2, "com_ping", ""))
         warnings = []
         parsed = self.adapter.parse_packet(inner, warnings)
         cmd = parsed.mission_data["cmd"]

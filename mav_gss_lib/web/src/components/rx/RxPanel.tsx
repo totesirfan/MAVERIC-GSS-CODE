@@ -9,6 +9,7 @@ import { TogglePill } from '@/components/shared/TogglePill'
 import { StatusDot } from '@/components/shared/StatusDot'
 import { PacketList } from './PacketList'
 import { PacketDetail } from './PacketDetail'
+import { BlackoutPill } from './BlackoutPill'
 import { ReplayPanel } from '@/components/logs/ReplayPanel'
 import { colors } from '@/lib/colors'
 import { PanelToasts } from '@/components/shared/StatusToast'
@@ -106,6 +107,7 @@ interface RxPanelProps {
   onStopReplay?: () => void
   sessionResetGen?: number
   sessionTag?: string
+  blackoutUntil?: number | null
   externalShowHex?: boolean
   externalShowFrame?: boolean
   externalShowWrapper?: boolean
@@ -126,7 +128,7 @@ function hasEcho(packet: RxPacket): boolean {
   return packet.is_echo
 }
 
-export function RxPanel({ config, packets, status, packetStats, columns, replayMode, replaySession, replacePackets, onStopReplay, sessionResetGen, sessionTag, externalShowHex, externalShowFrame, externalShowWrapper, externalHideUplink, onToggleHex, onToggleFrame, onToggleWrapper, onToggleUplink }: RxPanelProps) {
+export function RxPanel({ config, packets, status, packetStats, columns, replayMode, replaySession, replacePackets, onStopReplay, sessionResetGen, sessionTag, blackoutUntil, externalShowHex, externalShowFrame, externalShowWrapper, externalHideUplink, onToggleHex, onToggleFrame, onToggleWrapper, onToggleUplink }: RxPanelProps) {
   const { showHex, showFrame, showWrapper, hideUplink, toggleHex, toggleFrame, toggleWrapper, toggleUplink } = useRxToggles({
     externalShowHex, externalShowFrame, externalShowWrapper, externalHideUplink,
     onToggleHex, onToggleFrame, onToggleWrapper, onToggleUplink,
@@ -246,6 +248,10 @@ export function RxPanel({ config, packets, status, packetStats, columns, replayM
                 </span>
               </span>
             )}
+            <BlackoutPill
+              until={blackoutUntil ?? null}
+              configuredMs={config?.rx?.tx_blackout_ms ?? 0}
+            />
             {!replayMode && packets.length > 0 && (
               <span className="text-[11px] font-mono tabular-nums flex items-center gap-2 ml-auto mr-2" style={{ color: colors.textMuted }}>
                 {packetStats?.total ?? packets.length} pkts
