@@ -9,6 +9,7 @@ interface CommandArg {
   name: string
   type: string
   important?: boolean
+  optional?: boolean
 }
 
 interface CommandDef {
@@ -111,8 +112,17 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
     setSearch('')
   }
 
+  // Build preview args in schema order (not argValues insertion order).
+  // Stop at the first missing arg so the preview matches what the
+  // backend will actually put on the wire (positional, trailing-only).
+  const previewArgs: string[] = []
+  for (const a of txArgs) {
+    const val = (argValues[a.name] ?? '').trim()
+    if (!val) break
+    previewArgs.push(val)
+  }
   const preview = selectedCmd && destNode
-    ? `${destNode} ${echo !== 'NONE' ? echo + ' ' : ''}${cmdDef?.ptype || 'CMD'} ${selectedCmd} ${Object.values(argValues).filter(Boolean).join(' ')}`.trim()
+    ? `${destNode} ${echo !== 'NONE' ? echo + ' ' : ''}${cmdDef?.ptype || 'CMD'} ${selectedCmd} ${previewArgs.join(' ')}`.trim()
     : ''
 
   return (
@@ -204,22 +214,50 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
               <>
                 <div className="text-[11px] font-medium mb-1" style={{ color: colors.dim }}>Arguments</div>
                 <div className="grid grid-cols-2 gap-x-2 gap-y-1.5">
-                  {txArgs.map((arg, i) => (
-                    <div key={arg.name} className="space-y-0.5">
-                      <div className="flex items-baseline gap-1">
-                        <span className="text-[11px]" style={{ color: colors.dim }}>{arg.name}</span>
-                        <span className="text-[11px]" style={{ color: colors.sep }}>{arg.type}</span>
+                  {txArgs.map((arg, i) => {
+                    // Trailing-optional gate: an optional arg is only
+                    // enabled when every earlier arg has a value. This
+                    // prevents the operator from creating a gap that
+                    // the backend would reject at send time.
+                    const earlierFilled = txArgs
+                      .slice(0, i)
+                      .every(a => (argValues[a.name] ?? '').trim() !== '')
+                    const disabled = !!arg.optional && !earlierFilled
+                    return (
+                      <div key={arg.name} className="space-y-0.5">
+                        <div className="flex items-baseline gap-1">
+                          <span className="text-[11px]" style={{ color: colors.dim }}>{arg.name}</span>
+                          <span className="text-[11px]" style={{ color: colors.sep }}>{arg.type}</span>
+                          {arg.optional && (
+                            <span className="text-[10px] italic" style={{ color: colors.sep }}>optional</span>
+                          )}
+                        </div>
+                        <GssInput
+                          ref={i === 0 ? firstArgRef : undefined}
+                          className="w-full"
+                          value={argValues[arg.name] ?? ''}
+                          disabled={disabled}
+                          onChange={(e) => {
+                            const next = e.target.value
+                            setArgValues(prev => {
+                              const updated: Record<string, string> = { ...prev, [arg.name]: next }
+                              // Clearing an optional clears every
+                              // downstream optional too, since later
+                              // optionals can't remain without it.
+                              if (arg.optional && !next.trim()) {
+                                for (let j = i + 1; j < txArgs.length; j++) {
+                                  if (txArgs[j].optional) updated[txArgs[j].name] = ''
+                                }
+                              }
+                              return updated
+                            })
+                          }}
+                          onKeyDown={(e) => { if (e.key === 'Enter') handleQueue() }}
+                          placeholder={arg.type === 'epoch_ms' ? 'auto' : ''}
+                        />
                       </div>
-                      <GssInput
-                        ref={i === 0 ? firstArgRef : undefined}
-                        className="w-full"
-                        value={argValues[arg.name] ?? ''}
-                        onChange={(e) => setArgValues(prev => ({ ...prev, [arg.name]: e.target.value }))}
-                        onKeyDown={(e) => { if (e.key === 'Enter') handleQueue() }}
-                        placeholder={arg.type === 'epoch_ms' ? 'auto' : ''}
-                      />
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </>
             ) : (
