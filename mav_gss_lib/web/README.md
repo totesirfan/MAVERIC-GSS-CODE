@@ -55,14 +55,14 @@ src/
   index.css              Tailwind directives + tokens
   components/
     MainDashboard.tsx    Split-pane RX/TX layout, owns useRxSocket/useTxSocket
-    rx/                  RxPanel, PacketList/Row/Detail, RxStatusBar, SessionBanner
+    rx/                  RxPanel, PacketList/Row/Detail, SessionBanner
     tx/                  TxPanel, TxQueue, QueueItem, CommandInput, ImportDialog, SentHistory, DelayItem
     shared/              PtypeBadge, StatusDot, TogglePill, ContextMenu, CommandPalette, HelpModal,
                          StatusToast, AlarmStrip, ConfirmBar/Dialog, PromptDialog, PreflightScreen,
                          RenderingBlocks
     config/              Runtime config editor + sidebar
     logs/                Log session browser + replay controls
-    layout/              GlobalHeader, SessionBar, SplitPane, KeyboardHintBar
+    layout/              GlobalHeader, SplitPane, KeyboardHintBar
     ui/                  shadcn/ui primitives
   hooks/
     RxProvider.tsx       RX WebSocket context
