@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Settings, HelpCircle, FileText, Maximize, Minimize } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Settings, HelpCircle, FileText } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
@@ -48,27 +49,36 @@ function extractTimeLocal(startedAt: string): string {
   return `${h}:${m}`
 }
 
-function RxStatusPill() {
+/** Per-digit vertical-slide clock animation */
+function FlipDigits({ value }: { value: string }) {
+  return (
+    <>
+      {value.split('').map((char, i) => (
+        <AnimatePresence mode="popLayout" key={i} initial={false}>
+          <motion.span
+            key={char}
+            style={{ display: 'inline-block' }}
+            initial={{ y: 4, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: -4, opacity: 0 }}
+            transition={{ duration: 0.12, ease: [0.4, 0, 0.2, 1] as const }}
+          >
+            {char}
+          </motion.span>
+        </AnimatePresence>
+      ))}
+    </>
+  )
+}
+
+/** Returns RX state color for ambient border + status pill */
+function useRxStateColor(): { label: string; color: string; borderColor: string } {
   const { status } = useRxStatus()
   const rate = status.pkt_rate
   const silence = status.silence_s
-  let label: string
-  let color: string
-  if (rate > 0) {
-    label = `${rate.toFixed(1)}/s`
-    color = colors.success
-  } else if (silence >= 30) {
-    label = `SILENT ${Math.round(silence)}s`
-    color = colors.warning
-  } else {
-    label = 'STANDBY'
-    color = colors.dim
-  }
-  return (
-    <span className="font-mono" style={{ fontSize: 11, color, fontFamily: "'JetBrains Mono', monospace" }}>
-      <span style={{ marginRight: 4 }}>●</span>{label}
-    </span>
-  )
+  if (rate > 0) return { label: `${rate.toFixed(1)}/s`, color: colors.success, borderColor: `${colors.success}4D` }
+  if (silence >= 30) return { label: `SILENT ${Math.round(silence)}s`, color: colors.warning, borderColor: `${colors.warning}4D` }
+  return { label: 'STANDBY', color: colors.dim, borderColor: colors.borderSubtle }
 }
 
 export function GlobalHeader({
@@ -78,19 +88,13 @@ export function GlobalHeader({
   onLogsClick, onConfigClick, onHelpClick,
   session,
 }: GlobalHeaderProps) {
-  const [isFullscreen, setIsFullscreen] = useState(!!document.fullscreenElement)
   const [now, setNow] = useState(new Date())
   const [elapsed, setElapsed] = useState(() => formatElapsed(session?.startedAt ?? ''))
+  const rxState = useRxStateColor()
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000)
     return () => clearInterval(id)
-  }, [])
-
-  useEffect(() => {
-    const onChange = () => setIsFullscreen(!!document.fullscreenElement)
-    document.addEventListener('fullscreenchange', onChange)
-    return () => document.removeEventListener('fullscreenchange', onChange)
   }, [])
 
   useEffect(() => {
@@ -100,15 +104,11 @@ export function GlobalHeader({
     return () => clearInterval(id)
   }, [session?.startedAt])
 
-  function toggleFullscreen() {
-    if (document.fullscreenElement) document.exitFullscreen()
-    else document.documentElement.requestFullscreen()
-  }
-  const utcDate = now.toISOString().slice(0, 10)
   const utcTime = now.toISOString().slice(11, 19)
+  const utcDate = now.toISOString().slice(0, 10)
   const localDate = now.toLocaleDateString('en-CA')
   const localTime = now.toLocaleTimeString('en-GB', { hour12: false })
-  const tz = (Intl.DateTimeFormat().resolvedOptions().timeZone.split('/').pop() ?? 'local').replace(/_/g, ' ')
+  const tz = now.toLocaleTimeString('en-US', { timeZoneName: 'short' }).split(' ').pop() ?? 'local'
 
   const isUntitled = !session?.tag || session.tag === 'untitled'
   const sessionLabel = isUntitled
@@ -117,12 +117,20 @@ export function GlobalHeader({
 
   return (
     <header className="shrink-0" style={{ backgroundColor: colors.bgApp }}>
-      {/* Row 1: Brand bar */}
-      <div className="flex items-center h-[34px] px-4">
+      {/* Row 1: Brand bar — with noise texture + ambient state border */}
+      <div className="relative flex items-center h-[34px] px-4" style={{ borderBottom: `1px solid ${rxState.borderColor}`, transition: 'border-color 1s ease' }}>
+        {/* Noise texture overlay */}
+        <svg className="absolute" style={{ width: 0, height: 0 }} aria-hidden>
+          <filter id="header-noise">
+            <feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="4" stitchTiles="stitch" />
+          </filter>
+        </svg>
+        <div className="absolute inset-0 pointer-events-none" style={{ filter: 'url(#header-noise)', opacity: 0.015, mixBlendMode: 'overlay' }} />
+
         {/* Brand */}
-        <div className="usc-brand flex items-center gap-2 mr-4 cursor-default">
-          <img src="/usc-shield.png" alt="" className="h-[18px] w-auto" />
-          <img src="/maveric-patch.webp" alt="" className="usc-icon size-[18px]" />
+        <div className="usc-brand flex items-center gap-2 mr-4 cursor-default relative">
+          <img src="/usc-shield.png" alt="" className="h-[20px] w-auto" />
+          <img src="/maveric-patch.webp" alt="" className="usc-icon size-[24px]" />
           <div className="flex items-center">
             <span className="usc-maveric font-bold text-[13px] tracking-wide transition-colors" style={{ color: colors.value }}>{missionName}</span>
             <span className="usc-gss font-bold text-[13px] tracking-wide transition-colors" style={{ color: colors.value }}>&nbsp;GSS</span>
@@ -132,7 +140,7 @@ export function GlobalHeader({
 
         {/* Session info */}
         {session && (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 relative">
             <span style={{ color: colors.borderStrong, fontSize: '11px', userSelect: 'none' }}>|</span>
             <span
               className="font-mono"
@@ -178,23 +186,19 @@ export function GlobalHeader({
           </div>
         )}
 
-        {/* RX status pill */}
-        <div className="flex items-center gap-3 ml-3">
-          <RxStatusPill />
-        </div>
 
-        {/* Clock — pushed right */}
-        <div className="flex items-center gap-3 ml-auto tabular-nums text-[11px]">
-          <span style={{ color: colors.value }}>{localDate} {localTime} <span className="font-light" style={{ color: colors.dim }}>{tz}</span></span>
-          <span className="font-light" style={{ color: colors.dim }}>{utcDate} {utcTime} UTC</span>
+        {/* Clock with flip digits — pushed right */}
+        <div className="flex items-center gap-3 ml-auto tabular-nums text-[11px] relative">
+          <span style={{ color: colors.value }}>{localDate} <FlipDigits value={localTime} /> {tz}</span>
+          <span className="font-light" style={{ color: colors.dim }}>{utcDate} <FlipDigits value={utcTime} /> UTC</span>
         </div>
       </div>
 
-      {/* Divider */}
-      <div style={{ height: 1, backgroundColor: colors.borderSubtle }} />
-
-      {/* Row 2: Mission bar */}
-      <div className="flex items-center h-[36px] px-4">
+      {/* Row 2: Mission bar — frosted glass */}
+      <div
+        className="flex items-center h-[30px] px-4 backdrop-blur-sm"
+        style={{ backgroundColor: 'rgba(8,8,8,0.8)' }}
+      >
         {/* Tab strip */}
         <TabStrip tabs={tabs} activeId={activeTabId} onTabClick={onTabClick} />
 
@@ -211,12 +215,6 @@ export function GlobalHeader({
           <Button variant="ghost" size="sm" onClick={onHelpClick} className="h-7 px-2 gap-1.5 text-[11px]" style={{ color: colors.dim }}>
             <HelpCircle className="size-3.5" />
             Help
-          </Button>
-          <Button variant="ghost" size="icon" onClick={toggleFullscreen} className="size-7 btn-feedback" title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
-            {isFullscreen
-              ? <Minimize className="size-3.5" style={{ color: colors.dim }} />
-              : <Maximize className="size-3.5" style={{ color: colors.dim }} />
-            }
           </Button>
         </div>
       </div>

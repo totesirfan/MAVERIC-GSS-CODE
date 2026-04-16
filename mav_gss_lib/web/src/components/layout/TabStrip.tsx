@@ -8,12 +8,28 @@ interface TabStripProps {
   onTabClick: (id: string) => void
 }
 
+const containerVariants = {
+  hidden: {},
+  visible: { transition: { staggerChildren: 0.03 } },
+}
+
+const tabVariants = {
+  hidden: { opacity: 0, x: -8 },
+  visible: { opacity: 1, x: 0, transition: { duration: 0.2, ease: [0.4, 0, 0.2, 1] as const } },
+}
+
 export function TabStrip({ tabs, activeId, onTabClick }: TabStripProps) {
   const reducedMotion = useReducedMotion()
   let prevCategory: string | null = null
 
   return (
-    <div className="flex items-stretch relative" style={{ height: 36 }}>
+    <motion.div
+      className="flex items-stretch relative"
+      style={{ height: 30 }}
+      variants={reducedMotion ? undefined : containerVariants}
+      initial="hidden"
+      animate="visible"
+    >
       {tabs.map((t) => {
         const isActive = activeId === t.id
         const isDashboard = t.kind === 'dashboard'
@@ -24,7 +40,11 @@ export function TabStrip({ tabs, activeId, onTabClick }: TabStripProps) {
         const tabColor = isActive ? activeColor : colors.dim
 
         return (
-          <div key={t.id} className="flex items-stretch">
+          <motion.div
+            key={t.id}
+            className="flex items-stretch"
+            variants={reducedMotion ? undefined : tabVariants}
+          >
             {needsDivider && (
               <div
                 className="self-center"
@@ -44,7 +64,7 @@ export function TabStrip({ tabs, activeId, onTabClick }: TabStripProps) {
                 fontSize: 11,
                 fontWeight: 500,
                 letterSpacing: '0.2px',
-                height: 36,
+                height: 30,
                 background: 'transparent',
                 border: 'none',
                 padding: '0 14px',
@@ -56,9 +76,16 @@ export function TabStrip({ tabs, activeId, onTabClick }: TabStripProps) {
                 e.currentTarget.style.background = 'transparent'
               }}
             >
-              <t.icon
-                style={{ width: 14, height: 14, strokeWidth: 1.8 }}
-              />
+              {/* Icon with settle spring on activation */}
+              <motion.div
+                key={isActive ? 'active' : 'idle'}
+                initial={isActive && !reducedMotion ? { scale: 1.12 } : false}
+                animate={{ scale: 1 }}
+                transition={{ type: 'spring', stiffness: 500, damping: 25 }}
+                style={{ display: 'flex' }}
+              >
+                <t.icon style={{ width: 14, height: 14, strokeWidth: 1.8 }} />
+              </motion.div>
               <span>{t.name}</span>
               {isActive && (
                 <motion.div
@@ -74,14 +101,14 @@ export function TabStrip({ tabs, activeId, onTabClick }: TabStripProps) {
                   transition={
                     reducedMotion
                       ? { duration: 0 }
-                      : { duration: 0.22, ease: [0.4, 0, 0.2, 1] }
+                      : { duration: 0.22, ease: [0.4, 0, 0.2, 1] as const }
                   }
                 />
               )}
             </button>
-          </div>
+          </motion.div>
         )
       })}
-    </div>
+    </motion.div>
   )
 }
