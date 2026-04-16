@@ -1,26 +1,29 @@
-import { useState, useRef, useCallback } from 'react'
-import { Wrench, CornerDownLeft } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { useState, useRef, useCallback, forwardRef } from 'react'
+import { CornerDownLeft } from 'lucide-react'
+import { Kbd } from '@/components/ui/kbd'
 import { colors } from '@/lib/colors'
 
 interface CommandInputProps {
   onSubmit: (line: string) => void
-  onBuilderToggle?: () => void
+  history: string[]
+  onHistoryPush: (cmd: string) => void
 }
 
-export function CommandInput({ onSubmit, onBuilderToggle }: CommandInputProps) {
+export const CommandInput = forwardRef<HTMLTextAreaElement, CommandInputProps>(
+  function CommandInput({ onSubmit, history, onHistoryPush }, ref) {
   const [value, setValue] = useState('')
-  const [history, setHistory] = useState<string[]>([])
   const [histIdx, setHistIdx] = useState(-1)
-  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const [focused, setFocused] = useState(false)
+  const internalRef = useRef<HTMLTextAreaElement>(null)
+  const inputRef = (ref as React.RefObject<HTMLTextAreaElement | null>) ?? internalRef
 
   const submit = useCallback(() => {
     if (!value.trim()) return
     onSubmit(value.trim())
-    setHistory((prev) => [value.trim(), ...prev])
+    onHistoryPush(value.trim())
     setValue('')
     setHistIdx(-1)
-  }, [value, onSubmit])
+  }, [value, onSubmit, onHistoryPush])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey && value.trim()) {
@@ -40,51 +43,59 @@ export function CommandInput({ onSubmit, onBuilderToggle }: CommandInputProps) {
   }, [value, history, histIdx, submit])
 
   const hasText = value.trim().length > 0
+  const showCursor = focused && !hasText
 
   return (
-    <div className="flex overflow-hidden h-full">
-      {/* Left: input + toolbar */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 px-3 pt-2 pb-1">
-          <textarea
-            ref={inputRef}
-            className="flex-1 bg-transparent text-xs font-mono outline-none resize-none leading-5"
-            style={{ color: colors.value }}
-            placeholder="Type a command..."
-            value={value}
-            rows={1}
-            onChange={(e) => { setValue(e.target.value); setHistIdx(-1) }}
-            onKeyDown={handleKeyDown}
-            spellCheck={false}
-            autoComplete="off"
+    <div className="flex flex-col h-full">
+      {/* Input row */}
+      <div className="flex-1 flex items-center gap-2 px-3 min-h-0">
+        <span
+          className="font-mono text-[13px] leading-none select-none"
+          style={{ color: colors.active }}
+          aria-hidden="true"
+        >❯</span>
+        {showCursor && (
+          <div
+            className="w-0.5 h-[18px] rounded-sm shrink-0 animate-[blink_1.2s_ease-in-out_infinite]"
+            style={{ backgroundColor: colors.active }}
           />
-        </div>
-        <div className="flex items-center gap-1 px-2 pb-1.5">
-          {onBuilderToggle && (
-            <Button variant="ghost" size="sm" onClick={onBuilderToggle} className="h-6 px-2 rounded gap-1" title="Command Builder">
-              <Wrench className="size-3" style={{ color: colors.dim }} />
-              <span className="text-[11px]" style={{ color: colors.dim }}>Builder</span>
-            </Button>
-          )}
-          <span className="text-[11px]" style={{ color: colors.sep }}>↑↓ history</span>
-        </div>
+        )}
+        <textarea
+          ref={inputRef}
+          className="flex-1 bg-transparent text-xs font-mono outline-none resize-none leading-5"
+          style={{ color: colors.value }}
+          placeholder="Type a command..."
+          value={value}
+          rows={1}
+          onChange={(e) => { setValue(e.target.value); setHistIdx(-1) }}
+          onKeyDown={handleKeyDown}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          spellCheck={false}
+          autoComplete="off"
+        />
+        <button
+          onClick={submit}
+          disabled={!hasText}
+          className="flex items-center gap-1.5 shrink-0 rounded-md transition-all duration-150 btn-feedback"
+          style={{
+            padding: '5px 12px',
+            borderRadius: '6px',
+            border: `1px solid ${hasText ? colors.active : colors.borderStrong}`,
+            backgroundColor: hasText ? 'rgba(48,200,224,0.08)' : 'transparent',
+            color: hasText ? colors.active : colors.dim,
+            cursor: hasText ? 'pointer' : 'default',
+          }}
+        >
+          <CornerDownLeft className="size-3" />
+          <span className="text-[11px] font-semibold">Queue</span>
+        </button>
       </div>
-
-      {/* Right: Queue button — full height */}
-      <button
-        onClick={submit}
-        disabled={!hasText}
-        className="flex flex-col items-center justify-center px-4 gap-1 border-l transition-colors shrink-0 btn-feedback"
-        style={{
-          borderColor: colors.borderSubtle,
-          backgroundColor: hasText ? colors.label : 'transparent',
-          color: hasText ? colors.bgApp : colors.dim,
-          cursor: hasText ? 'pointer' : 'default',
-        }}
-      >
-        <CornerDownLeft className="size-4" />
-        <span className="text-[11px] font-medium">Queue</span>
-      </button>
+      {/* Kbd hints */}
+      <div className="flex items-center gap-1.5 px-3 pb-1.5">
+        <Kbd>↑</Kbd><Kbd>↓</Kbd>
+        <span className="text-[10px]" style={{ color: colors.sep }}>history</span>
+      </div>
     </div>
   )
-}
+})
