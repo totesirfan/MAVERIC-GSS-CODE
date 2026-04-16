@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, type ReactNode } from 'react'
+import { createContext, useContext, useMemo, useState, type ReactNode } from 'react'
 import { useRxSocket } from '@/hooks/useRxSocket'
 import type { RxPacket } from '@/lib/types'
 
@@ -6,6 +6,18 @@ type RxSocketValue = ReturnType<typeof useRxSocket>
 type RxStatsValue = RxSocketValue['stats']
 type RxStatusValue = Omit<RxSocketValue, 'packets' | 'stats'>
 
+interface RxDisplayToggles {
+  showHex: boolean
+  showFrame: boolean
+  showWrapper: boolean
+  hideUplink: boolean
+  toggleHex: () => void
+  toggleFrame: () => void
+  toggleWrapper: () => void
+  toggleUplink: () => void
+}
+
+const RxDisplayTogglesContext = createContext<RxDisplayToggles | null>(null)
 const RxStatusContext = createContext<RxStatusValue | null>(null)
 const RxPacketsContext = createContext<RxPacket[] | null>(null)
 const RxStatsContext = createContext<RxStatsValue | null>(null)
@@ -37,14 +49,32 @@ export function RxProvider({ children }: { children: ReactNode }) {
     ],
   )
 
+  const [showHex, setShowHex] = useState(false)
+  const [showFrame, setShowFrame] = useState(false)
+  const [showWrapper, setShowWrapper] = useState(false)
+  const [hideUplink, setHideUplink] = useState(true)
+
+  const displayToggles = useMemo<RxDisplayToggles>(() => ({
+    showHex,
+    showFrame,
+    showWrapper,
+    hideUplink,
+    toggleHex: () => setShowHex(v => !v),
+    toggleFrame: () => setShowFrame(v => !v),
+    toggleWrapper: () => setShowWrapper(v => !v),
+    toggleUplink: () => setHideUplink(v => !v),
+  }), [showHex, showFrame, showWrapper, hideUplink])
+
   return (
-    <RxStatusContext.Provider value={statusValue}>
-      <RxStatsContext.Provider value={stats}>
-        <RxPacketsContext.Provider value={packets}>
-          {children}
-        </RxPacketsContext.Provider>
-      </RxStatsContext.Provider>
-    </RxStatusContext.Provider>
+    <RxDisplayTogglesContext.Provider value={displayToggles}>
+      <RxStatusContext.Provider value={statusValue}>
+        <RxStatsContext.Provider value={stats}>
+          <RxPacketsContext.Provider value={packets}>
+            {children}
+          </RxPacketsContext.Provider>
+        </RxStatsContext.Provider>
+      </RxStatusContext.Provider>
+    </RxDisplayTogglesContext.Provider>
   )
 }
 
@@ -66,6 +96,13 @@ export function useRxPackets(): RxPacket[] {
 export function useRxStats(): RxStatsValue {
   const ctx = useContext(RxStatsContext)
   if (!ctx) throw new Error('useRxStats must be used within RxProvider')
+  return ctx
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function useRxDisplayToggles(): RxDisplayToggles {
+  const ctx = useContext(RxDisplayTogglesContext)
+  if (!ctx) throw new Error('useRxDisplayToggles must be used within RxProvider')
   return ctx
 }
 

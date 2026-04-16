@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense, type
 import { useShortcuts, type Shortcut } from '@/hooks/useShortcuts'
 import { GlobalHeader } from '@/components/layout/GlobalHeader'
 import { SplitPane } from '@/components/layout/SplitPane'
-import { useRxStatus, useRxPackets, useRxStats } from '@/hooks/RxProvider'
+import { useRxStatus, useRxPackets, useRxStats, useRxDisplayToggles } from '@/hooks/RxProvider'
 import { useTx } from '@/hooks/TxProvider'
 import { useSessionContext } from '@/hooks/SessionProvider'
 import { RxPanel } from '@/components/rx/RxPanel'
@@ -160,10 +160,7 @@ export function MainDashboard({ config, onConfigChange, missionName, version, pl
   const [replaySession, setReplaySession] = useState<string | null>(null)
   const [confirmSendSignal, setConfirmSendSignal] = useState(0)
   const [confirmClearSignal, setConfirmClearSignal] = useState(0)
-  const [rxShowHex, setRxShowHex] = useState(false)
-  const [rxShowFrame, setRxShowFrame] = useState(false)
-  const [rxShowWrapper, setRxShowWrapper] = useState(false)
-  const [rxHideUplink, setRxHideUplink] = useState(true)
+  const rxToggles = useRxDisplayToggles()
 
   const startReplay = useCallback((sessionId: string) => {
     rx.enterReplay()
@@ -243,14 +240,14 @@ export function MainDashboard({ config, onConfigChange, missionName, version, pl
               sessionResetGen={rx.sessionResetGen}
               sessionTag={rx.sessionResetTag || session.tag}
               blackoutUntil={rx.blackoutUntil}
-              externalShowHex={rxShowHex}
-              externalShowFrame={rxShowFrame}
-              externalShowWrapper={rxShowWrapper}
-              externalHideUplink={rxHideUplink}
-              onToggleHex={() => setRxShowHex(v => !v)}
-              onToggleFrame={() => setRxShowFrame(v => !v)}
-              onToggleWrapper={() => setRxShowWrapper(v => !v)}
-              onToggleUplink={() => setRxHideUplink(v => !v)}
+              externalShowHex={rxToggles.showHex}
+              externalShowFrame={rxToggles.showFrame}
+              externalShowWrapper={rxToggles.showWrapper}
+              externalHideUplink={rxToggles.hideUplink}
+              onToggleHex={rxToggles.toggleHex}
+              onToggleFrame={rxToggles.toggleFrame}
+              onToggleWrapper={rxToggles.toggleWrapper}
+              onToggleUplink={rxToggles.toggleUplink}
             />
           }
         />
@@ -280,10 +277,10 @@ export function MainDashboard({ config, onConfigChange, missionName, version, pl
               confirmClear: () => setConfirmClearSignal(n => n + 1),
               undoLast: tx.undoLast,
               abortSend: tx.abortSend,
-              toggleHex: () => setRxShowHex(v => !v),
-              toggleUplink: () => setRxHideUplink(v => !v),
-              toggleFrame: () => setRxShowFrame(v => !v),
-              toggleWrapper: () => setRxShowWrapper(v => !v),
+              toggleHex: rxToggles.toggleHex,
+              toggleUplink: rxToggles.toggleUplink,
+              toggleFrame: rxToggles.toggleFrame,
+              toggleWrapper: rxToggles.toggleWrapper,
               openConfig: () => setShowConfig(true),
               openLogs: () => setShowLogs(true),
               openHelp: () => setShowHelp(true),
