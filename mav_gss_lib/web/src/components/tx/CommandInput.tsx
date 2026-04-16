@@ -74,27 +74,15 @@ export const CommandInput = forwardRef<HTMLTextAreaElement, CommandInputProps>(
           spellCheck={false}
           autoComplete="off"
         />
-        <button
-          onClick={submit}
-          disabled={!hasText}
-          className="flex items-center gap-1.5 shrink-0 rounded-md transition-all duration-150 btn-feedback"
-          style={{
-            padding: '5px 12px',
-            borderRadius: '6px',
-            border: `1px solid ${hasText ? colors.active : colors.borderStrong}`,
-            backgroundColor: hasText ? 'rgba(48,200,224,0.08)' : 'transparent',
-            color: hasText ? colors.active : colors.dim,
-            cursor: hasText ? 'pointer' : 'default',
-          }}
-        >
-          <CornerDownLeft className="size-3" />
-          <span className="text-[11px] font-semibold">Queue</span>
-        </button>
       </div>
       {/* Kbd hints */}
       <div className="flex items-center gap-1.5 px-3 pb-1.5">
         <Kbd>↑</Kbd><Kbd>↓</Kbd>
         <span className="text-[10px]" style={{ color: colors.sep }}>history</span>
+        <span className="text-[10px] ml-auto flex items-center gap-1" style={{ color: colors.sep }}>
+          <Kbd><CornerDownLeft className="size-2.5" /></Kbd>
+          queue
+        </span>
       </div>
     </div>
   )
