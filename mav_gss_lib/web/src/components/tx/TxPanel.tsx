@@ -1,11 +1,12 @@
-import { useState, useMemo, Suspense } from 'react'
+import { useState, useMemo, Suspense, useCallback, useRef } from 'react'
 import { useEffect } from 'react'
 import { useShortcuts } from '@/hooks/useShortcuts'
 import { useTabActive } from '@/components/layout/TabActiveContext'
 import { motion } from 'framer-motion'
-import { FileUp, StopCircle, Send as SendIcon, ShieldCheck, X, ExternalLink } from 'lucide-react'
+import { FileUp, StopCircle, Send as SendIcon, ShieldCheck, X, ExternalLink, Wrench } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Kbd } from '@/components/ui/kbd'
 import { StatusDot } from '@/components/shared/StatusDot'
 import { colors } from '@/lib/colors'
 import { TxQueue } from './TxQueue'
@@ -55,6 +56,11 @@ export function TxPanel({
   const [showBuilder, setShowBuilder] = useState(false)
   const [showImport, setShowImport] = useState(false)
   const [txColumns, setTxColumns] = useState<TxColumnDef[]>([])
+  const [cmdHistory, setCmdHistory] = useState<string[]>([])
+  const pushHistory = useCallback((cmd: string) => {
+    setCmdHistory(prev => [cmd, ...prev])
+  }, [])
+  const mainCliRef = useRef<HTMLTextAreaElement>(null)
 
   const missionId = config?.general?.mission ?? ''
   /* eslint-disable react-hooks/static-components */
@@ -167,11 +173,60 @@ export function TxPanel({
           transition={{ type: 'spring', stiffness: 400, damping: 30, mass: 0.8 }}
         >
           {showBuilder && hasCommandBuilder && MissionBuilder ? (
-            <Suspense fallback={<div className="p-4 text-xs" style={{ color: colors.dim }}>Loading builder...</div>}>
-              <MissionBuilder onQueue={queueTemplate} onClose={() => setShowBuilder(false)} />
-            </Suspense>
+            <div className="flex flex-col h-full">
+              <div className="flex-1 overflow-y-auto min-h-0">
+                <Suspense fallback={<div className="p-4 text-xs" style={{ color: colors.dim }}>Loading builder...</div>}>
+                  <MissionBuilder onQueue={queueTemplate} onClose={() => {
+                    setShowBuilder(false)
+                    setTimeout(() => mainCliRef.current?.focus(), 50)
+                  }} />
+                </Suspense>
+              </div>
+              <CollapsedCli
+                onSubmit={queueCommand}
+                history={cmdHistory}
+                onHistoryPush={pushHistory}
+                onClose={() => {
+                  setShowBuilder(false)
+                  setTimeout(() => mainCliRef.current?.focus(), 50)
+                }}
+              />
+            </div>
           ) : (
-            <CommandInput onSubmit={queueCommand} onBuilderToggle={hasCommandBuilder && MissionBuilder ? () => setShowBuilder(true) : undefined} />
+            <div className="flex h-full">
+              <div className="flex-1 min-w-0">
+                <CommandInput
+                  onSubmit={queueCommand}
+                  history={cmdHistory}
+                  onHistoryPush={pushHistory}
+                  ref={mainCliRef}
+                />
+              </div>
+              {hasCommandBuilder && MissionBuilder && (
+                <button
+                  onClick={() => setShowBuilder(true)}
+                  className="shrink-0 flex flex-col items-center justify-center gap-1 border-l transition-colors"
+                  style={{
+                    width: 110,
+                    borderColor: colors.borderSubtle,
+                    backgroundColor: 'transparent',
+                    color: colors.active,
+                    opacity: 0.5,
+                  }}
+                  onMouseEnter={e => {
+                    (e.currentTarget as HTMLButtonElement).style.opacity = '0.7'
+                    ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgba(48,200,224,0.04)'
+                  }}
+                  onMouseLeave={e => {
+                    (e.currentTarget as HTMLButtonElement).style.opacity = '0.5'
+                    ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
+                  }}
+                >
+                  <Wrench className="size-3.5" />
+                  <span className="text-[11px] font-medium">Builder</span>
+                </button>
+              )}
+            </div>
           )}
         </motion.div>
       )}
@@ -181,6 +236,63 @@ export function TxPanel({
     </div>
   )
   /* eslint-enable react-hooks/static-components */
+}
+
+/* Collapsed CLI bar — shown at the bottom of the builder panel */
+function CollapsedCli({ onSubmit, history, onHistoryPush, onClose }: {
+  onSubmit: (line: string) => void
+  history: string[]
+  onHistoryPush: (cmd: string) => void
+  onClose: () => void
+}) {
+  const [value, setValue] = useState('')
+  const [histIdx, setHistIdx] = useState(-1)
+
+  return (
+    <div
+      className="shrink-0 flex items-center gap-2 px-3"
+      style={{ height: 34, borderTop: `1px solid ${colors.borderSubtle}` }}
+    >
+      <span className="font-mono text-xs select-none" style={{ color: colors.active, opacity: 0.4 }} aria-hidden="true">❯</span>
+      <textarea
+        className="flex-1 bg-transparent text-[11px] font-mono outline-none resize-none leading-5"
+        style={{ color: colors.value }}
+        placeholder="raw command..."
+        value={value}
+        rows={1}
+        onChange={(e) => { setValue(e.target.value); setHistIdx(-1) }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey && value.trim()) {
+            e.preventDefault()
+            onSubmit(value.trim())
+            onHistoryPush(value.trim())
+            setValue('')
+            setHistIdx(-1)
+          } else if (e.key === 'ArrowUp' && !value.includes('\n')) {
+            e.preventDefault()
+            const nextIdx = Math.min(histIdx + 1, history.length - 1)
+            setHistIdx(nextIdx)
+            if (history[nextIdx]) setValue(history[nextIdx])
+          } else if (e.key === 'ArrowDown' && !value.includes('\n')) {
+            e.preventDefault()
+            const nextIdx = histIdx - 1
+            if (nextIdx < 0) { setHistIdx(-1); setValue('') }
+            else { setHistIdx(nextIdx); setValue(history[nextIdx]) }
+          }
+        }}
+        spellCheck={false}
+        autoComplete="off"
+      />
+      <Kbd className="!h-[18px] !min-w-[18px] !text-[10px]">↑</Kbd>
+      <Kbd className="!h-[18px] !min-w-[18px] !text-[10px]">↓</Kbd>
+      <span style={{ color: colors.sep, fontSize: 10 }}>·</span>
+      <button
+        onClick={onClose}
+        className="text-[10px] bg-transparent border-none cursor-pointer"
+        style={{ color: colors.dim }}
+      >close</button>
+    </div>
+  )
 }
 
 /* Guard confirm inline block */
