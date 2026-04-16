@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { CornerDownLeft, ShieldCheck } from 'lucide-react'
+import { CornerDownLeft, ShieldCheck, Search } from 'lucide-react'
 import { colors } from '@/lib/colors'
-import { Command, CommandInput as CmdkInput, CommandList, CommandEmpty, CommandItem } from '@/components/ui/command'
+import { Command, CommandList, CommandEmpty, CommandItem } from '@/components/ui/command'
+import { Command as CommandPrimitive } from 'cmdk'
 import { Switch } from '@/components/ui/switch'
 import type { MissionBuilderProps } from '@/lib/types'
 import { GssInput } from '@/components/ui/gss-input'
@@ -143,7 +144,7 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
 
   return (
     <div
-      className="flex flex-col h-full"
+      className="flex flex-col overflow-y-auto h-full"
       onKeyDown={(e) => {
         if (e.key === 'Escape') {
           e.preventDefault()
@@ -156,8 +157,7 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
         }
       }}
     >
-      {/* Scrollable content */}
-      <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-2">
+      <div className="p-2.5 space-y-2.5 flex-1">
         {/* Node rail */}
         <div
           className="flex rounded-md p-0.5 gap-0.5"
@@ -186,35 +186,54 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
           })}
         </div>
 
-        {/* 2. Command picker */}
+        {/* Command picker */}
         {destNode && (
-          <Command className="!bg-transparent !p-0 !rounded-none !overflow-visible">
-            <CmdkInput
-              ref={cmdkSearchRef}
-              value={search}
-              onValueChange={setSearch}
-              placeholder="Search commands..."
-              className="!h-8 !text-[11px]"
-              style={{ background: colors.bgPanelRaised }}
-            />
-            <CommandList className="!max-h-36 rounded-md" style={{ border: `1px solid ${colors.borderSubtle}` }}>
+          <Command
+            className="!bg-transparent !p-0 !rounded-md !overflow-visible"
+            shouldFilter={true}
+          >
+            {/* Custom search input matching the preview mockup */}
+            <div
+              className="flex items-center gap-2 rounded-t-md"
+              style={{
+                background: colors.bgPanelRaised,
+                borderBottom: `1px solid ${colors.borderSubtle}`,
+                border: `1px solid ${colors.borderSubtle}`,
+                borderRadius: '6px 6px 0 0',
+              }}
+            >
+              <Search className="size-[13px] ml-2.5 shrink-0" style={{ color: colors.dim }} />
+              <CommandPrimitive.Input
+                ref={cmdkSearchRef}
+                value={search}
+                onValueChange={setSearch}
+                placeholder="Search commands..."
+                className="flex-1 h-8 bg-transparent text-[11px] font-sans outline-none placeholder:text-[#777]"
+                style={{ color: colors.value }}
+              />
+            </div>
+            <CommandList
+              className="!max-h-32 !overflow-y-auto rounded-b-md"
+              style={{ border: `1px solid ${colors.borderSubtle}`, borderTop: 'none' }}
+            >
               <CommandEmpty>
                 <span className="text-[11px]" style={{ color: colors.dim }}>No commands</span>
               </CommandEmpty>
               {dataFilteredCmds.map(([name, def]) => {
-                const active = selectedCmd === name
+                const picked = selectedCmd === name
                 return (
                   <CommandItem
                     key={name}
                     value={name}
                     onSelect={() => pickCmd(name)}
-                    className={`!px-2.5 !py-1.5 !rounded-none !text-xs !gap-1.5 ${active ? '!bg-[rgba(48,200,224,0.06)]' : '!bg-transparent'}`}
+                    className="!px-2.5 !py-1.5 !rounded-none !text-xs !gap-1.5 !bg-transparent data-[selected=true]:!bg-white/[0.03]"
                     style={{
-                      borderLeft: active ? `2px solid ${colors.active}` : '2px solid transparent',
+                      borderLeft: picked ? `2px solid ${colors.active}` : '2px solid transparent',
                       fontFamily: "'JetBrains Mono', monospace",
+                      background: picked ? 'rgba(48,200,224,0.06)' : undefined,
                     }}
                   >
-                    <span className="font-medium" style={{ color: active ? colors.active : colors.value }}>{name}</span>
+                    <span className="font-medium" style={{ color: picked ? colors.active : colors.value }}>{name}</span>
                     {def.guard && (
                       <ShieldCheck className="size-[13px]" style={{ color: colors.warning, opacity: 0.5 }} />
                     )}
@@ -228,16 +247,12 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
           </Command>
         )}
 
-        {/* 3. Args */}
+        {/* Args */}
         {selectedCmd && (
           <div>
             {txArgs.length > 0 ? (
               <div className="grid grid-cols-2 gap-x-2 gap-y-2">
                 {txArgs.map((arg, i) => {
-                  // Trailing-optional gate: an optional arg is only
-                  // enabled when every earlier arg has a value. This
-                  // prevents the operator from creating a gap that
-                  // the backend would reject at send time.
                   const earlierFilled = txArgs
                     .slice(0, i)
                     .every(a => (argValues[a.name] ?? '').trim() !== '')
@@ -260,9 +275,6 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
                           const next = e.target.value
                           setArgValues(prev => {
                             const updated: Record<string, string> = { ...prev, [arg.name]: next }
-                            // Clearing an optional clears every
-                            // downstream optional too, since later
-                            // optionals can't remain without it.
                             if (arg.optional && !next.trim()) {
                               for (let j = i + 1; j < txArgs.length; j++) {
                                 if (txArgs[j].optional) updated[txArgs[j].name] = ''
@@ -307,10 +319,9 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
             )}
           </div>
         )}
-
       </div>
 
-      {/* Preview bar — pinned at bottom, outside scrollable area */}
+      {/* Preview bar — pinned at bottom */}
       {selectedCmd && destNode && (
         <div
           className="shrink-0 flex items-center gap-2 px-2.5 py-2"
