@@ -34,5 +34,34 @@ class TestIsNoiseFrame(unittest.TestCase):
         self.assertTrue(is_noise_frame("AX.25", b""))
 
 
+from mav_gss_lib.web_runtime.state import create_runtime
+
+
+META_AX25 = {"transmitter": "9k6 FSK AX.25 downlink"}
+META_GOLAY = {"transmitter": "4k8 FSK AX100 ASM+Golay downlink"}
+
+
+class TestRxServiceShouldDropNoise(unittest.TestCase):
+    """RxService._should_drop_noise mirrors the _should_drop_rx pattern."""
+
+    def setUp(self):
+        self.runtime = create_runtime()
+
+    def test_drops_ax25_without_delimiter(self):
+        self.assertTrue(self.runtime.rx._should_drop_noise(META_AX25, b"\x01\x02\x03\x04"))
+
+    def test_keeps_ax25_with_delimiter(self):
+        payload = b"\xaa" * 14 + b"\x03\xf0" + b"payload"
+        self.assertFalse(self.runtime.rx._should_drop_noise(META_AX25, payload))
+
+    def test_keeps_asm_golay_without_delimiter(self):
+        self.assertFalse(self.runtime.rx._should_drop_noise(META_GOLAY, b"\x01\x02\x03\x04"))
+
+    def test_keeps_unknown_transmitter(self):
+        self.assertFalse(
+            self.runtime.rx._should_drop_noise({"transmitter": "mystery"}, b"\x01\x02")
+        )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

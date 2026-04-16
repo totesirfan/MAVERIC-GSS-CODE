@@ -18,6 +18,7 @@ from queue import Empty, Queue
 from typing import TYPE_CHECKING
 
 from mav_gss_lib.parsing import RxPipeline, build_rx_log_record
+from mav_gss_lib.protocols.frame_detect import is_noise_frame
 from mav_gss_lib.transport import SUB_STATUS, init_zmq_sub, poll_monitor, receive_pdu, zmq_cleanup
 
 from ._broadcast import broadcast_safe
@@ -54,6 +55,16 @@ class RxService:
         sees it, so rate/silence counters behave as if nothing arrived.
         """
         return now < self.runtime.tx_blackout_until
+
+    def _should_drop_noise(self, meta, raw: bytes) -> bool:
+        """Return True for gr-satellites AX.25 noise frames.
+
+        Delegates to is_noise_frame after resolving the frame type via
+        the active adapter. Mirrors _should_drop_rx: called before any
+        state mutation so a dropped frame produces no side effects.
+        """
+        frame_type = self.runtime.adapter.detect_frame_type(meta)
+        return is_noise_frame(frame_type, raw)
 
     def start_receiver(self) -> None:
         if self.thread_handle and self.thread_handle.is_alive():
