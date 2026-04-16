@@ -157,7 +157,7 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
         }
       }}
     >
-      <div className="p-2.5 space-y-2.5 flex-1">
+      <div className="p-2.5 space-y-2.5">
         {/* Node rail */}
         <div
           className="flex rounded-md p-0.5 gap-0.5"
@@ -192,13 +192,13 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
             className="!bg-transparent !p-0 !rounded-md !overflow-visible"
             shouldFilter={true}
           >
-            {/* Custom search input matching the preview mockup */}
+            {/* Search input */}
             <div
               className="flex items-center gap-2 rounded-t-md"
               style={{
-                background: colors.bgPanelRaised,
-                borderBottom: `1px solid ${colors.borderSubtle}`,
+                background: colors.bgBase,
                 border: `1px solid ${colors.borderSubtle}`,
+                borderBottom: `1px solid ${colors.borderSubtle}`,
                 borderRadius: '6px 6px 0 0',
               }}
             >
@@ -319,14 +319,12 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
             )}
           </div>
         )}
-      </div>
-
-      {/* Preview bar — pinned at bottom */}
-      {selectedCmd && destNode && (
-        <div
-          className="shrink-0 flex items-center gap-2 px-2.5 py-2"
-          style={{ background: colors.bgPanelRaised, borderTop: `1px solid ${colors.borderSubtle}` }}
-        >
+        {/* Preview bar */}
+        {selectedCmd && destNode && (
+          <div
+            className="flex items-center gap-2 px-2.5 py-2 -mx-2.5 -mb-2.5 mt-1"
+            style={{ background: colors.bgPanelRaised, borderTop: `1px solid ${colors.borderSubtle}` }}
+          >
           <span className="font-mono text-xs select-none" style={{ color: colors.sep }} aria-hidden="true">❯</span>
           <code className="flex-1 text-[11px] font-mono truncate" style={{ color: colors.value }}>{preview}</code>
           <button
@@ -347,7 +345,8 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
             Queue
           </button>
         </div>
-      )}
+        )}
+      </div>
     </div>
   )
 }
