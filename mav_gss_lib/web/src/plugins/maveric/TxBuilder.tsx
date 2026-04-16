@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { CornerDownLeft } from 'lucide-react'
+import { CornerDownLeft, ShieldCheck } from 'lucide-react'
 import { colors } from '@/lib/colors'
-import { PtypeBadge } from '@/components/shared/PtypeBadge'
+import { Command, CommandInput as CmdkInput, CommandList, CommandEmpty, CommandItem } from '@/components/ui/command'
 import type { MissionBuilderProps } from '@/lib/types'
 import { GssInput } from '@/components/ui/gss-input'
 
@@ -73,18 +73,14 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
     }
   }, [nodes, destNode])
 
-  const filteredCmds = useMemo(() => {
+  const dataFilteredCmds = useMemo(() => {
     if (!schema) return []
     let entries = Object.entries(schema).filter(([, def]) => !def.rx_only)
     if (destNode) {
       entries = entries.filter(([, def]) => !def.nodes || def.nodes.length === 0 || def.nodes.includes(destNode))
     }
-    if (search) {
-      const lower = search.toLowerCase()
-      entries = entries.filter(([name]) => name.toLowerCase().includes(lower))
-    }
     return entries
-  }, [schema, search, destNode])
+  }, [schema, destNode])
 
   const cmdDef: CommandDef | null = selectedCmd && schema ? schema[selectedCmd] ?? null : null
   const txArgs = cmdDef?.tx_args ?? []
@@ -178,45 +174,43 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
 
         {/* 2. Command picker */}
         {destNode && (
-          <div>
-            <div className="text-[11px] font-medium mb-1" style={{ color: colors.dim }}>Command</div>
-            <GssInput
-              autoFocus={!selectedCmd}
-              type="text"
-              className="w-full mb-1"
-              placeholder="Filter..."
+          <Command className="!bg-transparent !p-0 !rounded-none !overflow-visible">
+            <CmdkInput
               value={search}
-              onChange={(e) => { setSearch(e.target.value); if (selectedCmd) setSelectedCmd(null) }}
+              onValueChange={setSearch}
+              placeholder="Search commands..."
+              className="!h-8 !text-[11px]"
+              style={{ background: colors.bgPanelRaised }}
             />
-            <div className="max-h-28 overflow-y-auto rounded border" style={{ borderColor: colors.borderSubtle }}>
-              {filteredCmds.length === 0 ? (
-                <div className="text-[11px] py-2 text-center" style={{ color: colors.dim }}>No commands</div>
-              ) : (
-                filteredCmds.map(([name, def]) => {
-                  const active = selectedCmd === name
-                  return (
-                    <button
-                      key={name}
-                      onClick={() => pickCmd(name)}
-                      className="flex items-center gap-1.5 w-full text-left px-2 py-1 text-xs hover:bg-white/[0.04] color-transition"
-                      style={{
-                        backgroundColor: active ? `${colors.label}11` : undefined,
-                        borderLeft: active ? `2px solid ${colors.label}` : '2px solid transparent',
-                      }}
-                    >
-                      <span className="font-medium" style={{ color: active ? colors.label : colors.value }}>{name}</span>
-                      {def.ptype && <PtypeBadge ptype={def.ptype} />}
-                      {def.tx_args && def.tx_args.length > 0 && (
-                        <span className="text-[11px] ml-auto" style={{ color: colors.dim }}>
-                          {def.tx_args.length} arg{def.tx_args.length !== 1 ? 's' : ''}
-                        </span>
-                      )}
-                    </button>
-                  )
-                })
-              )}
-            </div>
-          </div>
+            <CommandList className="!max-h-36 rounded-md" style={{ border: `1px solid ${colors.borderSubtle}` }}>
+              <CommandEmpty>
+                <span className="text-[11px]" style={{ color: colors.dim }}>No commands</span>
+              </CommandEmpty>
+              {dataFilteredCmds.map(([name, def]) => {
+                const active = selectedCmd === name
+                return (
+                  <CommandItem
+                    key={name}
+                    value={name}
+                    onSelect={() => pickCmd(name)}
+                    className={`!px-2.5 !py-1.5 !rounded-none !text-xs !gap-1.5 ${active ? '!bg-[rgba(48,200,224,0.06)]' : '!bg-transparent'}`}
+                    style={{
+                      borderLeft: active ? `2px solid ${colors.active}` : '2px solid transparent',
+                      fontFamily: "'JetBrains Mono', monospace",
+                    }}
+                  >
+                    <span className="font-medium" style={{ color: active ? colors.active : colors.value }}>{name}</span>
+                    {def.guard && (
+                      <ShieldCheck className="size-[13px]" style={{ color: colors.warning, opacity: 0.5 }} />
+                    )}
+                    <span className="text-[10px] ml-auto" style={{ color: colors.sep, fontFamily: 'Inter, sans-serif' }}>
+                      {(def.tx_args?.length ?? 0)} arg{(def.tx_args?.length ?? 0) !== 1 ? 's' : ''}
+                    </span>
+                  </CommandItem>
+                )
+              })}
+            </CommandList>
+          </Command>
         )}
 
         {/* 3. Args */}
