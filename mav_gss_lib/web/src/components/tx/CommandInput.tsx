@@ -79,10 +79,8 @@ export const CommandInput = forwardRef<HTMLTextAreaElement, CommandInputProps>(
       <div className="flex items-center gap-1.5 px-3 pb-1.5">
         <Kbd>↑</Kbd><Kbd>↓</Kbd>
         <span className="text-[10px]" style={{ color: colors.sep }}>history</span>
-        <span className="text-[10px] ml-auto flex items-center gap-1" style={{ color: colors.sep }}>
-          <Kbd><CornerDownLeft className="size-2.5" /></Kbd>
-          queue
-        </span>
+        <Kbd><CornerDownLeft className="size-2.5" /></Kbd>
+        <span className="text-[10px]" style={{ color: colors.sep }}>queue</span>
       </div>
     </div>
   )
