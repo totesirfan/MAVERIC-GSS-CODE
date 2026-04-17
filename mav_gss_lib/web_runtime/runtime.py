@@ -23,6 +23,7 @@ from .state import SHUTDOWN_DELAY, WebRuntime, ensure_runtime
 from .tx_queue import (  # noqa: F401
     make_delay, make_note, make_mission_cmd, validate_mission_cmd, sanitize_queue_items,
 )
+from ._task_utils import log_task_exception
 
 
 # =============================================================================
@@ -49,6 +50,7 @@ def schedule_shutdown_check(runtime: WebRuntime) -> None:
         runtime.shutdown_task.cancel()
     try:
         runtime.shutdown_task = asyncio.get_event_loop().create_task(check_shutdown(runtime))
+        runtime.shutdown_task.add_done_callback(log_task_exception("shutdown-check"))
     except RuntimeError:
         pass
 

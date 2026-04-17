@@ -33,6 +33,7 @@ from .preflight_ws import (
 from .tx import router as tx_router
 from mav_gss_lib.transport import PUB_STATUS, zmq_cleanup
 from .state import WEB_DIR, create_runtime, get_runtime
+from ._task_utils import log_task_exception
 
 
 # =============================================================================
@@ -62,6 +63,7 @@ async def lifespan(app: FastAPI):
 
     runtime.rx.start_receiver()
     runtime.rx.broadcast_task = asyncio.create_task(runtime.rx.broadcast_loop())
+    runtime.rx.broadcast_task.add_done_callback(log_task_exception("rx-broadcast"))
 
     # Kick off the update check on a worker thread so it overlaps with the
     # mission checks streaming over the preflight WS. Resolved at the end of
@@ -72,6 +74,7 @@ async def lifespan(app: FastAPI):
     # create_task() queues the coroutine; it executes once lifespan yields
     # and uvicorn begins accepting connections.
     runtime.preflight_task = asyncio.create_task(run_preflight_and_broadcast(runtime))
+    runtime.preflight_task.add_done_callback(log_task_exception("preflight"))
     yield
 
     runtime.rx.broadcast_stop = True

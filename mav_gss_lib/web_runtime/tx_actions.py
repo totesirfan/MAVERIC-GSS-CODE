@@ -45,6 +45,7 @@ from typing import TYPE_CHECKING, Callable, NamedTuple
 
 from .state import MAX_QUEUE
 from .tx_queue import make_delay, validate_mission_cmd
+from ._task_utils import log_task_exception
 
 if TYPE_CHECKING:
     from fastapi import WebSocket
@@ -258,6 +259,7 @@ async def handle_send(runtime: "WebRuntime", msg: dict, ws: "WebSocket") -> None
         await send_error(ws, error)
         return
     runtime.tx.send_task = asyncio.create_task(runtime.tx.run_send())
+    runtime.tx.send_task.add_done_callback(log_task_exception("tx-send"))
 
 
 async def handle_abort(runtime: "WebRuntime", msg: dict, ws: "WebSocket") -> None:
