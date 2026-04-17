@@ -12,7 +12,6 @@ import { PacketDetail } from './PacketDetail'
 import { BlackoutPill } from './BlackoutPill'
 import { ReplayPanel } from '@/components/logs/ReplayPanel'
 import { colors } from '@/lib/colors'
-import { PanelToasts } from '@/components/shared/StatusToast'
 import {
   ContextMenuRoot, ContextMenuTrigger, ContextMenuContent,
   ContextMenuItem,
@@ -384,7 +383,6 @@ export function RxPanel({ config, packets, status, packetStats, columns, replayM
         </div>
       )}
 
-      <PanelToasts side="rx" />
     </div>
   )
 }

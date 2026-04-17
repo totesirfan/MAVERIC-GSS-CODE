@@ -13,8 +13,3 @@ export function showToast(message: string, variant: ToastVariant = 'info', _side
     default: toast.info(message, opts); break
   }
 }
-
-/** Legacy component — no longer needed since Sonner renders via <Toaster /> in App */
-export function PanelToasts({ side: _side }: { side: ToastSide }) {
-  return null
-}

@@ -11,7 +11,6 @@ import { useTabActive } from '@/components/layout/TabActiveContext'
 import { useShortcuts, type Shortcut } from '@/hooks/useShortcuts'
 import { isInputFocused } from '@/lib/utils'
 import { PromptDialog } from '@/components/shared/PromptDialog'
-import { PanelToasts } from '@/components/shared/StatusToast'
 import { showToast } from '@/components/shared/StatusToast'
 import { authFetch } from '@/lib/auth'
 import {
@@ -283,8 +282,6 @@ export function TxQueue({
         </ContextMenuItem>
       </ContextMenuContent>
       </ContextMenuRoot>
-
-      <PanelToasts side="tx" />
 
       {/* Bottom bar: normal or full-bar confirm */}
       {confirmClear ? (
