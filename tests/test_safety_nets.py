@@ -317,5 +317,44 @@ class TestLogWriterBatchesFlushes(unittest.TestCase):
                 log.close()
 
 
+class TestTxEventsAreAsyncio(unittest.TestCase):
+    """Regression for H-15: abort/guard_ok must be asyncio.Event, not threading.Event."""
+
+    def test_abort_is_asyncio_event(self):
+        import asyncio as _asyncio
+        from mav_gss_lib.web_runtime.state import create_runtime
+
+        runtime = create_runtime()
+        self.assertIsInstance(runtime.tx.abort, _asyncio.Event)
+
+    def test_guard_ok_is_asyncio_event(self):
+        import asyncio as _asyncio
+        from mav_gss_lib.web_runtime.state import create_runtime
+
+        runtime = create_runtime()
+        self.assertIsInstance(runtime.tx.guard_ok, _asyncio.Event)
+
+    def test_wait_ms_returns_immediately_when_abort_fires(self):
+        """abort during a 5s delay must wake within ~50 ms, not within 100 ms polling."""
+        import asyncio as _asyncio
+        import time as _time
+        from mav_gss_lib.web_runtime.state import create_runtime
+
+        runtime = create_runtime()
+
+        async def _run():
+            task = _asyncio.create_task(runtime.tx._wait_ms(5000))
+            await _asyncio.sleep(0.02)
+            t0 = _time.monotonic()
+            runtime.tx.abort.set()
+            result = await task
+            elapsed = _time.monotonic() - t0
+            return result, elapsed
+
+        result, elapsed = _asyncio.run(_run())
+        self.assertTrue(result)
+        self.assertLess(elapsed, 0.300, f"wakeup latency {elapsed:.3f}s — suggests polling, not asyncio.Event")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

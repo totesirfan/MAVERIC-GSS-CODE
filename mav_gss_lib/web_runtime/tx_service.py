@@ -47,8 +47,8 @@ class TxService:
         self.queue: list = []
         self.history: list = []
         self.sending = {"active": False, "idx": -1, "total": 0, "guarding": False, "sent_at": 0, "waiting": False}
-        self.abort = threading.Event()
-        self.guard_ok = threading.Event()
+        self.abort = asyncio.Event()
+        self.guard_ok = asyncio.Event()
         self.send_lock = threading.Lock()
         self.send_task = None
 
@@ -132,12 +132,16 @@ class TxService:
             self.save_queue()
 
     async def _wait_ms(self, ms: int) -> bool:
-        """Sleep in 100ms slices, checking the abort flag. Returns True if aborted."""
-        remaining = ms
-        while remaining > 0 and not self.abort.is_set():
-            await asyncio.sleep(0.1)
-            remaining -= 100
-        return self.abort.is_set()
+        """Sleep up to *ms* milliseconds or until abort fires. Returns True if aborted."""
+        if ms <= 0:
+            return self.abort.is_set()
+        if self.abort.is_set():
+            return True
+        try:
+            await asyncio.wait_for(self.abort.wait(), timeout=ms / 1000.0)
+            return True
+        except asyncio.TimeoutError:
+            return False
 
     async def _run_delay_item(self, item, sent: int, total: int) -> bool:
         """Execute a `delay` queue item. Returns True if the send was aborted."""
@@ -166,7 +170,11 @@ class TxService:
         return aborted
 
     async def _run_guard_wait(self, item) -> bool:
-        """Broadcast guard prompt and block until approved or aborted."""
+        """Broadcast guard prompt and block until approved or aborted.
+
+        Uses asyncio.wait on both events so either approval or abort wakes
+        the waiter immediately, without the previous 100 ms polling loop.
+        """
         with self.send_lock:
             self.sending["guarding"] = True  # Flag MUST be set before the broadcast below — tests observing the broadcast assume the flag is already True.
         self.guard_ok.clear()
@@ -174,10 +182,23 @@ class TxService:
             "type": "guard_confirm", "index": 0,
             "display": item.get("display", {}),
         })
-        while not self.guard_ok.is_set() and not self.abort.is_set():
-            await asyncio.sleep(0.1)
-        with self.send_lock:
-            self.sending["guarding"] = False
+        guard_task = asyncio.ensure_future(self.guard_ok.wait())
+        abort_task = asyncio.ensure_future(self.abort.wait())
+        try:
+            await asyncio.wait(
+                {guard_task, abort_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        finally:
+            for task in (guard_task, abort_task):
+                if not task.done():
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+            with self.send_lock:
+                self.sending["guarding"] = False
         return self.abort.is_set()
 
     def _build_frame(self, raw_cmd: bytes, uplink_mode: str, send_csp, send_ax25) -> bytes:
