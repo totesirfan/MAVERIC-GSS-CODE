@@ -78,13 +78,10 @@ _ALL_PIP_MODULES: list[str] = [
     "fastapi",    # fastapi
     "uvicorn",    # uvicorn
     "websockets", # websockets
-    "httpx",      # httpx
     "yaml",       # PyYAML
     "zmq",        # pyzmq
     "crcmod",     # crcmod
     "PIL",        # Pillow
-    "rich",       # rich
-    "textual",    # textual
 ]
 
 
