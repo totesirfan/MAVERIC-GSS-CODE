@@ -75,7 +75,7 @@ web_runtime/
       schema.py      /api/schema, /api/columns, /api/tx-columns, /api/tx/capabilities
       logs.py        /api/logs, /api/logs/{session_id}
       queue_io.py    /api/import-files, /api/import/*, /api/export-queue
-      session.py     /api/session, /api/session/new, /api/logs/tag
+      session.py     /api/session, /api/session/new
     rx.py            /ws/rx WebSocket handler (clients receive live packets)
     tx.py            /ws/tx WebSocket handler (queue mutations, send control)
     rx_service.py    RxService — ZMQ SUB receiver + async broadcast loop

@@ -1,7 +1,7 @@
 """
 mav_gss_lib.web_runtime.api.session -- Session Lifecycle Routes
 
-Endpoints: api_session_get, api_session_new, api_session_rename, tag_session, new_session
+Endpoints: api_session_get, api_session_new, api_session_rename
 Helpers:   _session_info
 
 Author:  Irfan Annuar - USC ISI SERC
@@ -216,16 +216,3 @@ async def api_session_rename(body: dict, request: Request):
     info["ok"] = True
     return info
 
-
-@router.post("/api/logs/tag")
-async def tag_session(body: dict, request: Request):
-    """Deprecated: use PATCH /api/session instead."""
-    logging.warning("POST /api/logs/tag is deprecated — use PATCH /api/session")
-    return await api_session_rename(body, request)
-
-
-@router.post("/api/logs/new")
-async def new_session(body: dict, request: Request):
-    """Deprecated: use POST /api/session/new instead."""
-    logging.warning("POST /api/logs/new is deprecated — use POST /api/session/new")
-    return await api_session_new(body, request)
