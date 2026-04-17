@@ -315,3 +315,24 @@ These areas affect wire protocol correctness, RF safety, or mission operations. 
 | **Command schema** | `maveric/commands.yml`, `maveric/schema.py` | Defines valid commands and argument types — errors can send malformed uplinks |
 | **Mission adapter boundary** | `mission_adapter.py` (`MissionAdapter` Protocol) | Contract between platform and mission — breaking changes affect all missions |
 | **Frame detection** | `protocols/frame_detect.py`, `parsing.py` (`RxPipeline`) | Misidentifying frames drops or corrupts received packets |
+
+## Supply-chain checks (manual, pre-release)
+
+Run these before cutting a release tag:
+
+```bash
+# JS deps — known CVEs in the committed package-lock.json
+cd mav_gss_lib/web && npm audit
+
+# Python deps — audit the ACTIVE radioconda environment (not the
+# requirements.txt file, which is short and unpinned and would resolve
+# to "latest on PyPI" — giving a misleading all-clear).
+pip install --upgrade pip-audit
+pip-audit   # no -r; audits the active env's installed packages
+```
+
+If either reports HIGH or CRITICAL issues, fix before release:
+- `npm audit fix` for patch-level JS fixes (stay inside current major).
+- For Python, the fix is typically a radioconda upgrade; if a specific
+  vulnerable package needs a pin to stay below a broken version, add it
+  to `requirements.txt` with a rationale comment.
