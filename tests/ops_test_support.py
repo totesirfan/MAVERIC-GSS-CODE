@@ -14,14 +14,68 @@ CODE_DIR = TESTS_DIR.parent
 ROOT_DIR = CODE_DIR.parent
 sys.path.insert(0, str(CODE_DIR))
 
-from mav_gss_lib.config import load_gss_config
-from mav_gss_lib.mission_adapter import load_mission_adapter
+from mav_gss_lib import config as _config_module
+from mav_gss_lib import mission_adapter as _mission_adapter_module
+
+# Cached on first attribute access (PEP 562). Tests that import
+# CFG / _ADAPTER / CMD_DEFS / NODES trigger the load lazily, so importing
+# this module has no side effects and doesn't require gss.yml to exist.
+#
+# IMPORTANT: the two loaders are dereferenced via `_config_module.…` /
+# `_mission_adapter_module.…` every call instead of being aliased with a
+# `from … import …`. That keeps monkey-patching from tests working —
+# `from X import foo` would bake a local name at THIS module's import
+# time and would silently shadow any later `X.foo = fake`.
+#
+# To INVALIDATE the cache after monkey-patching a loader (e.g. in a test
+# that wants to observe a patched load_gss_config), drop this module from
+# sys.modules and re-import:
+#
+#     del sys.modules["ops_test_support"]
+#     import ops_test_support  # fresh module, empty _cache
+#
+# The test TestOpsTestSupportImportIsSideEffectFree follows this pattern.
+_cache: dict = {}
 
 
-CFG = load_gss_config()
-_ADAPTER = load_mission_adapter(CFG)
-CMD_DEFS = _ADAPTER.cmd_defs
-NODES = getattr(_ADAPTER, "nodes", None)
+def _load() -> dict:
+    if "cfg" not in _cache:
+        cfg = _config_module.load_gss_config()
+        adapter = _mission_adapter_module.load_mission_adapter(cfg)
+        _cache["cfg"] = cfg
+        _cache["adapter"] = adapter
+        _cache["cmd_defs"] = adapter.cmd_defs
+        _cache["nodes"] = getattr(adapter, "nodes", None)
+    return _cache
+
+
+def __getattr__(name: str):
+    # PEP 562 — invoked only for attributes that are NOT already defined
+    # at module scope (i.e. CFG, _ADAPTER, CMD_DEFS, NODES).
+    if name == "CFG":
+        return _load()["cfg"]
+    if name == "_ADAPTER":
+        return _load()["adapter"]
+    if name == "CMD_DEFS":
+        return _load()["cmd_defs"]
+    if name == "NODES":
+        return _load()["nodes"]
+    raise AttributeError(f"module 'ops_test_support' has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    # PEP 562 companion — makes `dir(ops_test_support)` include the lazy
+    # attributes so tab-completion, hasattr(), and debugger introspection
+    # behave as if the attributes were statically defined.
+    return sorted(set(globals()) | {"CFG", "_ADAPTER", "CMD_DEFS", "NODES"})
+
+
+__all__ = [
+    "CFG", "_ADAPTER", "CMD_DEFS", "NODES",
+    "TESTS_DIR", "CODE_DIR", "ROOT_DIR",
+    "GNURADIO_PYTHON",
+    "decode_golay_via_gr", "decode_golay_via_flowgraph",
+]
 GNURADIO_PYTHON = os.environ.get(
     "MAVERIC_GNURADIO_PYTHON",
     "/Users/irfan/radioconda/envs/gnuradio/bin/python3",

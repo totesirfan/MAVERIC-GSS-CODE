@@ -197,5 +197,47 @@ class TestNoSleepPollingInTxRuntimeTests(unittest.TestCase):
         )
 
 
+class TestOpsTestSupportImportIsSideEffectFree(unittest.TestCase):
+    def test_importing_does_not_load_config(self):
+        import importlib
+        import sys
+
+        # Drop ops_test_support from the cache so we get a fresh import.
+        to_drop = [name for name in list(sys.modules) if name == "ops_test_support"]
+        for name in to_drop:
+            del sys.modules[name]
+
+        loaded_config_calls = []
+
+        # Monkey-patch load_gss_config BEFORE importing ops_test_support.
+        import mav_gss_lib.config as config_module
+        real_load = config_module.load_gss_config
+
+        def _tracking_load(*a, **kw):
+            loaded_config_calls.append(True)
+            return real_load(*a, **kw)
+
+        config_module.load_gss_config = _tracking_load
+        try:
+            importlib.import_module("ops_test_support")
+            self.assertEqual(
+                loaded_config_calls, [],
+                "ops_test_support should not call load_gss_config at import time",
+            )
+        finally:
+            config_module.load_gss_config = real_load
+
+    def test_accessing_cmd_defs_still_works(self):
+        # Force a fresh import to exercise the lazy accessor.
+        import importlib
+        import sys
+
+        if "ops_test_support" in sys.modules:
+            del sys.modules["ops_test_support"]
+        mod = importlib.import_module("ops_test_support")
+        self.assertIsNotNone(mod.CMD_DEFS)
+        self.assertIsInstance(mod.CMD_DEFS, dict)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
