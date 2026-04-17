@@ -195,13 +195,6 @@ export interface GssConfig {
 
 // ---- Logs ----
 
-export interface LogSession {
-  id: string
-  filename: string
-  packets: number
-  path: string
-}
-
 // ---- Preflight ----
 
 export interface PreflightCheck {

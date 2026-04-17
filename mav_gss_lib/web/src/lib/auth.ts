@@ -1,11 +1,6 @@
 let authToken: string | null = null
 let authTokenPromise: Promise<string> | null = null
 
-export function clearAuthTokenCache() {
-  authToken = null
-  authTokenPromise = null
-}
-
 export async function getAuthToken(): Promise<string> {
   if (authToken) return authToken
   if (!authTokenPromise) {

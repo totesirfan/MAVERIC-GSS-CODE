@@ -113,26 +113,6 @@ export const toneBorder: Record<SemanticTone, string> = {
   neutral: `${colors.neutral}4D`,
 }
 
-/** Legacy ptypeColor — returns the color for a packet type */
-export function ptypeColor(ptype: string): string {
-  return toneColor[ptypeTone(ptype)]
-}
-
-/** Prefix symbol + text for packet type badges */
-export function ptypeLabel(ptype: string): string {
-  return ptype
-}
-
-/** Icon name for each packet type */
-export function ptypeIcon(ptype: string): string {
-  const map: Record<string, string> = {
-    CMD: 'Send', RES: 'Reply', ACK: 'CheckCircle',
-    TLM: 'Activity', FILE: 'File', REQ: 'Send',
-    NONE: 'Circle',
-  }
-  return map[ptype] || 'Circle'
-}
-
 export function frameColor(frame: string): string {
   const f = (frame || '').toUpperCase()
   if (f.includes('AX.25') || f.includes('AX25')) return colors.frameAx25
