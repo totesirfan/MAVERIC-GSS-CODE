@@ -52,12 +52,33 @@ class _BaseLog:
         os.makedirs(os.path.join(log_dir, "json"), exist_ok=True)
         self._open_files()
 
+    # Flush cadence for _writer_loop. Idle cadence is enforced by the
+    # queue.get() timeout, not by elapsed-time arithmetic — so an idle
+    # writer thread still flushes pending writes every _FLUSH_EVERY_S
+    # seconds. The sentinel / drain path always flushes before returning.
+    _FLUSH_EVERY_N = 64
+    _FLUSH_EVERY_S = 0.5
+
     def _writer_loop(self):
-        """Drain the write queue until sentinel received, then flush remaining."""
+        """Drain the write queue until sentinel, flushing in batches.
+
+        Cadence:
+          - Every _FLUSH_EVERY_N items (throughput-driven) OR
+          - Every _FLUSH_EVERY_S seconds when idle (latency-driven,
+            via the queue.get() timeout raising queue.Empty) OR
+          - On sentinel receipt (durability at close()).
+        """
+        unflushed = 0
         while True:
-            item = self._q.get()
+            try:
+                item = self._q.get(timeout=self._FLUSH_EVERY_S)
+            except queue.Empty:
+                if unflushed > 0:
+                    self._flush_handles()
+                    unflushed = 0
+                continue
+
             if item is self._SENTINEL:
-                # Drain any items queued before the sentinel
                 while not self._q.empty():
                     try:
                         remaining = self._q.get_nowait()
@@ -66,29 +87,43 @@ class _BaseLog:
                         self._process_item(remaining)
                     except Exception:
                         break
+                self._flush_handles()
                 break
+
             try:
                 self._process_item(item)
             except Exception as e:
                 print(f"WARNING: log write failed ({e}), continuing", file=sys.stderr)
+                continue
+            unflushed += 1
+            if unflushed >= self._FLUSH_EVERY_N:
+                self._flush_handles()
+                unflushed = 0
+
+    def _flush_handles(self):
+        """Flush both file handles, tolerating a handle that was just rotated out."""
+        for handle in (self._jsonl_f, self._text_f):
+            try:
+                handle.flush()
+            except (ValueError, OSError):
+                pass
 
     def _process_item(self, item):
-        """Process a single queue item."""
+        """Process a single queue item (write only — flushing is batched)."""
         kind, data = item
         if kind == "jsonl":
             self._jsonl_f.write(data)
-            self._jsonl_f.flush()
         elif kind == "text":
             self._text_f.write(data)
-            self._text_f.flush()
         elif kind == "rename":
             new_text, new_jsonl = data
+            self._flush_handles()
             self._text_f.close(); self._jsonl_f.close()
             os.rename(self.text_path, new_text)
             os.rename(self.jsonl_path, new_jsonl)
             self.text_path, self.jsonl_path = new_text, new_jsonl
-            self._text_f = open(new_text, "a", buffering=1)
-            self._jsonl_f = open(new_jsonl, "a", buffering=1)
+            self._text_f = open(new_text, "a")
+            self._jsonl_f = open(new_jsonl, "a")
 
     # -- Shared helpers -------------------------------------------------------
 
@@ -159,8 +194,8 @@ class _BaseLog:
         name = f"{self._prefix}_{ts}_{tag}" if tag else f"{self._prefix}_{ts}"
         self.text_path = os.path.join(self._log_dir, "text", f"{name}.txt")
         self.jsonl_path = os.path.join(self._log_dir, "json", f"{name}.jsonl")
-        self._text_f = open(self.text_path, "w", buffering=1)
-        self._jsonl_f = open(self.jsonl_path, "a", buffering=1)
+        self._text_f = open(self.text_path, "w")
+        self._jsonl_f = open(self.jsonl_path, "a")
         session_ts = datetime.now().astimezone().strftime(TS_FULL)
         self._text_f.write(
             f"{HEADER_CHAR * LOG_LINE_WIDTH}\n"
@@ -192,8 +227,8 @@ class _BaseLog:
         try:
             os.makedirs(os.path.join(self._log_dir, "text"), exist_ok=True)
             os.makedirs(os.path.join(self._log_dir, "json"), exist_ok=True)
-            new_text_f = open(new_text_path, "w", buffering=1)
-            new_jsonl_f = open(new_jsonl_path, "a", buffering=1)
+            new_text_f = open(new_text_path, "w")
+            new_jsonl_f = open(new_jsonl_path, "a")
             session_ts = datetime.now().astimezone().strftime(TS_FULL)
             new_text_f.write(
                 f"{HEADER_CHAR * LOG_LINE_WIDTH}\n"

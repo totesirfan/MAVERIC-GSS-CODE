@@ -239,5 +239,83 @@ class TestOpsTestSupportImportIsSideEffectFree(unittest.TestCase):
         self.assertIsInstance(mod.CMD_DEFS, dict)
 
 
+class TestLogWriterBatchesFlushes(unittest.TestCase):
+    """Regression for C-3: _writer_loop must not call flush() per item."""
+
+    def test_flush_is_not_called_per_item(self):
+        import tempfile, time
+        from mav_gss_lib.logging import SessionLog
+
+        with tempfile.TemporaryDirectory() as tmp:
+            log = SessionLog(tmp, "tcp://127.0.0.1:0", "0.0.0")
+            try:
+                jsonl_flushes = [0]
+                text_flushes = [0]
+                real_jsonl_flush = log._jsonl_f.flush
+                real_text_flush = log._text_f.flush
+
+                def _count_jsonl():
+                    jsonl_flushes[0] += 1
+                    real_jsonl_flush()
+
+                def _count_text():
+                    text_flushes[0] += 1
+                    real_text_flush()
+
+                log._jsonl_f.flush = _count_jsonl
+                log._text_f.flush = _count_text
+
+                for i in range(200):
+                    log.write_jsonl({"i": i})
+                    log._write_text(f"line-{i}\n")
+            finally:
+                log.close()
+
+            total_flushes = jsonl_flushes[0] + text_flushes[0]
+            self.assertGreater(
+                total_flushes, 0,
+                "writer loop never flushed — durability regression",
+            )
+            self.assertLess(
+                total_flushes, 25,
+                f"writer loop flushed {total_flushes} times for 400 items — expected <25 (batched)",
+            )
+
+    def test_close_flushes_pending_writes(self):
+        import tempfile
+        from mav_gss_lib.logging import SessionLog
+
+        with tempfile.TemporaryDirectory() as tmp:
+            log = SessionLog(tmp, "tcp://127.0.0.1:0", "0.0.0")
+            jsonl_path = log.jsonl_path
+            log.write_jsonl({"hello": "world"})
+            log.close()
+
+            with open(jsonl_path) as fh:
+                content = fh.read()
+            self.assertIn('"hello"', content)
+
+    def test_idle_writer_flushes_within_cadence(self):
+        """A single write followed by silence must reach disk within ~_FLUSH_EVERY_S."""
+        import tempfile, time
+        from mav_gss_lib.logging import SessionLog, _BaseLog
+
+        with tempfile.TemporaryDirectory() as tmp:
+            log = SessionLog(tmp, "tcp://127.0.0.1:0", "0.0.0")
+            try:
+                jsonl_path = log.jsonl_path
+                log.write_jsonl({"alone": True})
+                time.sleep(_BaseLog._FLUSH_EVERY_S + 0.4)
+                with open(jsonl_path) as fh:
+                    content = fh.read()
+                self.assertIn(
+                    '"alone"', content,
+                    "idle writer thread did not flush within _FLUSH_EVERY_S — "
+                    "_writer_loop is likely blocking on queue.get() without a timeout",
+                )
+            finally:
+                log.close()
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
