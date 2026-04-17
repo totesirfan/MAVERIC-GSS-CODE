@@ -326,7 +326,6 @@ class TxService:
                 current_label = item.get("display", {}).get("title", "?")
                 await self.broadcast({"type": "send_progress", "sent": sent, "total": total, "current": current_label, "waiting": False})
 
-                await asyncio.sleep(0.5)
                 with self.send_lock:
                     if self.queue:
                         self.queue.pop(0)

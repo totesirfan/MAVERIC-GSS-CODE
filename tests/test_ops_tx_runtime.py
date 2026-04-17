@@ -223,5 +223,37 @@ class TestTxRuntime(unittest.TestCase):
         self.assertEqual(projected[0]["payload"]["cmd_id"], "com_ping")
 
 
+    def test_run_send_has_no_hidden_post_send_sleep(self):
+        """Regression for C-1: two back-to-back commands must not take ≥1.0 s.
+
+        `tx.delay_ms` is already 0 in setUp. `_run_inter_cmd_delay` is the
+        only legitimate spacing mechanism between commands. If a hidden
+        `await asyncio.sleep(0.5)` remains in the send path, two
+        zero-delay commands take ≥ 1.0 s (500 ms × 2). Threshold 0.6 s
+        gives a comfortable margin below the buggy minimum while
+        tolerating slow-CI disk latency on `save_queue`'s tempfile writes.
+        """
+        import time as _time
+
+        self.runtime.tx.queue = [
+            self._make_item("com_ping", ""),
+            self._make_item("com_ping", ""),
+        ]
+        self.runtime.tx.renumber_queue()
+        self.runtime.tx.sending.update(active=True, idx=-1, total=2, guarding=False, sent_at=0, waiting=False)
+
+        t0 = _time.monotonic()
+        asyncio.run(self.runtime.tx.run_send())
+        elapsed = _time.monotonic() - t0
+
+        self.assertEqual(len(self.sent_payloads), 2)
+        # Two queued commands × 500ms sleep = 1.0s minimum with the bug.
+        # Without the bug, real cost is: 3× tempfile `save_queue` writes +
+        # broadcast-send iterations + renumber. Realistic worst case on a
+        # contended CI runner is ~300ms. 0.6s gives a comfortable margin
+        # below the 1.0s minimum-with-bug while tolerating slow disks.
+        self.assertLess(elapsed, 0.6, f"run_send took {elapsed:.3f}s — expected <0.6s with delay_ms=0 (bug would push it ≥1.0s)")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
