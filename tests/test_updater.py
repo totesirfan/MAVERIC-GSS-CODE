@@ -1,15 +1,18 @@
-"""Unit tests for mav_gss_lib.updater — self-updater + bootstrap.
+"""Unit tests for mav_gss_lib.updater — simplified self-updater + bootstrap.
 
-Mocks subprocess.run / Popen, os.execv, and importlib.util.find_spec
-so these tests do not touch the real filesystem, network, or git.
+The updater is a thin git-pull + restart driver: no pip install, no venv
+fallback, no hash tracking. These tests cover the remaining surface —
+check_for_updates state machine, bootstrap_dependencies prereq gating, and
+apply_update's phase sequence including the countdown.
+
+Mocks subprocess.run / Popen, os.execv, and importlib.util.find_spec so
+no real git / network / filesystem writes happen.
 """
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
-import types
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -21,12 +24,9 @@ from mav_gss_lib import updater  # noqa: E402
 from mav_gss_lib.updater import (  # noqa: E402
     Commit,
     DirtyTreeError,
-    PipBlockedError,
     PreflightError,
     SubprocessFailed,
     UpdateStatus,
-    VenvUnavailableError,
-    _detect_pip_blocked,
     apply_update,
     bootstrap_dependencies,
     check_for_updates,
@@ -37,187 +37,113 @@ def _cp(returncode: int = 0, stdout: str = "", stderr: str = "") -> subprocess.C
     return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr=stderr)
 
 
-class FakeProc:
-    """Minimal subprocess.Popen stand-in for _stream_subprocess tests."""
-
-    def __init__(self, lines: list[str], returncode: int = 0):
-        self._lines = iter(lines)
-        self.returncode = returncode
-        self.stdout = self
-        self._killed = False
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        return next(self._lines) + "\n"
-
-    def close(self):
-        pass
-
-    def wait(self, timeout=None):
-        return self.returncode
-
-    def kill(self):
-        self._killed = True
-
-
 # =============================================================================
 #  check_for_updates
 # =============================================================================
 
 class TestCheckForUpdates(unittest.TestCase):
+    """Exercise the happy, dirty-tree, fetch-error, and detached-HEAD branches."""
 
     def setUp(self):
-        # Canonical responses for each git call, keyed by the first arg after "git".
-        self.responses = {
-            "rev-parse --abbrev-ref HEAD": _cp(0, "main\n"),
-            "rev-parse HEAD": _cp(0, "abcdef1234567890\n"),
-            "status --porcelain": _cp(0, ""),
-            "fetch --quiet origin main": _cp(0, ""),
-            "rev-list --count HEAD..origin/main": _cp(0, "0\n"),
-            "log HEAD..origin/main --pretty=format:%h|%s": _cp(0, ""),
-            "diff --name-only HEAD..origin/main": _cp(0, ""),
-        }
-        # Force the dev sentinel to appear absent so every test in this class
-        # is deterministic regardless of whether the developer running the
-        # suite has `.mav_dev` present at the repo root. Tests that need to
-        # exercise the dev-mode short-circuit should stop this patcher and
-        # install their own.
-        fake_dev_path = mock.MagicMock()
-        fake_dev_path.exists.return_value = False
-        patcher = mock.patch.object(updater, "DEV_SENTINEL_PATH", fake_dev_path)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        # Make sure the dev-sentinel short-circuit never fires in these tests.
+        # (The real repo may have .mav_dev present in the working tree.)
+        self._dev_patch = mock.patch.object(updater, "DEV_SENTINEL_PATH")
+        sentinel = self._dev_patch.start()
+        sentinel.exists.return_value = False
+        self.addCleanup(self._dev_patch.stop)
 
-    def _fake_run_git(self, args, timeout):
-        key = " ".join(args)
-        if key in self.responses:
-            return self.responses[key]
-        raise AssertionError(f"unexpected git invocation: {key}")
-
-    def _patched_check(self, **overrides):
-        self.responses.update(overrides)
-        with mock.patch.object(updater, "_run_git", side_effect=self._fake_run_git), \
-             mock.patch.object(updater, "_scan_missing_pip_deps", return_value=[]), \
-             mock.patch.object(updater, "_compute_requirements_hash", return_value="h"), \
-             mock.patch.object(updater, "_read_persisted_hash", return_value="h"):
-            return check_for_updates()
+    def _run_git_responses(self, *responses):
+        """Turn a sequence of CompletedProcess responses into a _run_git side_effect."""
+        it = iter(responses)
+        def side_effect(args, timeout):
+            return next(it)
+        return side_effect
 
     def test_up_to_date_skips_log_and_diff(self):
-        # rev-list returns 0 → no log or diff calls. We enforce this by dropping
-        # them from the response dict and asserting no AssertionError fires.
-        self.responses.pop("log HEAD..origin/main --pretty=format:%h|%s")
-        self.responses.pop("diff --name-only HEAD..origin/main")
-        status = self._patched_check()
+        with mock.patch.object(updater, "_ensure_git_repo", return_value=None), \
+             mock.patch.object(updater, "_scan_missing_pip_deps", return_value=[]), \
+             mock.patch.object(updater, "_run_git") as rg:
+            rg.side_effect = self._run_git_responses(
+                _cp(stdout="main\n"),                   # rev-parse --abbrev-ref HEAD
+                _cp(stdout="abcdef1234\n"),             # rev-parse HEAD
+                _cp(stdout=""),                         # status --porcelain (clean)
+                _cp(),                                  # fetch
+                _cp(stdout="0\n"),                      # rev-list --count
+            )
+            status = check_for_updates()
         self.assertEqual(status.behind_count, 0)
-        self.assertFalse(status.fetch_failed)
         self.assertEqual(status.branch, "main")
+        self.assertFalse(status.working_tree_dirty)
+        self.assertFalse(status.fetch_failed)
 
-    def test_behind_parses_commits_and_changed_files(self):
-        status = self._patched_check(**{
-            "rev-list --count HEAD..origin/main": _cp(0, "2\n"),
-            "log HEAD..origin/main --pretty=format:%h|%s": _cp(0, "abc1234|first\ndef5678|second\n"),
-            "diff --name-only HEAD..origin/main": _cp(0, "requirements.txt\nMAV_WEB.py\n"),
-        })
+    def test_behind_parses_commits(self):
+        with mock.patch.object(updater, "_ensure_git_repo", return_value=None), \
+             mock.patch.object(updater, "_scan_missing_pip_deps", return_value=[]), \
+             mock.patch.object(updater, "_run_git") as rg:
+            rg.side_effect = self._run_git_responses(
+                _cp(stdout="main\n"),
+                _cp(stdout="abcdef1\n"),
+                _cp(stdout=""),
+                _cp(),
+                _cp(stdout="2\n"),
+                _cp(stdout="aaaaaaa|subject one\nbbbbbbb|subject two\n"),
+                _cp(stdout="README.md\nmav_gss_lib/updater.py\n"),
+            )
+            status = check_for_updates()
         self.assertEqual(status.behind_count, 2)
-        self.assertEqual(len(status.commits), 2)
-        self.assertEqual(status.commits[0], Commit(sha="abc1234", subject="first"))
-        self.assertIn("requirements.txt", status.changed_files)
-        self.assertTrue(status.requirements_changed)
+        self.assertEqual([c.sha for c in status.commits], ["aaaaaaa", "bbbbbbb"])
+        self.assertEqual(status.changed_files, ["README.md", "mav_gss_lib/updater.py"])
 
-    def test_dirty_tree(self):
-        status = self._patched_check(**{
-            "status --porcelain": _cp(0, " M some_file.py\n"),
-        })
+    def test_dirty_tree_is_flagged(self):
+        with mock.patch.object(updater, "_ensure_git_repo", return_value=None), \
+             mock.patch.object(updater, "_scan_missing_pip_deps", return_value=[]), \
+             mock.patch.object(updater, "_run_git") as rg:
+            rg.side_effect = self._run_git_responses(
+                _cp(stdout="main\n"),
+                _cp(stdout="abc\n"),
+                _cp(stdout=" M file.py\n"),   # dirty
+                _cp(),
+                _cp(stdout="0\n"),
+            )
+            status = check_for_updates()
         self.assertTrue(status.working_tree_dirty)
 
-    def test_fetch_timeout(self):
-        def _raise_timeout(args, timeout):
-            key = " ".join(args)
-            if key.startswith("fetch"):
-                raise subprocess.TimeoutExpired(cmd=args, timeout=timeout)
-            return self.responses[key]
-        with mock.patch.object(updater, "_run_git", side_effect=_raise_timeout), \
-             mock.patch.object(updater, "_scan_missing_pip_deps", return_value=[]), \
-             mock.patch.object(updater, "_compute_requirements_hash", return_value="h"), \
-             mock.patch.object(updater, "_read_persisted_hash", return_value="h"):
-            status = check_for_updates()
-        self.assertTrue(status.fetch_failed)
-        self.assertEqual(status.fetch_error, "fetch timeout")
-
     def test_fetch_network_error_marks_failed(self):
-        status = self._patched_check(**{
-            "fetch --quiet origin main": _cp(1, "", "unable to resolve host"),
-        })
+        with mock.patch.object(updater, "_ensure_git_repo", return_value=None), \
+             mock.patch.object(updater, "_scan_missing_pip_deps", return_value=[]), \
+             mock.patch.object(updater, "_run_git") as rg:
+            rg.side_effect = self._run_git_responses(
+                _cp(stdout="main\n"),
+                _cp(stdout="abc\n"),
+                _cp(stdout=""),
+                _cp(returncode=1, stderr="host unreachable"),
+            )
+            status = check_for_updates()
         self.assertTrue(status.fetch_failed)
+        self.assertIn("host unreachable", status.fetch_error or "")
 
-    def test_detached_head(self):
-        status = self._patched_check(**{
-            "rev-parse --abbrev-ref HEAD": _cp(0, "HEAD\n"),
-        })
+    def test_detached_head_marks_failed(self):
+        with mock.patch.object(updater, "_ensure_git_repo", return_value=None), \
+             mock.patch.object(updater, "_scan_missing_pip_deps", return_value=[]), \
+             mock.patch.object(updater, "_run_git") as rg:
+            rg.side_effect = self._run_git_responses(_cp(stdout="HEAD\n"))
+            status = check_for_updates()
         self.assertTrue(status.fetch_failed)
-        self.assertEqual(status.fetch_error, "detached HEAD — not on a branch")
-
-    def test_missing_hash_with_healthy_env_seeds_silently(self):
-        # First launch on a working dev env: no hash file exists, but all
-        # pip deps import cleanly. The updater should silently seed the hash
-        # and report in-sync — not nag the operator with "retrying previously
-        # failed dependency install" on every fresh clone.
-        with mock.patch.object(updater, "_run_git", side_effect=self._fake_run_git), \
-             mock.patch.object(updater, "_scan_missing_pip_deps", return_value=[]), \
-             mock.patch.object(updater, "_compute_requirements_hash", return_value="h"), \
-             mock.patch.object(updater, "_read_persisted_hash", return_value=None), \
-             mock.patch.object(updater, "_write_persisted_hash") as write_mock:
-            status = check_for_updates()
-        self.assertFalse(status.requirements_out_of_sync)
-        write_mock.assert_called_once()
-
-    def test_missing_hash_with_missing_deps_flags_out_of_sync(self):
-        # First launch on a broken env: hash missing AND imports failing → do
-        # NOT silently seed. The operator should see an install prompt.
-        with mock.patch.object(updater, "_run_git", side_effect=self._fake_run_git), \
-             mock.patch.object(updater, "_scan_missing_pip_deps", return_value=["httpx"]), \
-             mock.patch.object(updater, "_compute_requirements_hash", return_value="h"), \
-             mock.patch.object(updater, "_read_persisted_hash", return_value=None), \
-             mock.patch.object(updater, "_write_persisted_hash") as write_mock:
-            status = check_for_updates()
-        self.assertTrue(status.requirements_out_of_sync)
-        write_mock.assert_not_called()
-
-    def test_stale_requirements_hash_triggers_out_of_sync(self):
-        with mock.patch.object(updater, "_run_git", side_effect=self._fake_run_git), \
-             mock.patch.object(updater, "_scan_missing_pip_deps", return_value=[]), \
-             mock.patch.object(updater, "_compute_requirements_hash", return_value="new"), \
-             mock.patch.object(updater, "_read_persisted_hash", return_value="old"):
-            status = check_for_updates()
-        self.assertTrue(status.requirements_out_of_sync)
-
-    def test_matching_hash_in_sync(self):
-        with mock.patch.object(updater, "_run_git", side_effect=self._fake_run_git), \
-             mock.patch.object(updater, "_scan_missing_pip_deps", return_value=[]), \
-             mock.patch.object(updater, "_compute_requirements_hash", return_value="same"), \
-             mock.patch.object(updater, "_read_persisted_hash", return_value="same"):
-            status = check_for_updates()
-        self.assertFalse(status.requirements_out_of_sync)
+        self.assertIn("detached HEAD", status.fetch_error or "")
 
     def test_dev_sentinel_short_circuits(self):
-        # .mav_dev at repo root → no git calls, no pip scans. The updater
-        # returns a fetch_failed status with a dev-mode reason so the Updates
-        # check renders as skip and the button never appears.
-        # Stop the class-level patcher that forces the sentinel absent, then
-        # install a present-sentinel patch for this test only.
-        mock.patch.stopall()
-        fake_dev_path = mock.MagicMock()
-        fake_dev_path.exists.return_value = True
-        with mock.patch.object(updater, "DEV_SENTINEL_PATH", fake_dev_path), \
-             mock.patch.object(updater, "_run_git") as git_mock, \
-             mock.patch.object(updater, "_scan_missing_pip_deps") as scan_mock:
+        # Flip the sentinel back to present for this one test.
+        self._dev_patch.stop()
+        with mock.patch.object(updater, "DEV_SENTINEL_PATH") as sentinel, \
+             mock.patch.object(updater, "_run_git") as rg:
+            sentinel.exists.return_value = True
             status = check_for_updates()
+        rg.assert_not_called()
         self.assertTrue(status.fetch_failed)
         self.assertIn(".mav_dev", status.fetch_error or "")
-        git_mock.assert_not_called()
-        scan_mock.assert_not_called()
+        # Restart the default patch so addCleanup doesn't double-stop.
+        self._dev_patch = mock.patch.object(updater, "DEV_SENTINEL_PATH")
+        self._dev_patch.start()
 
 
 # =============================================================================
@@ -225,160 +151,38 @@ class TestCheckForUpdates(unittest.TestCase):
 # =============================================================================
 
 class TestBootstrapDependencies(unittest.TestCase):
+    """Simplified bootstrap: checks prereqs, prints install instructions if missing."""
 
     def setUp(self):
-        os.environ.pop("MAV_BOOTSTRAP_ATTEMPTED", None)
-        os.environ.pop("MAV_UPDATE_APPLIED", None)
-
-    def tearDown(self):
-        os.environ.pop("MAV_BOOTSTRAP_ATTEMPTED", None)
+        # Skip the zip auto-heal branch in every test.
+        self.dev_patch = mock.patch.object(updater, "DEV_SENTINEL_PATH")
+        self.dev_sentinel = self.dev_patch.start()
+        self.dev_sentinel.exists.return_value = True
+        self.addCleanup(self.dev_patch.stop)
 
     def test_hard_prereq_missing_exits_3(self):
-        def fake_find_spec(name):
-            if name == "pmt":
-                return None
-            return types.SimpleNamespace()
-        with mock.patch("importlib.util.find_spec", side_effect=fake_find_spec):
+        with mock.patch.object(updater.importlib.util, "find_spec", return_value=None):
             with self.assertRaises(SystemExit) as ctx:
                 bootstrap_dependencies()
         self.assertEqual(ctx.exception.code, 3)
 
     def test_all_deps_present_is_noop(self):
-        with mock.patch("importlib.util.find_spec", return_value=types.SimpleNamespace()), \
-             mock.patch.object(updater, "_run_pip_install_terminal") as pip, \
-             mock.patch.object(updater, "_reexec") as reexec_mock:
+        fake_spec = object()
+        with mock.patch.object(updater.importlib.util, "find_spec", return_value=fake_spec):
+            # Should return without raising
             bootstrap_dependencies()
-        pip.assert_not_called()
-        reexec_mock.assert_not_called()
-        self.assertNotIn("MAV_BOOTSTRAP_ATTEMPTED", os.environ)
 
-    def test_missing_deps_first_try_triggers_pip_and_reexec(self):
-        def fake_find_spec(name):
-            # pmt present, fastapi missing, others present
-            if name == "pmt":
-                return types.SimpleNamespace()
-            if name == "fastapi":
+    def test_soft_prereq_missing_exits_2_with_instructions(self):
+        # Hard prereqs present, critical soft module missing.
+        def find_spec(name):
+            if name in updater._CRITICAL_MODULES:
                 return None
-            return types.SimpleNamespace()
-        with mock.patch("importlib.util.find_spec", side_effect=fake_find_spec), \
-             mock.patch.object(updater, "_run_pip_install_terminal") as pip, \
-             mock.patch.object(updater, "_reexec") as reexec_mock:
-            bootstrap_dependencies()
-        pip.assert_called_once()
-        reexec_mock.assert_called_once()
-        self.assertEqual(os.environ.get("MAV_BOOTSTRAP_ATTEMPTED"), "1")
-
-    def test_missing_deps_retry_guard_exits_2(self):
-        os.environ["MAV_BOOTSTRAP_ATTEMPTED"] = "1"
-        def fake_find_spec(name):
-            if name == "pmt":
-                return types.SimpleNamespace()
-            if name == "fastapi":
-                return None
-            return types.SimpleNamespace()
-        with mock.patch("importlib.util.find_spec", side_effect=fake_find_spec):
+            return object()
+        with mock.patch.object(updater.importlib.util, "find_spec", side_effect=find_spec), \
+             mock.patch("sys.stderr"):
             with self.assertRaises(SystemExit) as ctx:
                 bootstrap_dependencies()
         self.assertEqual(ctx.exception.code, 2)
-
-    def test_pip_blocked_triggers_venv_and_reexec(self):
-        def fake_find_spec(name):
-            if name == "pmt":
-                return types.SimpleNamespace()
-            if name == "fastapi":
-                return None
-            return types.SimpleNamespace()
-        cleared_flag_before_reexec = {"ok": False}
-
-        def fake_reexec(python=None, extra_env=None):
-            # Capture state at the moment of the first re-exec call. In real
-            # life os.execv never returns, so our mock simulates that by
-            # raising to short-circuit the fall-through.
-            cleared_flag_before_reexec["ok"] = (
-                "MAV_BOOTSTRAP_ATTEMPTED" not in os.environ
-                and str(python).endswith("/fake/.venv/bin/python")
-            )
-            raise SystemExit(0)
-
-        with mock.patch("importlib.util.find_spec", side_effect=fake_find_spec), \
-             mock.patch.object(updater, "_run_pip_install_terminal", side_effect=PipBlockedError("blocked")), \
-             mock.patch.object(updater, "_ensure_venv", return_value=Path("/fake/.venv/bin/python")) as ev, \
-             mock.patch.object(updater, "_reexec", side_effect=fake_reexec):
-            with self.assertRaises(SystemExit):
-                bootstrap_dependencies()
-        ev.assert_called_once()
-        # MAV_BOOTSTRAP_ATTEMPTED must be cleared before the venv re-exec so
-        # the new interpreter gets its own fresh attempt.
-        self.assertTrue(cleared_flag_before_reexec["ok"])
-
-    def test_pip_blocked_and_venv_unavailable_exits_3(self):
-        def fake_find_spec(name):
-            if name == "pmt":
-                return types.SimpleNamespace()
-            if name == "fastapi":
-                return None
-            return types.SimpleNamespace()
-        with mock.patch("importlib.util.find_spec", side_effect=fake_find_spec), \
-             mock.patch.object(updater, "_run_pip_install_terminal", side_effect=PipBlockedError("blocked")), \
-             mock.patch.object(updater, "_ensure_venv", side_effect=VenvUnavailableError("no ensurepip")):
-            with self.assertRaises(SystemExit) as ctx:
-                bootstrap_dependencies()
-        self.assertEqual(ctx.exception.code, 3)
-
-
-# =============================================================================
-#  _detect_pip_blocked
-# =============================================================================
-
-class TestDetectPipBlocked(unittest.TestCase):
-
-    def test_pep668(self):
-        self.assertTrue(_detect_pip_blocked(
-            "error: externally-managed-environment"
-        ))
-
-    def test_externally_managed_marker(self):
-        self.assertTrue(_detect_pip_blocked("EXTERNALLY-MANAGED"))
-
-    def test_permission_denied(self):
-        self.assertTrue(_detect_pip_blocked("Permission denied: /usr/lib/python3"))
-
-    def test_errno_13(self):
-        self.assertTrue(_detect_pip_blocked("[Errno 13] Permission denied"))
-
-    def test_normal_conflict_is_not_blocked(self):
-        self.assertFalse(_detect_pip_blocked(
-            "ERROR: Cannot install foo==1.0 and bar==2.0 because these package versions have conflicting dependencies"
-        ))
-
-
-# =============================================================================
-#  _ensure_venv
-# =============================================================================
-
-class TestEnsureVenv(unittest.TestCase):
-
-    def test_success_path(self):
-        with mock.patch.object(Path, "exists", return_value=True):
-            # Already-exists path: no subprocess call at all.
-            p = updater._ensure_venv()
-        self.assertTrue(str(p).endswith("bin/python"))
-
-    def test_ensurepip_missing_raises_venv_unavailable(self):
-        with mock.patch.object(Path, "exists", side_effect=[False, True]), \
-             mock.patch("subprocess.run", return_value=_cp(
-                 1, "", "ensurepip is not available\n"
-             )):
-            with self.assertRaises(VenvUnavailableError):
-                updater._ensure_venv()
-
-    def test_other_failure_raises_runtime_error(self):
-        with mock.patch.object(Path, "exists", side_effect=[False, True]), \
-             mock.patch("subprocess.run", return_value=_cp(
-                 1, "", "unexpected error\n"
-             )):
-            with self.assertRaises(RuntimeError):
-                updater._ensure_venv()
 
 
 # =============================================================================
@@ -386,66 +190,13 @@ class TestEnsureVenv(unittest.TestCase):
 # =============================================================================
 
 class TestReexec(unittest.TestCase):
-
     def test_applies_env_before_exec(self):
-        seen_env = {}
-
-        def fake_execv(path, argv):
-            seen_env["MAV_UPDATE_APPLIED"] = os.environ.get("MAV_UPDATE_APPLIED")
-
-        with mock.patch("os.execv", side_effect=fake_execv):
-            os.environ.pop("MAV_UPDATE_APPLIED", None)
-            updater._reexec(extra_env={"MAV_UPDATE_APPLIED": "abc123"})
-
-        self.assertEqual(seen_env["MAV_UPDATE_APPLIED"], "abc123")
-        os.environ.pop("MAV_UPDATE_APPLIED", None)
-
-
-# =============================================================================
-#  _run_pip_install hash-write behavior
-# =============================================================================
-
-class TestPipInstallHashWrite(unittest.TestCase):
-
-    def setUp(self):
-        self.events: list[dict] = []
-
-    def _broadcast(self, event: dict) -> None:
-        self.events.append(event)
-
-    def test_success_writes_hash(self):
-        with mock.patch.object(updater, "_stream_subprocess"), \
-             mock.patch.object(updater, "_write_persisted_hash") as write:
-            updater._run_pip_install(self._broadcast)
-        write.assert_called_once()
-
-    def test_failure_does_not_write_hash(self):
-        with mock.patch.object(updater, "_stream_subprocess",
-                               side_effect=SubprocessFailed("boom")), \
-             mock.patch.object(updater, "_write_persisted_hash") as write:
-            with self.assertRaises(SubprocessFailed):
-                updater._run_pip_install(self._broadcast)
-        write.assert_not_called()
-
-    def test_timeout_does_not_write_hash(self):
-        with mock.patch.object(updater, "_stream_subprocess",
-                               side_effect=subprocess.TimeoutExpired(cmd=[], timeout=1)), \
-             mock.patch.object(updater, "_write_persisted_hash") as write:
-            with self.assertRaises(subprocess.TimeoutExpired):
-                updater._run_pip_install(self._broadcast)
-        write.assert_not_called()
-
-    def test_pip_blocked_triggers_venv_and_reexec(self):
-        with mock.patch.object(updater, "_stream_subprocess",
-                               side_effect=PipBlockedError("blocked")), \
-             mock.patch.object(updater, "_ensure_venv",
-                               return_value=Path("/fake/.venv/bin/python")) as ev, \
-             mock.patch.object(updater, "_reexec") as reexec_mock, \
-             mock.patch.object(updater, "_write_persisted_hash") as write:
-            updater._run_pip_install(self._broadcast)
-        ev.assert_called_once()
-        reexec_mock.assert_called_once()
-        write.assert_not_called()
+        with mock.patch("os.execv") as execv, \
+             mock.patch.dict("os.environ", {}, clear=False):
+            updater._reexec(extra_env={"MAV_UPDATE_APPLIED": "deadbee"})
+            import os
+            self.assertEqual(os.environ.get("MAV_UPDATE_APPLIED"), "deadbee")
+            execv.assert_called_once()
 
 
 # =============================================================================
@@ -453,76 +204,78 @@ class TestPipInstallHashWrite(unittest.TestCase):
 # =============================================================================
 
 class TestApplyUpdate(unittest.TestCase):
-
     def setUp(self):
         self.events: list[dict] = []
+        def broadcast(event: dict) -> None:
+            self.events.append(event)
+        self._broadcast = broadcast
 
-    def _broadcast(self, event: dict) -> None:
-        self.events.append(event)
-
-    def _status(self, **kw):
-        defaults = dict(
-            current_sha="old_sha",
+    def _status(self, behind: int = 2, dirty: bool = False) -> UpdateStatus:
+        return UpdateStatus(
+            current_sha="oldsha1",
             branch="main",
-            behind_count=1,
-            commits=[Commit("abc1234", "msg")],
-            changed_files=["requirements.txt"],
-            working_tree_dirty=False,
-            missing_pip_deps=[],
-            requirements_changed=True,
-            requirements_out_of_sync=False,
-            fetch_failed=False,
-            fetch_error=None,
-            update_applied_sha=None,
+            behind_count=behind,
+            commits=[Commit(sha="a", subject="s1"), Commit(sha="b", subject="s2")],
+            working_tree_dirty=dirty,
         )
-        defaults.update(kw)
-        return UpdateStatus(**defaults)
 
-    def test_happy_path_runs_phases_and_reexecs_with_new_sha(self):
+    def test_happy_path_runs_git_pull_countdown_and_reexecs(self):
         status = self._status()
-        git_calls = {
-            "status --porcelain": _cp(0, ""),
-            "rev-parse HEAD": _cp(0, "new_sha_after_pull\n"),
-        }
-        def fake_run_git(args, timeout):
-            return git_calls[" ".join(args)]
-        with mock.patch.object(updater, "_run_git", side_effect=fake_run_git), \
-             mock.patch.object(updater, "_stream_subprocess") as stream, \
-             mock.patch.object(updater, "_run_pip_install") as pip, \
-             mock.patch.object(updater, "_reexec") as reexec_mock:
+        with mock.patch.object(updater, "_run_git") as rg, \
+             mock.patch.object(updater, "_stream_subprocess") as ss, \
+             mock.patch.object(updater, "_reexec") as rx, \
+             mock.patch.object(updater.time, "sleep"):
+            rg.side_effect = [
+                _cp(stdout=""),            # status --porcelain (clean)
+                _cp(stdout="newsha2\n"),   # rev-parse HEAD after pull
+            ]
             apply_update(self._broadcast, status)
-        stream.assert_called()  # git_pull
-        pip.assert_called_once()
-        reexec_mock.assert_called_once()
-        _, kwargs = reexec_mock.call_args
-        self.assertEqual(kwargs["extra_env"]["MAV_UPDATE_APPLIED"], "new_sha_after_pull")
 
-    def test_dirty_tree_gate_blocks_all_phases(self):
+        ss.assert_called_once()
+        rx.assert_called_once()
+        # reexec gets the new SHA as MAV_UPDATE_APPLIED.
+        _, kwargs = rx.call_args
+        self.assertEqual(kwargs.get("extra_env", {}).get("MAV_UPDATE_APPLIED"), "newsha2")
+
+        # Countdown ticks 5..1 were broadcast.
+        countdown_details = [
+            e.get("detail") for e in self.events
+            if e.get("phase") == "countdown" and e.get("status") == "running"
+        ]
+        self.assertEqual(countdown_details, ["5", "4", "3", "2", "1"])
+
+    def test_dirty_tree_gate_blocks_apply(self):
         status = self._status()
-        def fake_run_git(args, timeout):
-            return _cp(0, " M file.py\n")
-        with mock.patch.object(updater, "_run_git", side_effect=fake_run_git), \
-             mock.patch.object(updater, "_stream_subprocess") as stream, \
-             mock.patch.object(updater, "_run_pip_install") as pip, \
-             mock.patch.object(updater, "_reexec") as reexec_mock:
+        with mock.patch.object(updater, "_run_git") as rg, \
+             mock.patch.object(updater, "_stream_subprocess") as ss, \
+             mock.patch.object(updater, "_reexec") as rx:
+            rg.return_value = _cp(stdout=" M file.py\n")
             with self.assertRaises(DirtyTreeError):
                 apply_update(self._broadcast, status)
-        stream.assert_not_called()
-        pip.assert_not_called()
-        reexec_mock.assert_not_called()
+        ss.assert_not_called()
+        rx.assert_not_called()
 
-    def test_nothing_to_do_raises_preflight_error(self):
-        status = self._status(behind_count=0, missing_pip_deps=[],
-                              requirements_changed=False,
-                              requirements_out_of_sync=False,
-                              changed_files=[])
-        def fake_run_git(args, timeout):
-            return _cp(0, "")
-        with mock.patch.object(updater, "_run_git", side_effect=fake_run_git), \
-             mock.patch.object(updater, "_reexec") as reexec_mock:
+    def test_nothing_to_update_raises_preflight_error(self):
+        status = self._status(behind=0)
+        with mock.patch.object(updater, "_run_git", return_value=_cp(stdout="")), \
+             mock.patch.object(updater, "_stream_subprocess") as ss, \
+             mock.patch.object(updater, "_reexec") as rx:
             with self.assertRaises(PreflightError):
                 apply_update(self._broadcast, status)
-        reexec_mock.assert_not_called()
+        ss.assert_not_called()
+        rx.assert_not_called()
+
+    def test_git_pull_failure_is_broadcast_and_raised(self):
+        status = self._status()
+        with mock.patch.object(updater, "_run_git", return_value=_cp(stdout="")), \
+             mock.patch.object(updater, "_stream_subprocess",
+                               side_effect=SubprocessFailed("fast-forward refused")), \
+             mock.patch.object(updater, "_reexec") as rx:
+            with self.assertRaises(SubprocessFailed):
+                apply_update(self._broadcast, status)
+        rx.assert_not_called()
+        fail_events = [e for e in self.events if e.get("status") == "fail"]
+        self.assertTrue(any(e.get("phase") == "git_pull" for e in fail_events))
 
 
 if __name__ == "__main__":

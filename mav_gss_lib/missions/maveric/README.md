@@ -17,8 +17,11 @@ loads it by convention at startup when `general.mission: maveric` is set in `gss
 - **Node/ptype tables** — ID↔name resolution and gs_node resolution (`nodes.py` + definitions in `mission.example.yml`)
 - **Command schema** — schema loading, validation, resolution (`schema.py`, `commands.yml`)
 - **Imaging plugin** — `ImageAssembler` chunk reassembly and FastAPI plugin router (`imaging.py`)
-- **TX builder UI** — MAVERIC command picker React component
-  (`mav_gss_lib/web/src/plugins/maveric/TxBuilder.tsx`)
+- **Telemetry decoders** — per-command decoders for structured telemetry (e.g. `eps_hk`);
+  registry keyed by `(cmd_id, pkt_type)` (`telemetry/`)
+- **Frontend plugin surface** — MAVERIC command picker, imaging page, and plugin page
+  registration (`mav_gss_lib/web/src/plugins/maveric/TxBuilder.tsx`,
+  `ImagingPage.tsx`, `plugins.ts`)
 - **Mission metadata** — node names, ptypes, AX.25/CSP defaults (`mission.example.yml`)
 
 ## Files
@@ -36,6 +39,7 @@ loads it by convention at startup when `general.mission: maveric` is set in `gss
 | `rendering.py` | Yes | RX display rendering — row, detail_blocks, protocol_blocks, integrity_blocks |
 | `log_format.py` | Yes | Mission-specific log record formatting |
 | `imaging.py` | Yes | `ImageAssembler` + `get_imaging_router()` plugin REST endpoints |
+| `telemetry/` | Yes | Telemetry decoders package — `decode_telemetry()` entry point, `TelemetryField` type, per-command decoders (e.g. `eps.py`) |
 | `mission.example.yml` | Yes | Public-safe mission metadata (nodes, ptypes, AX.25/CSP defaults) |
 | `commands.example.yml` | Yes | Annotated command schema example — safe structure, redacted content |
 | `mission.yml` | No | Local private mission metadata override (gitignored) |

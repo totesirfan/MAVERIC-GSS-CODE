@@ -27,9 +27,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from mav_gss_lib.preflight import CheckResult, run_preflight, summarize
 from mav_gss_lib.updater import (
     DirtyTreeError,
-    PipBlockedError,
     UpdateStatus,
-    VenvUnavailableError,
     apply_update,
     check_for_updates,
 )
@@ -126,20 +124,17 @@ async def _build_updates_event(runtime) -> dict:
         "behind_count": status.behind_count,
         "commits": [asdict(c) for c in status.commits],
         "missing_pip_deps": list(status.missing_pip_deps),
-        "requirements_changed": status.requirements_changed,
-        "requirements_out_of_sync": status.requirements_out_of_sync,
         "dirty": status.working_tree_dirty,
         "button": None,
         "button_disabled": False,
         "button_reason": None,
     }
 
-    nothing_to_do = (
-        status.behind_count == 0
-        and not status.missing_pip_deps
-        and not status.requirements_changed
-        and not status.requirements_out_of_sync
-    )
+    # The updater now only pulls commits; pip installs are the operator's
+    # manual `pip install -r requirements.txt` step, surfaced here purely as
+    # a warning when packages are missing. So the button only appears when
+    # there's actually a commit to pull.
+    has_update = status.behind_count > 0
 
     if status.update_applied_sha:
         label = f"Updated to {status.update_applied_sha[:7]}"
@@ -156,24 +151,31 @@ async def _build_updates_event(runtime) -> dict:
             result_status, result_label = ("skip", "Detached HEAD · updates disabled")
         else:
             result_status, result_label = ("skip", "Update check skipped · could not reach origin")
-    elif nothing_to_do:
-        result_status, result_label = ("ok", f"Up to date ({status.current_sha[:7]})")
-    else:
+    elif has_update:
         meta["button"] = "apply"
         if status.working_tree_dirty:
             meta["button_disabled"] = True
             meta["button_reason"] = "commit or stash local changes to enable"
 
-        parts: list[str] = []
-        if status.behind_count:
-            parts.append(f"{status.behind_count} commits behind")
+        parts = [f"{status.behind_count} commits behind"]
         if status.missing_pip_deps:
-            parts.append(f"installing {len(status.missing_pip_deps)} new Python packages")
-        elif status.requirements_changed:
-            parts.append("refreshing Python dependencies")
-        elif status.requirements_out_of_sync:
-            parts.append("retrying previously failed dependency install")
+            parts.append(
+                f"{len(status.missing_pip_deps)} Python package"
+                f"{'s' if len(status.missing_pip_deps) != 1 else ''} missing (run pip install)"
+            )
         result_status, result_label = ("warn", "Update available · " + " · ".join(parts))
+    elif status.missing_pip_deps:
+        # No commits behind, but Python packages are missing — warn without the
+        # apply button, since the updater can't fix this. Operator runs
+        # `pip install -r requirements.txt` in their conda env.
+        count = len(status.missing_pip_deps)
+        result_status, result_label = (
+            "warn",
+            f"Up to date ({status.current_sha[:7]}) · "
+            f"{count} Python package{'s' if count != 1 else ''} missing (run pip install)",
+        )
+    else:
+        result_status, result_label = ("ok", f"Up to date ({status.current_sha[:7]})")
 
     return {
         "type": "check",
@@ -385,12 +387,7 @@ async def _handle_apply_update(runtime, websocket: WebSocket) -> None:
             status = runtime.update_status
             if status is None:
                 fail_reason = "update status unavailable (re-launch to refresh)"
-            elif (
-                status.behind_count == 0
-                and not status.missing_pip_deps
-                and not status.requirements_changed
-                and not status.requirements_out_of_sync
-            ):
+            elif status.behind_count == 0:
                 fail_reason = "nothing to update"
             elif status.working_tree_dirty:
                 fail_reason = "local changes detected — commit or stash"
@@ -403,7 +400,7 @@ async def _handle_apply_update(runtime, websocket: WebSocket) -> None:
         try:
             await websocket.send_text(json.dumps({
                 "type": "update_phase",
-                "phase": "pip_install",
+                "phase": "git_pull",
                 "status": "fail",
                 "detail": fail_reason,
             }))
@@ -441,24 +438,11 @@ async def _handle_apply_update(runtime, websocket: WebSocket) -> None:
             }))
         except Exception:
             pass
-    except VenvUnavailableError:
-        # _run_pip_install already broadcast the specific python3-venv fail phase.
-        pass
-    except PipBlockedError:
-        try:
-            await websocket.send_text(json.dumps({
-                "type": "update_phase",
-                "phase": "pip_install",
-                "status": "fail",
-                "detail": "pip blocked and venv fallback failed",
-            }))
-        except Exception:
-            pass
     except Exception as exc:
         try:
             await websocket.send_text(json.dumps({
                 "type": "update_phase",
-                "phase": "pip_install",
+                "phase": "git_pull",
                 "status": "fail",
                 "detail": f"{type(exc).__name__}: {exc}",
             }))

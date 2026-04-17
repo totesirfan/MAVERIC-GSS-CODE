@@ -28,9 +28,9 @@ It is not a standalone app. It is the frontend for the FastAPI runtime under `ma
 - **next-themes** — theme state (the project locks to the dark mission console theme)
 - **lucide-react** — iconography
 - **date-fns**, **react-day-picker** — date handling
-- **Fonts:** `@fontsource-variable/inter`, `@fontsource-variable/jetbrains-mono`, `@fontsource-variable/geist`
+- **Fonts:** `@fontsource-variable/inter` (UI text), `@fontsource-variable/jetbrains-mono` (data rows) — both declared as `@font-face` in `src/index.css`. `@fontsource-variable/geist` is installed but not currently loaded.
 
-See `package.json` for exact versions. The current version is `5.5.3`, single-sourced into the backend via `mav_gss_lib/config.py::_read_version()`.
+See `package.json` for the exact version, which is single-sourced into the backend via `mav_gss_lib/config.py::_read_version()`.
 
 ## Build
 
@@ -50,19 +50,21 @@ The backend (`python3 MAV_WEB.py`) must be running alongside `npm run dev` for A
 
 ```
 src/
-  App.tsx                Top-level router (?panel= pop-out, ?page= plugins, else MainDashboard)
-  main.tsx               React root + font/CSS imports
-  index.css              Tailwind directives + tokens
+  App.tsx                Top-level router (?panel= pop-out, ?page= plugins, else AppShell → MainDashboard)
+  main.tsx               React root; mounts <App /> and imports index.css
+  index.css              Tailwind directives, token definitions, and @font-face declarations
   components/
     MainDashboard.tsx    Split-pane RX/TX layout, owns useRxSocket/useTxSocket
-    rx/                  RxPanel, PacketList/Row/Detail, SessionBanner
-    tx/                  TxPanel, TxQueue, QueueItem, CommandInput, ImportDialog, SentHistory, DelayItem
+    rx/                  RxPanel, PacketList/Row/Detail, SessionBanner, BlackoutPill
+    tx/                  TxPanel, TxQueue, QueueItem, CommandInput, ImportDialog, SentHistory,
+                         DelayItem, NoteItem
     shared/              PtypeBadge, StatusDot, TogglePill, ContextMenu, CommandPalette, HelpModal,
                          StatusToast, AlarmStrip, ConfirmBar/Dialog, PromptDialog, PreflightScreen,
-                         RenderingBlocks
+                         RenderingBlocks, PlanetGlobe
     config/              Runtime config editor + sidebar
     logs/                Log session browser + replay controls
-    layout/              GlobalHeader, SplitPane, KeyboardHintBar
+    layout/              GlobalHeader, SplitPane, KeyboardHintBar, TabStrip, TabViewport,
+                         TabActiveContext, navigation (tab builder)
     ui/                  shadcn/ui primitives
   hooks/
     RxProvider.tsx       RX WebSocket context

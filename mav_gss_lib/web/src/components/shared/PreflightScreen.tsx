@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, type ReactNode } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Check, X, AlertTriangle, Minus, Loader2 } from 'lucide-react'
 import { colors } from '@/lib/colors'
@@ -40,13 +40,12 @@ const GROUP_LABELS: Record<string, string> = {
 }
 
 const PHASE_LABELS: Record<UpdatePhase, string> = {
-  git_pull:       'git pull',
-  pip_install:    'pip install',
-  bootstrap_venv: 'bootstrap venv',
-  restart:        'restart',
+  git_pull:  'git pull',
+  countdown: 'restart in',
+  restart:   'restart',
 }
 
-const PHASE_ORDER: UpdatePhase[] = ['git_pull', 'bootstrap_venv', 'pip_install', 'restart']
+const PHASE_ORDER: UpdatePhase[] = ['git_pull', 'countdown', 'restart']
 
 // Welcome-screen slate accent (kept local so the rest of the app's cyan
 // colors.active stays untouched).
@@ -139,6 +138,11 @@ export function PreflightScreen({
     updateState === 'idle' &&
     updatesMeta?.button === 'apply' &&
     !updatesMeta.button_disabled
+
+  // Right-column stage-swap: show the updater panel whenever an update is
+  // pullable or already in flight; otherwise the planet globe stays visible.
+  const showUpdaterStage =
+    (updatesMeta?.button === 'apply') || updateState !== 'idle'
 
   // Only render the systems-check section if there's anything to report.
   const hasAnyIssues = nonUpdatesGroups.length > 0 || showUpdatesRow
@@ -306,9 +310,25 @@ export function PreflightScreen({
           )}
         </div>
 
-        {/* ================= RIGHT: visual column ================= */}
-        <div className="flex items-center justify-center min-w-0">
-          <PlanetGlobe />
+        {/* ================= RIGHT: visual column with stage-swap ================= */}
+        <div
+          className="relative min-w-0"
+          style={{ display: 'grid', placeItems: 'center' }}
+        >
+          <VisualStage active={!showUpdaterStage}>
+            <PlanetGlobe />
+          </VisualStage>
+          <VisualStage active={showUpdaterStage}>
+            <UpdaterStage
+              meta={updatesMeta}
+              updateState={updateState}
+              updatePhases={updatePhases}
+              onShowConfirm={onShowConfirm}
+              onCancelConfirm={onCancelConfirm}
+              onApplyUpdate={onApplyUpdate}
+              onReloadPage={onReloadPage}
+            />
+          </VisualStage>
         </div>
       </div>
 
@@ -809,23 +829,7 @@ function UpdatesGroupExtras({
 
   // confirming — header, commit list, planned phases, CONFIRM/CANCEL
   if (updateState === 'confirming' && meta) {
-    const header =
-      meta.behind_count > 0
-        ? `Apply ${meta.behind_count} commit${meta.behind_count === 1 ? '' : 's'}?`
-        : 'Install Python dependencies?'
-
-    const pipBullet: string | null = (() => {
-      if (meta.missing_pip_deps.length > 0) {
-        return `pip install -r requirements.txt (${meta.missing_pip_deps.length} new package${meta.missing_pip_deps.length === 1 ? '' : 's'})`
-      }
-      if (meta.requirements_changed) {
-        return 'pip install -r requirements.txt (refresh)'
-      }
-      if (meta.requirements_out_of_sync) {
-        return 'retry pip install -r requirements.txt (last install incomplete)'
-      }
-      return null
-    })()
+    const header = `Apply ${meta.behind_count} commit${meta.behind_count === 1 ? '' : 's'}?`
 
     return (
       <div className="mt-3 space-y-2">
@@ -865,9 +869,8 @@ function UpdatesGroupExtras({
           }}
         >
           <div style={{ color: colors.textMuted }}>This will:</div>
-          {meta.behind_count > 0 && <div>• git pull origin {meta.branch}</div>}
-          {pipBullet && <div>• {pipBullet}</div>}
-          <div>• restart MAV_WEB.py</div>
+          <div>• git pull --ff-only origin {meta.branch}</div>
+          <div>• countdown and restart MAV_WEB.py</div>
         </div>
         <div className="flex gap-2 pt-1">
           <button
@@ -1013,6 +1016,344 @@ function PhaseList({ updatePhases }: { updatePhases: Record<UpdatePhase, UpdateP
           </div>
         )
       })}
+    </div>
+  )
+}
+
+// =============================================================================
+//  Right-column stage-swap: planet ↔ updater (cross-fade)
+// =============================================================================
+
+function VisualStage({ active, children }: { active: boolean; children: ReactNode }) {
+  return (
+    <motion.div
+      className="w-full max-w-full flex items-center justify-center"
+      style={{
+        gridColumn: 1,
+        gridRow: 1,
+        pointerEvents: active ? 'auto' : 'none',
+      }}
+      initial={false}
+      animate={{ opacity: active ? 1 : 0, scale: active ? 1 : 0.92 }}
+      transition={{ duration: 0.65, ease: 'easeInOut' }}
+    >
+      {children}
+    </motion.div>
+  )
+}
+
+interface UpdaterStageProps {
+  meta: UpdatesCheckMeta | null
+  updateState: UpdateUIState
+  updatePhases: Record<UpdatePhase, UpdateProgress>
+  onShowConfirm: () => void
+  onCancelConfirm: () => void
+  onApplyUpdate: () => void
+  onReloadPage: () => void
+}
+
+function UpdaterStage({
+  meta,
+  updateState,
+  updatePhases,
+  onShowConfirm,
+  onCancelConfirm,
+  onApplyUpdate,
+  onReloadPage,
+}: UpdaterStageProps) {
+  const behind = meta?.behind_count ?? 0
+  const commits = meta?.commits ?? []
+
+  // Countdown seconds for the "applying" phase (5..1), derived from the
+  // latest countdown-phase event. Falls back to 0 when not counting.
+  const countdownSec = (() => {
+    const cd = updatePhases.countdown
+    if (!cd || cd.status !== 'running' || !cd.detail) return 0
+    const n = parseInt(cd.detail, 10)
+    return Number.isFinite(n) ? n : 0
+  })()
+
+  return (
+    <div
+      className="flex flex-col items-stretch"
+      style={{
+        width: 'clamp(320px, 34vmin, 460px)',
+        padding: 'clamp(1rem, 2vmin, 1.5rem)',
+        background: 'rgba(14, 14, 14, 0.85)',
+        border: `1px solid ${colors.borderSubtle}`,
+        borderRadius: 10,
+        boxShadow: '0 0 30px rgba(0, 0, 0, 0.4)',
+        gap: 'clamp(0.5rem, 1.2vmin, 0.9rem)',
+      }}
+    >
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+        <div
+          style={{
+            fontFamily: 'Inter, sans-serif',
+            fontWeight: 600,
+            letterSpacing: '0.12em',
+            fontSize: 'clamp(11px, 1.2vmin, 13px)',
+            color: SLATE_ACCENT,
+            textTransform: 'uppercase',
+          }}
+        >
+          Update Available
+        </div>
+        <div
+          style={{
+            fontFamily: '"JetBrains Mono", monospace',
+            fontSize: 'clamp(9.5px, 1vmin, 11px)',
+            color: colors.textMuted,
+          }}
+        >
+          {meta?.branch ?? 'main'} · {behind} commit{behind === 1 ? '' : 's'} behind
+        </div>
+      </div>
+
+      {/* Commit list */}
+      {commits.length > 0 && (
+        <div
+          className="overflow-auto"
+          style={{
+            maxHeight: 'clamp(120px, 22vmin, 200px)',
+            fontFamily: '"JetBrains Mono", monospace',
+            fontSize: 'clamp(9.5px, 1vmin, 10.5px)',
+            color: colors.textSecondary,
+            borderTop: `1px solid ${colors.borderSubtle}`,
+            borderBottom: `1px solid ${colors.borderSubtle}`,
+            padding: '0.5rem 0',
+          }}
+        >
+          {commits.map((c) => (
+            <div key={c.sha} style={{ display: 'flex', gap: '0.6rem', padding: '2px 0' }}>
+              <span style={{ color: colors.textMuted, flexShrink: 0 }}>{c.sha.slice(0, 7)}</span>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {c.subject}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* State-specific body */}
+      {updateState === 'idle' && (
+        <button
+          onClick={onShowConfirm}
+          disabled={!!meta?.button_disabled}
+          className="rounded tracking-widest"
+          style={{
+            padding: '0.55rem 0',
+            fontSize: 'clamp(10px, 1.1vmin, 12px)',
+            fontFamily: 'Inter, sans-serif',
+            fontWeight: 600,
+            letterSpacing: '0.15em',
+            color: meta?.button_disabled ? colors.textMuted : colors.bgApp,
+            background: meta?.button_disabled ? 'transparent' : colors.warning,
+            border: meta?.button_disabled ? `1px solid ${colors.borderSubtle}` : 'none',
+            cursor: meta?.button_disabled ? 'not-allowed' : 'pointer',
+          }}
+        >
+          APPLY UPDATE
+        </button>
+      )}
+      {updateState === 'idle' && meta?.button_disabled && meta.button_reason && (
+        <div
+          style={{
+            fontSize: 'clamp(9px, 0.95vmin, 10px)',
+            color: colors.textMuted,
+            textAlign: 'center',
+          }}
+        >
+          {meta.button_reason}
+        </div>
+      )}
+
+      {updateState === 'confirming' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+          <div
+            style={{
+              fontSize: 'clamp(9.5px, 1vmin, 10.5px)',
+              color: colors.textMuted,
+              fontFamily: '"JetBrains Mono", monospace',
+            }}
+          >
+            This will: git pull --ff-only origin {meta?.branch ?? 'main'}, countdown, restart.
+          </div>
+          <div style={{ display: 'flex', gap: '0.4rem' }}>
+            <button
+              onClick={onApplyUpdate}
+              className="rounded tracking-widest"
+              style={{
+                flex: 1,
+                padding: '0.5rem 0',
+                fontSize: 'clamp(10px, 1.1vmin, 12px)',
+                fontFamily: 'Inter, sans-serif',
+                fontWeight: 600,
+                letterSpacing: '0.15em',
+                color: colors.bgApp,
+                background: colors.success,
+                border: 'none',
+                cursor: 'pointer',
+              }}
+            >
+              CONFIRM
+            </button>
+            <button
+              onClick={onCancelConfirm}
+              className="rounded tracking-widest"
+              style={{
+                flex: 1,
+                padding: '0.5rem 0',
+                fontSize: 'clamp(10px, 1.1vmin, 12px)',
+                fontFamily: 'Inter, sans-serif',
+                fontWeight: 600,
+                letterSpacing: '0.15em',
+                color: colors.textSecondary,
+                background: 'transparent',
+                border: `1px solid ${colors.borderSubtle}`,
+                cursor: 'pointer',
+              }}
+            >
+              CANCEL
+            </button>
+          </div>
+        </div>
+      )}
+
+      {updateState === 'applying' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          {PHASE_ORDER.map((phase) => {
+            const st = updatePhases[phase] ?? { phase, status: 'pending' as const }
+            const label = PHASE_LABELS[phase]
+            const Icon =
+              st.status === 'ok' ? Check :
+              st.status === 'fail' ? X :
+              st.status === 'running' ? Loader2 :
+              Minus
+            const color =
+              st.status === 'ok' ? colors.success :
+              st.status === 'fail' ? colors.danger :
+              st.status === 'running' ? colors.active :
+              colors.textMuted
+            const isCountdown = phase === 'countdown' && st.status === 'running'
+            return (
+              <div key={phase} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <Icon
+                  size={14}
+                  color={color}
+                  className={st.status === 'running' && !isCountdown ? 'animate-spin' : ''}
+                />
+                <span
+                  style={{
+                    fontFamily: 'Inter, sans-serif',
+                    fontSize: 'clamp(10px, 1.05vmin, 11.5px)',
+                    color: colors.textPrimary,
+                    flex: 1,
+                  }}
+                >
+                  {label}
+                </span>
+                {isCountdown ? (
+                  <span
+                    style={{
+                      fontFamily: '"JetBrains Mono", monospace',
+                      fontSize: 'clamp(13px, 1.6vmin, 18px)',
+                      color: colors.warning,
+                      fontWeight: 600,
+                      minWidth: '1.5em',
+                      textAlign: 'right',
+                    }}
+                  >
+                    {countdownSec}s
+                  </span>
+                ) : (
+                  st.detail && (
+                    <span
+                      style={{
+                        fontFamily: '"JetBrains Mono", monospace',
+                        fontSize: 'clamp(9px, 0.95vmin, 10px)',
+                        color: colors.textMuted,
+                        maxWidth: '55%',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {st.detail}
+                    </span>
+                  )
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {updateState === 'reloading' && (
+        <div
+          style={{
+            textAlign: 'center',
+            fontFamily: 'Inter, sans-serif',
+            fontSize: 'clamp(10px, 1.1vmin, 12px)',
+            color: colors.textSecondary,
+            padding: '0.5rem 0',
+          }}
+        >
+          Server restarting. Reload in a moment...
+          <div style={{ marginTop: '0.5rem' }}>
+            <button
+              onClick={onReloadPage}
+              className="rounded tracking-widest"
+              style={{
+                padding: '0.45rem 1.2rem',
+                fontSize: 'clamp(10px, 1vmin, 11px)',
+                fontFamily: 'Inter, sans-serif',
+                fontWeight: 600,
+                letterSpacing: '0.15em',
+                color: colors.bgApp,
+                background: SLATE_ACCENT,
+                border: 'none',
+                cursor: 'pointer',
+              }}
+            >
+              RELOAD
+            </button>
+          </div>
+        </div>
+      )}
+
+      {updateState === 'failed' && (
+        <div
+          style={{
+            fontFamily: 'Inter, sans-serif',
+            fontSize: 'clamp(10px, 1.05vmin, 11.5px)',
+            color: colors.danger,
+            padding: '0.5rem 0',
+          }}
+        >
+          Update failed — see phase details above. Try again or pull manually.
+          <div style={{ marginTop: '0.5rem' }}>
+            <button
+              onClick={onCancelConfirm}
+              className="rounded tracking-widest"
+              style={{
+                padding: '0.45rem 1.2rem',
+                fontSize: 'clamp(10px, 1vmin, 11px)',
+                fontFamily: 'Inter, sans-serif',
+                fontWeight: 600,
+                letterSpacing: '0.15em',
+                color: colors.textSecondary,
+                background: 'transparent',
+                border: `1px solid ${colors.borderSubtle}`,
+                cursor: 'pointer',
+              }}
+            >
+              DISMISS
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -230,8 +230,6 @@ export interface UpdatesCheckMeta {
   behind_count: number
   commits: { sha: string; subject: string }[]
   missing_pip_deps: string[]
-  requirements_changed: boolean
-  requirements_out_of_sync: boolean
   dirty: boolean
   button: 'apply' | null
   button_disabled: boolean
@@ -239,7 +237,7 @@ export interface UpdatesCheckMeta {
   fetch_error?: string
 }
 
-export type UpdatePhase = 'bootstrap_venv' | 'git_pull' | 'pip_install' | 'restart'
+export type UpdatePhase = 'git_pull' | 'countdown' | 'restart'
 
 export type UpdateUIState = 'idle' | 'confirming' | 'applying' | 'failed' | 'reloading'
 

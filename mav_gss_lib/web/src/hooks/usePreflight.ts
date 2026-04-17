@@ -23,10 +23,9 @@ interface PreflightState {
 }
 
 const EMPTY_PHASES: Record<UpdatePhase, UpdateProgress> = {
-  bootstrap_venv: { phase: 'bootstrap_venv', status: 'pending' },
-  git_pull:       { phase: 'git_pull',       status: 'pending' },
-  pip_install:    { phase: 'pip_install',    status: 'pending' },
-  restart:        { phase: 'restart',        status: 'pending' },
+  git_pull:  { phase: 'git_pull',  status: 'pending' },
+  countdown: { phase: 'countdown', status: 'pending' },
+  restart:   { phase: 'restart',   status: 'pending' },
 }
 
 export function usePreflight(): PreflightState {

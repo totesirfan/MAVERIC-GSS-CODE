@@ -482,5 +482,5 @@ validate_adapter(self.adapter, 1, "mymission")  # raises on missing methods
 - [ ] `commands.yml` + gitignore entry if security-sensitive
 - [ ] Protocol metadata in `mission.example.yml` (AX.25, CSP, nodes, ptypes)
 - [ ] Local `mission.yml` override + gitignore entry
-- [ ] Custom TX input UI component (`missions/<name>/TxBuilder.tsx` — auto-discovered)
+- [ ] Custom TX input UI component (`mav_gss_lib/web/src/plugins/<name>/TxBuilder.tsx` — auto-discovered)
 - [ ] If frontend changes: `npm run build` and commit `dist/`

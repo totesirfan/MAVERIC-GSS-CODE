@@ -1,11 +1,16 @@
 # Mission-Owned Operator Help Contract
 
-> **Status: PROPOSAL — not yet implemented.** This document describes a future
-> contract for moving mission-specific command help out of the shared web UI.
-> As of this writing, `HelpModal.tsx` still hardcodes MAVERIC's `CMD [ARGS]`
-> and `[SRC] DEST ECHO TYPE CMD [ARGS]` syntax, no `/api/help` endpoint exists,
-> and `MissionAdapter` has no `command_help_items()` method. Treat the sections
-> below as a design sketch for the work, not a description of current behavior.
+> **Status: PROPOSAL — not yet implemented** (re-verified 2026-04-16). This
+> document describes a future contract for moving mission-specific command help
+> out of the shared web UI. Confirmed against current code:
+> `mav_gss_lib/web/src/components/shared/HelpModal.tsx` still hardcodes
+> MAVERIC's `CMD [ARGS]` and `[SRC] DEST ECHO TYPE CMD [ARGS]` syntax in a
+> static `sections` array; no `/api/help` endpoint exists in
+> `mav_gss_lib/web_runtime/api/`; and neither the `MissionAdapter` Protocol in
+> `mav_gss_lib/mission_adapter.py` nor `MavericMissionAdapter` in
+> `mav_gss_lib/missions/maveric/adapter.py` exposes a `command_help_items()`
+> method. Treat the sections below as a design sketch for the work, not a
+> description of current behavior.
 
 This document defines the minimum contract for moving **mission-specific command help**
 out of the shared web UI and into the active mission package.

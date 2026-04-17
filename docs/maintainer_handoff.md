@@ -69,7 +69,7 @@ ZMQ addresses are configurable in `gss.yml` under `rx.zmq_addr` and `tx.zmq_addr
 web_runtime/
     state.py         WebRuntime class — owns all mutable backend state, SHUTDOWN_DELAY = 15
     app.py           FastAPI factory, lifespan, static file serving, plugin router auto-mount
-    runtime.py       Send-context helpers (build_send_context, cmd_line_to_payload)
+    runtime.py       Send-context + shutdown helpers (build_send_context, check_shutdown, schedule_shutdown_check)
     api/             REST routes package
       config.py      /api/status, /api/config, /api/selfcheck
       schema.py      /api/schema, /api/columns, /api/tx-columns, /api/tx/capabilities

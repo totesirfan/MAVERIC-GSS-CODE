@@ -16,7 +16,6 @@ Author:  Irfan Annuar - USC ISI SERC
 
 from __future__ import annotations
 
-import hashlib
 import importlib.util
 import os
 import shutil
@@ -35,8 +34,6 @@ from typing import Callable, Literal, Optional
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REQUIREMENTS_PATH = REPO_ROOT / "requirements.txt"
-REQUIREMENTS_HASH_PATH = REPO_ROOT / ".mav_requirements_hash"
-VENV_DIR = REPO_ROOT / ".venv"
 
 # Canonical upstream — baked in so a GitHub zip extract can self-heal into a
 # real clone on first launch. GitHub zip archives carry no .git metadata, so
@@ -95,19 +92,9 @@ _ALL_PIP_MODULES: list[str] = [
 #  EXCEPTIONS
 # =============================================================================
 
-class PipBlockedError(Exception):
-    """Raised when pip exits non-zero AND stderr matches a PEP 668 / permission /
-    externally-managed marker. Signals the caller to attempt venv fallback."""
-
-
 class SubprocessFailed(Exception):
-    """Raised on non-zero exit that isn't a pip block. Carries the last 10
-    stderr lines as the exception message."""
-
-
-class VenvUnavailableError(Exception):
-    """Raised by _ensure_venv when `python -m venv` fails due to missing
-    ensurepip / python3-venv package. The updater cannot auto-recover."""
+    """Raised on non-zero subprocess exit. Carries the last 10 stderr lines
+    as the exception message."""
 
 
 class DirtyTreeError(Exception):
@@ -139,8 +126,6 @@ class UpdateStatus:
     changed_files: list[str] = field(default_factory=list)
     working_tree_dirty: bool = False
     missing_pip_deps: list[str] = field(default_factory=list)
-    requirements_changed: bool = False
-    requirements_out_of_sync: bool = False
     fetch_failed: bool = False
     fetch_error: Optional[str] = None
     update_applied_sha: Optional[str] = None
@@ -148,28 +133,9 @@ class UpdateStatus:
 
 @dataclass
 class Phase:
-    name: Literal["bootstrap_venv", "pip_install", "git_pull", "restart"]
+    name: Literal["git_pull", "countdown", "restart"]
     status: Literal["pending", "running", "ok", "fail"]
     detail: Optional[str] = None
-
-
-# =============================================================================
-#  REQUIREMENTS HASH TRACKING
-# =============================================================================
-
-def _compute_requirements_hash() -> str:
-    return hashlib.sha256(REQUIREMENTS_PATH.read_bytes()).hexdigest()
-
-
-def _read_persisted_hash() -> Optional[str]:
-    try:
-        return REQUIREMENTS_HASH_PATH.read_text().strip() or None
-    except FileNotFoundError:
-        return None
-
-
-def _write_persisted_hash() -> None:
-    REQUIREMENTS_HASH_PATH.write_text(_compute_requirements_hash())
 
 
 # =============================================================================
@@ -300,46 +266,12 @@ def check_for_updates(timeout_s: float = 10.0) -> UpdateStatus:
         status.fetch_error = init_err
         return status
 
-    # Missing deps — independent of git fetch. Scan first so the hash-seeding
-    # decision below can trust find_spec() results.
+    # Missing pip deps — surfaced to the operator as a warning in preflight.
+    # Purely informational: the updater no longer installs Python packages.
     try:
         status.missing_pip_deps = _scan_missing_pip_deps()
     except Exception:
         status.missing_pip_deps = []
-
-    # Requirements hash — computed regardless of git state so the "retry partial
-    # failure" path still fires even when offline.
-    #
-    # First-observation seeding: on a fresh clone onto a machine that already
-    # has all pip deps installed (the typical developer case), .mav_requirements_hash
-    # is missing but every import resolves. Without seeding, the Updates check
-    # would show the misleading "retrying previously failed dependency install"
-    # label on the first-ever launch of a perfectly healthy environment.
-    # Seed the hash silently whenever we observe a matching-env state, so only
-    # genuine drift (missing imports or stale hash after a new requirements.txt)
-    # triggers the retry label.
-    try:
-        current_hash = _compute_requirements_hash()
-        persisted_hash = _read_persisted_hash()
-        if persisted_hash is None:
-            # First observation — trust the current env if imports resolve.
-            if not status.missing_pip_deps:
-                try:
-                    _write_persisted_hash()
-                    status.requirements_out_of_sync = False
-                except Exception:
-                    # Hash write failed (read-only fs?) — fall back to flagging
-                    # as out-of-sync so we still show something actionable.
-                    status.requirements_out_of_sync = True
-            else:
-                # Missing deps on first observation → legitimate install needed.
-                status.requirements_out_of_sync = True
-        else:
-            status.requirements_out_of_sync = persisted_hash != current_hash
-    except Exception:
-        # If requirements.txt itself is unreadable, flag out of sync so the
-        # operator sees something rather than silently passing.
-        status.requirements_out_of_sync = True
 
     # Update-applied marker (set by child process after an os.execv restart)
     status.update_applied_sha = os.environ.pop("MAV_UPDATE_APPLIED", None)
@@ -440,7 +372,6 @@ def check_for_updates(timeout_s: float = 10.0) -> UpdateStatus:
                 status.changed_files = [
                     ln.strip() for ln in (r.stdout or "").splitlines() if ln.strip()
                 ]
-                status.requirements_changed = "requirements.txt" in status.changed_files
         except Exception:
             pass
 
@@ -541,57 +472,7 @@ def _stream_subprocess(
         return
 
     tail = "\n".join(stderr_tail[-10:])
-    if _detect_pip_blocked(tail):
-        exc = PipBlockedError(tail)
-        raise exc
     raise SubprocessFailed(tail or f"{cmd[0]} exited with code {proc.returncode}")
-
-
-def _detect_pip_blocked(stderr_tail: str) -> bool:
-    """Parse pip stderr for signals that the target interpreter rejects writes."""
-    markers = (
-        "externally-managed-environment",
-        "EXTERNALLY-MANAGED",
-        "error: externally-managed-environment",
-        "Permission denied",
-        "[Errno 13]",
-        "Could not install packages due to an OSError",
-    )
-    return any(m in stderr_tail for m in markers)
-
-
-# =============================================================================
-#  VENV FALLBACK
-# =============================================================================
-
-def _ensure_venv() -> Path:
-    """Create .venv if missing, return absolute path to its python interpreter.
-
-    Raises VenvUnavailableError if `python -m venv` fails with an ensurepip
-    message (common on Debian/Ubuntu without python3-venv installed).
-    """
-    if not VENV_DIR.exists():
-        result = subprocess.run(
-            [sys.executable, "-m", "venv", "--system-site-packages", str(VENV_DIR)],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-        if result.returncode != 0:
-            stderr = (result.stderr or "") + (result.stdout or "")
-            ensurepip_markers = (
-                "ensurepip is not available",
-                "The virtual environment was not created successfully",
-                "No module named 'ensurepip'",
-            )
-            if any(m in stderr for m in ensurepip_markers):
-                last = stderr.strip().splitlines()[-1] if stderr.strip() else "venv module incomplete"
-                raise VenvUnavailableError(last)
-            raise RuntimeError(f"venv creation failed: {stderr.strip()}")
-    python = VENV_DIR / "bin" / "python"
-    if not python.exists():
-        raise RuntimeError(f"venv created but {python} is missing")
-    return python
 
 
 # =============================================================================
@@ -609,166 +490,6 @@ def _reexec(
     interpreter = str(python) if python is not None else sys.executable
     argv = [interpreter, *sys.argv]
     os.execv(interpreter, argv)
-
-
-# =============================================================================
-#  PIP INSTALL (two variants: broadcast-driven + terminal-driven)
-# =============================================================================
-
-def _run_pip_install(broadcast: Callable[[dict], None]) -> None:
-    """Run pip install -r requirements.txt, streaming updates via broadcast.
-
-    On success, writes the requirements hash file. On PipBlockedError, triggers
-    venv fallback + re-exec (never returns). On other failure, re-raises.
-    """
-    cmd = [sys.executable, "-m", "pip", "install", "-r", str(REQUIREMENTS_PATH)]
-    broadcast({
-        "type": "update_phase",
-        "phase": "pip_install",
-        "status": "running",
-        "detail": "resolving dependencies...",
-    })
-    try:
-        _stream_subprocess(cmd, broadcast, phase="pip_install", timeout=180.0)
-    except PipBlockedError:
-        broadcast({
-            "type": "update_phase",
-            "phase": "bootstrap_venv",
-            "status": "running",
-            "detail": "creating .venv (system Python is protected)",
-        })
-        try:
-            venv_python = _ensure_venv()
-        except VenvUnavailableError as exc:
-            # Third-tier fallback: when python3-venv isn't installed, retry
-            # the pip install with --break-system-packages --user so we write
-            # to the operator's ~/.local site-packages instead of the
-            # apt-managed system site. This preserves PEP 668's intent for
-            # system Python (nothing ends up in /usr) while still getting
-            # the update through without requiring sudo + apt intervention.
-            broadcast({
-                "type": "update_phase",
-                "phase": "bootstrap_venv",
-                "status": "running",
-                "detail": (
-                    "python3-venv unavailable; retrying pip with "
-                    "--break-system-packages --user"
-                ),
-            })
-            cmd2 = [
-                sys.executable, "-m", "pip", "install",
-                "--break-system-packages", "--user",
-                "-r", str(REQUIREMENTS_PATH),
-            ]
-            broadcast({
-                "type": "update_phase",
-                "phase": "pip_install",
-                "status": "running",
-                "detail": "retrying with --break-system-packages --user...",
-            })
-            try:
-                _stream_subprocess(cmd2, broadcast, phase="pip_install", timeout=180.0)
-            except (PipBlockedError, SubprocessFailed) as exc2:
-                broadcast({
-                    "type": "update_phase",
-                    "phase": "pip_install",
-                    "status": "fail",
-                    "detail": f"--break-system-packages retry failed: {exc2}",
-                })
-                raise PipBlockedError(str(exc2)) from exc2
-            try:
-                _write_persisted_hash()
-            except Exception:
-                pass
-            broadcast({
-                "type": "update_phase",
-                "phase": "pip_install",
-                "status": "ok",
-                "detail": "installed to user site-packages",
-            })
-            return
-        except Exception as exc:
-            broadcast({
-                "type": "update_phase",
-                "phase": "bootstrap_venv",
-                "status": "fail",
-                "detail": f"venv creation failed: {exc}",
-            })
-            raise
-        broadcast({
-            "type": "update_phase",
-            "phase": "bootstrap_venv",
-            "status": "ok",
-            "detail": str(venv_python),
-        })
-        _reexec(python=venv_python)  # never returns
-        return
-    except SubprocessFailed as exc:
-        broadcast({
-            "type": "update_phase",
-            "phase": "pip_install",
-            "status": "fail",
-            "detail": str(exc),
-        })
-        raise
-    except subprocess.TimeoutExpired:
-        broadcast({
-            "type": "update_phase",
-            "phase": "pip_install",
-            "status": "fail",
-            "detail": "timeout after 180s",
-        })
-        raise
-
-    # Success: only now write the hash file.
-    try:
-        _write_persisted_hash()
-    except Exception:
-        pass
-
-    broadcast({
-        "type": "update_phase",
-        "phase": "pip_install",
-        "status": "ok",
-        "detail": None,
-    })
-
-
-def _run_pip_install_terminal() -> None:
-    """Bootstrap-mode variant: writes pip output directly to stdout/stderr.
-
-    Used during pre-import bootstrap when no WebSocket exists yet.
-    Same PipBlockedError semantics as _stream_subprocess.
-    """
-    cmd = [sys.executable, "-m", "pip", "install", "-r", str(REQUIREMENTS_PATH)]
-    try:
-        result = subprocess.run(
-            cmd,
-            cwd=str(REPO_ROOT),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            timeout=300,
-        )
-    except subprocess.TimeoutExpired:
-        raise RuntimeError("pip install timed out after 300s")
-
-    output = result.stdout or ""
-    # Tee to terminal so the operator sees progress.
-    if output:
-        print(output, flush=True)
-
-    if result.returncode == 0:
-        try:
-            _write_persisted_hash()
-        except Exception:
-            pass
-        return
-
-    tail = "\n".join(output.splitlines()[-10:])
-    if _detect_pip_blocked(tail):
-        raise PipBlockedError(tail)
-    raise RuntimeError(f"pip install failed:\n{tail}")
 
 
 # =============================================================================
@@ -801,65 +522,72 @@ def apply_update(
         raise DirtyTreeError("working tree is dirty")
 
     new_sha = status.current_sha
-    ran_any = False
 
-    # Phase 1: git_pull
-    if status.behind_count > 0:
-        broadcast({
-            "type": "update_phase",
-            "phase": "git_pull",
-            "status": "running",
-            "detail": f"git pull --ff-only origin {status.branch}",
-        })
-        cmd = ["git", "pull", "--ff-only", "origin", status.branch]
-        try:
-            _stream_subprocess(cmd, broadcast, phase="git_pull", timeout=60.0)
-        except SubprocessFailed as exc:
-            broadcast({
-                "type": "update_phase",
-                "phase": "git_pull",
-                "status": "fail",
-                "detail": str(exc),
-            })
-            raise
-        except subprocess.TimeoutExpired:
-            broadcast({
-                "type": "update_phase",
-                "phase": "git_pull",
-                "status": "fail",
-                "detail": "timeout after 60s",
-            })
-            raise
-        broadcast({
-            "type": "update_phase",
-            "phase": "git_pull",
-            "status": "ok",
-            "detail": None,
-        })
-        ran_any = True
-
-        # Capture the newly-pulled SHA for MAV_UPDATE_APPLIED.
-        try:
-            r = _run_git(["rev-parse", "HEAD"], timeout=5.0)
-            if r.returncode == 0:
-                captured = (r.stdout or "").strip()
-                if captured:
-                    new_sha = captured
-        except Exception:
-            pass
-
-    # Phase 2: pip_install
-    need_pip = (
-        status.requirements_changed
-        or bool(status.missing_pip_deps)
-        or status.requirements_out_of_sync
-    )
-    if need_pip:
-        _run_pip_install(broadcast)
-        ran_any = True
-
-    if not ran_any:
+    # Phase 1: git_pull — only phase that touches the filesystem now.
+    # Dependency installs are out of scope: operators run `pip install -r
+    # requirements.txt` themselves from their conda env. Preflight surfaces
+    # any missing modules as a warning on the next launch.
+    if status.behind_count <= 0:
         raise PreflightError("nothing to update")
+
+    broadcast({
+        "type": "update_phase",
+        "phase": "git_pull",
+        "status": "running",
+        "detail": f"git pull --ff-only origin {status.branch}",
+    })
+    cmd = ["git", "pull", "--ff-only", "origin", status.branch]
+    try:
+        _stream_subprocess(cmd, broadcast, phase="git_pull", timeout=60.0)
+    except SubprocessFailed as exc:
+        broadcast({
+            "type": "update_phase",
+            "phase": "git_pull",
+            "status": "fail",
+            "detail": str(exc),
+        })
+        raise
+    except subprocess.TimeoutExpired:
+        broadcast({
+            "type": "update_phase",
+            "phase": "git_pull",
+            "status": "fail",
+            "detail": "timeout after 60s",
+        })
+        raise
+    broadcast({
+        "type": "update_phase",
+        "phase": "git_pull",
+        "status": "ok",
+        "detail": None,
+    })
+
+    # Capture the newly-pulled SHA for MAV_UPDATE_APPLIED.
+    try:
+        r = _run_git(["rev-parse", "HEAD"], timeout=5.0)
+        if r.returncode == 0:
+            captured = (r.stdout or "").strip()
+            if captured:
+                new_sha = captured
+    except Exception:
+        pass
+
+    # Phase 2: countdown — tick once per second so the UI can render a live
+    # restart countdown before the process is replaced.
+    for remaining in (5, 4, 3, 2, 1):
+        broadcast({
+            "type": "update_phase",
+            "phase": "countdown",
+            "status": "running",
+            "detail": str(remaining),
+        })
+        time.sleep(1)
+    broadcast({
+        "type": "update_phase",
+        "phase": "countdown",
+        "status": "ok",
+        "detail": None,
+    })
 
     # Phase 3: restart
     broadcast({
@@ -877,20 +605,23 @@ def apply_update(
 # =============================================================================
 
 def bootstrap_dependencies() -> None:
-    """Pre-import critical-dep check. Called at the top of MAV_WEB.py.
+    """Pre-import environment check. Called at the top of MAV_WEB.py.
 
-    May os.execv if a re-install is needed. Guards against re-exec loops via
-    MAV_BOOTSTRAP_ATTEMPTED env var. Prints terminal status on first bootstrap.
+    Two jobs:
+      1. Auto-heal a zip-extracted tree into a real clone of REPO_URL so the
+         self-updater keeps working on GitHub "Download ZIP" installs.
+      2. Verify all pip-installable runtime modules import. If anything is
+         missing, print a one-line pip command and exit — the operator runs
+         it from their conda env and relaunches. This replaces the old
+         auto-install flow; keeping dep management out of the updater makes
+         the running process's Python stable (no mid-session interpreter
+         swaps, no PEP 668 edge cases, no venv bookkeeping).
     """
-    # Step 0: zip-extract auto-heal — runs here (not inside check_for_updates)
-    # because a first-launch full clone can take 10–30s, which blows past the
-    # preflight WS's 2s wait for the update future and leaves the Updates row
-    # stuck at "Update check still running". Doing it synchronously at bootstrap
-    # means the event loop starts with a real .git directory in place.
+    # Zip-extract auto-heal. Runs before any non-stdlib import so a fresh
+    # zip install becomes a real clone on its very first launch.
     #
-    # A prior run that bailed mid-heal (e.g., checkout aborted on untracked
-    # files) leaves a .git that exists but has no HEAD commit — detect that
-    # via rev-parse and retry, so the laptop doesn't permanently dead-lock
+    # A prior run that bailed mid-heal leaves a .git with no HEAD commit;
+    # detect that via rev-parse and retry, so the laptop doesn't dead-lock
     # at "could not reach origin" until the operator manually `rm -rf .git`s.
     if not DEV_SENTINEL_PATH.exists():
         needs_heal = not (REPO_ROOT / ".git").exists()
@@ -923,84 +654,26 @@ def bootstrap_dependencies() -> None:
             else:
                 print("[MAV GSS] git repository initialized.", flush=True)
 
-    # Step 1: hard prerequisites — refuse to proceed if missing.
+    # Hard prerequisites (GNU Radio / pmt) — no recovery path, give the apt/conda
+    # instructions and exit.
     for module, instructions in _HARD_PREREQUISITES:
         if importlib.util.find_spec(module) is None:
             print(f"[MAV GSS] {instructions}", file=sys.stderr, flush=True)
             sys.exit(3)
 
-    # Step 2: soft prerequisites — try to auto-install.
+    # Soft prerequisites (pip-installable). Inside the radioconda base env
+    # `pip install -r requirements.txt` is a single command with no flags,
+    # so we defer to the operator instead of carrying auto-install logic.
     missing = [m for m in _CRITICAL_MODULES if importlib.util.find_spec(m) is None]
     if not missing:
-        os.environ.pop("MAV_BOOTSTRAP_ATTEMPTED", None)
         return
 
-    if os.environ.get("MAV_BOOTSTRAP_ATTEMPTED"):
-        print(
-            f"[MAV GSS] bootstrap retry still missing: {missing}\n"
-            f"          python={sys.executable}\n"
-            f"          Install manually and relaunch.",
-            file=sys.stderr,
-            flush=True,
-        )
-        sys.exit(2)
-
-    os.environ["MAV_BOOTSTRAP_ATTEMPTED"] = "1"
     print(
-        f"[MAV GSS] bootstrapping dependencies ({', '.join(missing)}), one moment...",
+        f"[MAV GSS] missing Python packages: {', '.join(missing)}\n"
+        f"          Install them with:\n"
+        f"              pip install -r {REQUIREMENTS_PATH}\n"
+        f"          (run inside your radioconda env, then relaunch)",
+        file=sys.stderr,
         flush=True,
     )
-    try:
-        _run_pip_install_terminal()
-    except PipBlockedError:
-        try:
-            venv_python = _ensure_venv()
-        except VenvUnavailableError as exc:
-            # Third-tier fallback for system-Python / no-python3-venv combos
-            # (Debian 12 default). Retry with --break-system-packages --user
-            # so the install lands in the operator's ~/.local site. PEP 668's
-            # system-package intent is still honored; nothing hits /usr.
-            print(
-                f"[MAV GSS] python3-venv unavailable ({exc}); "
-                f"retrying pip with --break-system-packages --user...",
-                flush=True,
-            )
-            cmd2 = [
-                sys.executable, "-m", "pip", "install",
-                "--break-system-packages", "--user",
-                "-r", str(REQUIREMENTS_PATH),
-            ]
-            try:
-                result = subprocess.run(
-                    cmd2,
-                    cwd=str(REPO_ROOT),
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    timeout=300,
-                )
-            except subprocess.TimeoutExpired:
-                print("[MAV GSS] pip --break-system-packages retry timed out", file=sys.stderr, flush=True)
-                sys.exit(3)
-            if result.stdout:
-                print(result.stdout, flush=True)
-            if result.returncode != 0:
-                print(
-                    "[MAV GSS] pip --break-system-packages --user also failed.\n"
-                    "          Install python3-venv (sudo apt install python3-venv)\n"
-                    "          or activate the radioconda env, then relaunch.",
-                    file=sys.stderr,
-                    flush=True,
-                )
-                sys.exit(3)
-            try:
-                _write_persisted_hash()
-            except Exception:
-                pass
-            os.environ.pop("MAV_BOOTSTRAP_ATTEMPTED", None)
-            _reexec(python=sys.executable)  # never returns; picks up ~/.local deps
-        # Clear the attempt marker — the venv python is a DIFFERENT interpreter
-        # and gets its own fresh bootstrap attempt.
-        os.environ.pop("MAV_BOOTSTRAP_ATTEMPTED", None)
-        _reexec(python=venv_python)  # never returns
-    _reexec(python=sys.executable)  # never returns; second invocation retries
+    sys.exit(2)

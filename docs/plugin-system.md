@@ -16,11 +16,13 @@ Plugins are distinct from the core adapter contract:
 
 ```
 App.tsx (route owner)
-  ├─ GlobalHeader (always mounted)
-  ├─ ?panel=tx|rx  → pop-out panel (takes precedence over ?page=)
-  ├─ ?page=null    → <MainDashboard />   (owns useRxSocket + useTxSocket)
-  ├─ ?page=imaging → <ImagingPage />     (owns its own sockets)
-  └─ modals, toaster
+  ├─ ?panel=tx|rx  → PopOutTx / PopOutRx (no header, takes precedence over ?page=)
+  └─ AppShell (default)
+       ├─ GlobalHeader
+       ├─ TabViewport
+       │    ├─ activeTabId = '__dashboard__' → <MainDashboard /> (owns useRxSocket + useTxSocket)
+       │    └─ activeTabId = '<plugin-id>'   → plugin page component (owns its own sockets)
+       └─ modals, toaster
 ```
 
 ### URL Parameter Precedence
@@ -39,12 +41,14 @@ Plugin pages cannot be popped out. The `?panel=` parameter is reserved for the c
 
 ```
 App.tsx
-  ├─ GlobalHeader (always mounted)
-  ├─ ?panel=tx  → <TxPanel />            ← pop-out, standalone
-  ├─ ?panel=rx  → <RxPanel />            ← pop-out, standalone
-  ├─ page=null  → <MainDashboard />      ← mounts useRxSocket, useTxSocket
-  ├─ page='imaging' → <ImagingPage />    ← mounts its own createSocket('/ws/rx')
-  └─ modals, toaster, etc.
+  ├─ ?panel=tx  → <PopOutTx />            ← standalone window, no header
+  ├─ ?panel=rx  → <PopOutRx />            ← standalone window, no header
+  └─ AppShell (default)
+       ├─ GlobalHeader
+       ├─ TabViewport (renders by activeTabId)
+       │    ├─ '__dashboard__' → <MainDashboard />  ← mounts useRxSocket, useTxSocket
+       │    └─ '<plugin-id>'   → plugin page        ← mounts its own sockets
+       └─ modals, toaster, etc.
 ```
 
 The main dashboard's `useRxSocket()` / `useTxSocket()` live inside the `MainDashboard` component — not at the App level — so they connect only when the main dashboard is mounted and disconnect when the operator navigates to a plugin page.
@@ -77,9 +81,9 @@ Plugin IDs are mission-scoped, not globally unique. Two missions may both define
 
 Loading strategy:
 
-- **Before config loads:** If `?page=` is set, App renders a lightweight loading state (same spinner/skeleton used elsewhere). No plugin component is mounted yet. This is typically <200ms since config is fetched on mount.
-- **After config loads:** `getPluginPages(missionId)` resolves the page ID to the correct mission's component. The plugin page mounts and connects its own sockets.
-- **Nav buttons wait for config.** The GlobalHeader only shows plugin buttons after config loads and `missionId` is known. Before config loads, the plugin nav is hidden (same as the existing behavior where mission name shows "..." until config arrives).
+- **Before config loads:** The plugins list is empty, so `TabViewport` cannot resolve `?page=<id>` to a component and falls back to its "Plugin not found" view. This is typically <200ms since config is fetched on mount.
+- **After config loads:** `getPluginPages(missionId)` resolves the page ID to the correct mission's component. The plugin page mounts (through `Suspense` with a `Skeleton` fallback while the lazy chunk loads) and connects its own sockets.
+- **Nav tabs wait for config.** The plugin tabs are appended to the tab strip only after config loads and `missionId` is known (see the `getPluginPages` effect in `AppShell`). Before config loads, only the dashboard tab is present.
 - **Mismatched mission/page.** If `?page=imaging` is in the URL but the active mission has no imaging plugin, the page renders a "plugin not found" fallback after config loads.
 
 ### Plugin Manifest (`plugins.ts`)
@@ -88,6 +92,7 @@ Each mission directory may contain a `plugins.ts` that exports an array of page 
 
 ```typescript
 import { lazy } from 'react'
+import { Camera } from 'lucide-react'
 import type { PluginPageDef } from '@/plugins/registry'
 
 const plugins: PluginPageDef[] = [
@@ -95,7 +100,9 @@ const plugins: PluginPageDef[] = [
     id: 'imaging',
     name: 'Imaging',
     description: 'Image downlink viewer',
-    icon: 'Camera',
+    icon: Camera,
+    category: 'mission',
+    order: 10,
     component: lazy(() => import('./ImagingPage')),
   },
 ]
@@ -107,13 +114,17 @@ export default plugins
 
 ```typescript
 import type { LazyExoticComponent, ComponentType } from 'react'
+import type { LucideIcon } from 'lucide-react'
 
 interface PluginPageDef {
   id: string                                      // URL slug: ?page=<id>
   name: string                                    // Display name in nav
   description: string                             // Card description
-  icon: string                                    // lucide-react icon name
+  icon: LucideIcon                                // lucide-react icon component
   component: LazyExoticComponent<ComponentType>   // React.lazy() result
+  category: 'mission' | 'platform'                // nav grouping
+  keepAlive?: boolean                             // keep mounted when inactive
+  order?: number                                  // nav sort order
 }
 ```
 
@@ -260,9 +271,9 @@ Plugins reuse the existing `/ws/rx` and `/ws/tx` WebSocket endpoints. A plugin p
 
 ## Navigation
 
-The GlobalHeader shows a plugin button when page plugins are available (after config loads). With a single plugin, it navigates directly. When multiple plugins exist, it can be expanded to show a grid.
+The GlobalHeader renders a `TabStrip` (`components/layout/TabStrip.tsx`) built from `buildNavigationTabs(plugins)` in `components/layout/navigation.ts`. The dashboard is always the first tab (id `__dashboard__`); each discovered plugin becomes an additional tab, sorted by category (mission first, then platform) and `order`.
 
-The Escape key returns to the main dashboard from any plugin page. Browser back/forward navigation works via `history.pushState` and `popstate` events.
+Clicking a tab calls `navigateTo(id)` in `App.tsx`, which updates the URL via `history.pushState` and swaps the rendered page in `TabViewport`. Browser back/forward is handled via `popstate`. The Command Palette (Ctrl+K) also exposes the same navigation targets.
 
 ## Imaging Plugin
 
