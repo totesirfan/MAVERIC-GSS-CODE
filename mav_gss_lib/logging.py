@@ -14,7 +14,6 @@ import queue
 import re
 import sys
 import threading
-import time
 from datetime import datetime
 
 from mav_gss_lib.textutil import clean_text
@@ -153,14 +152,6 @@ class _BaseLog:
         with self._q_lock:
             self._q.put(("text", "\n".join(lines) + "\n\n"))
 
-    def _write_summary_block(self, summary_lines):
-        """Write a summary block with ═ borders."""
-        block = [
-            "", HEADER_CHAR * LOG_LINE_WIDTH, "  Session Summary", HEADER_CHAR * LOG_LINE_WIDTH,
-        ] + summary_lines + [HEADER_CHAR * LOG_LINE_WIDTH, ""]
-        with self._q_lock:
-            self._q.put(("text", "\n".join(block) + "\n"))
-
     def _open_files(self, tag=""):
         """Open new log files with fresh timestamp, write header, start writer thread."""
         tag = re.sub(r'[^\w\-.]', '_', tag.strip()).strip('_') if tag else ""
@@ -184,30 +175,6 @@ class _BaseLog:
         self._writer = threading.Thread(target=self._writer_loop,
                                         name="log-writer", daemon=True)
         self._writer.start()
-
-    def new_session(self, tag=""):
-        """Close current log files and start a new session.
-
-        If the old JSONL file is empty (0 bytes), both the JSONL and
-        text files from the previous session are automatically deleted.
-        """
-        old_jsonl = self.jsonl_path
-        old_text = self.text_path
-        with self._q_lock:
-            self._q.put(self._SENTINEL)
-        self._writer.join(timeout=5.0)
-        if not self._writer.is_alive():
-            self._text_f.close(); self._jsonl_f.close()
-        # Auto-delete empty session files (JSONL has no header, so 0B = no data)
-        try:
-            if os.path.isfile(old_jsonl) and os.path.getsize(old_jsonl) == 0:
-                os.remove(old_jsonl)
-                if os.path.isfile(old_text):
-                    os.remove(old_text)
-        except OSError:
-            pass
-        with self._q_lock:
-            self._open_files(tag)
 
     def prepare_new_session(self, tag=""):
         """Open new log files WITHOUT closing old ones (prepare phase).
@@ -398,19 +365,6 @@ class SessionLog(_BaseLog):
 
         self._write_entry(lines)
 
-    def write_summary(self, packet_count, session_start, first_pkt_ts, last_pkt_ts,
-                      unique=0, duplicates=0, unknown=0, uplink_echoes=0):
-        duration = time.time() - session_start
-        summary = [
-            f"  Packets:   {packet_count} ({unique} unique, {duplicates} dup, "
-            f"{unknown} unknown, {uplink_echoes} uplink echo)",
-            f"  Duration:  {duration:.1f}s ({duration/60:.1f} min)",
-        ]
-        if first_pkt_ts and last_pkt_ts:
-            summary.append(f"  First:     {first_pkt_ts}")
-            summary.append(f"  Last:      {last_pkt_ts}")
-        self._write_summary_block(summary)
-
 
 # =============================================================================
 #  TX SESSION LOG
@@ -421,90 +375,6 @@ class TXLog(_BaseLog):
 
     def __init__(self, log_dir, zmq_addr, version="", mission_name="MAVERIC"):
         super().__init__(log_dir, "uplink", version, "TX Dashboard", zmq_addr, mission_name=mission_name)
-
-    def write_command(self, n, src, dest, echo, ptype, cmd, args,
-                      raw_cmd, payload, ax25, csp, uplink_mode="AX.25", adapter=None):
-        """Write one TX command entry with full protocol details."""
-        nl = adapter.node_label if adapter else str
-        pl = adapter.ptype_label if adapter else str
-        # -- Text entry --
-        lines = []
-
-        extras = self._route_line(src, dest, echo, ptype, adapter=adapter)
-        lines.append(self._separator(f"#{n}", extras))
-
-        lines.append(self._field("MODE", uplink_mode))
-        lines.append(self._field("CMD ID", cmd))
-        if args:
-            lines.append(self._field("ARGS", args))
-
-        # AX.25 state at time of send (skip for ASM+Golay)
-        if uplink_mode != "ASM+Golay" and ax25.enabled:
-            lines.append(self._field("AX.25",
-                f"Src:{ax25.src_call}-{ax25.src_ssid}  "
-                f"Dest:{ax25.dest_call}-{ax25.dest_ssid}"))
-            ax25_hdr = ax25.wrap(b"")  # get just the header (16 bytes)
-            lines.extend(self._hex_lines(ax25_hdr, "AX.25 HDR"))
-
-        # CSP state at time of send
-        if csp.enabled:
-            lines.append(self._field("CSP",
-                self._format_csp(csp.prio, csp.src, csp.dest,
-                                 csp.dport, csp.sport, csp.flags)))
-            lines.extend(self._hex_lines(csp.build_header(), "CSP HDR"))
-
-        # CRC values (computed from the raw command)
-        cmd_crc16 = crc16(raw_cmd[:-2]) if len(raw_cmd) >= 2 else None
-        if cmd_crc16 is not None:
-            lines.append(self._field("CRC-16", f"0x{cmd_crc16:04x} [computed]"))
-        if csp.enabled:
-            csp_packet = csp.build_header() + raw_cmd
-            csp_crc32 = crc32c(csp_packet)
-            lines.append(self._field("CRC-32C", f"0x{csp_crc32:08x} [computed]"))
-
-        # Size breakdown
-        cmd_len = len(raw_cmd)
-        csp_overhead = csp.overhead()
-        if uplink_mode == "ASM+Golay":
-            lines.append(self._field("SIZE",
-                f"{len(payload)}B (cmd {cmd_len}B + CSP {csp_overhead}B -> RS 255B + overhead 57B)"))
-        else:
-            ax25_overhead = ax25.overhead()
-            lines.append(self._field("SIZE",
-                f"{len(payload)}B (cmd {cmd_len}B + CSP {csp_overhead}B + AX.25 {ax25_overhead}B)"))
-
-        # Raw command hex + full payload hex
-        lines.extend(self._hex_lines(raw_cmd, "RAW CMD"))
-        lines.extend(self._hex_lines(payload, "FULL HEX"))
-        ascii_text = clean_text(raw_cmd)
-        if ascii_text:
-            lines.append(self._field("ASCII", ascii_text))
-
-        self._write_entry(lines)
-
-        # -- JSONL entry --
-        rec = {
-            "n": n, "ts": datetime.now().astimezone().isoformat(),
-            "uplink_mode": uplink_mode,
-            "src": src, "src_lbl": nl(src),
-            "dest": dest, "dest_lbl": nl(dest),
-            "echo": echo, "echo_lbl": nl(echo),
-            "ptype": ptype, "ptype_lbl": pl(ptype),
-            "cmd": cmd, "args": args,
-            "raw_hex": raw_cmd.hex(), "raw_len": len(raw_cmd),
-            "hex": payload.hex(), "len": len(payload),
-            "ax25": {"enabled": ax25.enabled,
-                     "src": f"{ax25.src_call}-{ax25.src_ssid}",
-                     "dest": f"{ax25.dest_call}-{ax25.dest_ssid}"},
-            "csp": {"enabled": csp.enabled, "prio": csp.prio, "src": csp.src,
-                    "dest": csp.dest, "dport": csp.dport, "sport": csp.sport,
-                    "flags": csp.flags},
-        }
-        if cmd_crc16 is not None:
-            rec["crc16"] = f"0x{cmd_crc16:04x}"
-        if csp.enabled:
-            rec["crc32c"] = f"0x{csp_crc32:08x}"
-        self.write_jsonl(rec)
 
     def write_mission_command(self, n, display, mission_payload,
                               raw_cmd, payload, ax25, csp, uplink_mode="AX.25"):
@@ -558,10 +428,3 @@ class TXLog(_BaseLog):
             "hex": payload.hex(), "len": len(payload),
         }
         self.write_jsonl(rec)
-
-    def write_summary(self, tx_count, session_start):
-        duration = time.time() - session_start
-        self._write_summary_block([
-            f"  Transmitted: {tx_count}",
-            f"  Duration:    {duration:.1f}s ({duration/60:.1f} min)",
-        ])
