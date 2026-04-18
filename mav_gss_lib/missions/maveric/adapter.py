@@ -57,12 +57,6 @@ class MavericMissionAdapter:
         md = self._md(cmd) if isinstance(cmd, ParsedPacket) else {"cmd": cmd}
         return rx_ops.is_uplink_echo(md, self.nodes.gs_node)
 
-    def build_raw_command(self, src, dest, echo, ptype, cmd_id: str, args: str) -> bytes:
-        return tx_ops.build_raw_command(src, dest, echo, ptype, cmd_id, args)
-
-    def validate_tx_args(self, cmd_id: str, args: str):
-        return tx_ops.validate_tx_args(cmd_id, args, self.cmd_defs)
-
     def build_tx_command(self, payload):
         """Build a mission command from structured input.
 

@@ -12,7 +12,6 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from mav_gss_lib.config import (
-    get_decoder_yml_path,
     get_generated_commands_dir,
     load_gss_config,
 )
@@ -62,21 +61,6 @@ class TestWebRuntimeWorkflows(unittest.TestCase):
 
     def tearDown(self):
         self.tmp.cleanup()
-
-    def test_config_paths_resolve_expected_locations(self):
-        decoder_yml = get_decoder_yml_path(self.cfg)
-        generated_dir = get_generated_commands_dir(self.cfg)
-        # decoder_yml is empty when not set (mission-owned)
-        self.assertEqual(decoder_yml, "")
-        self.assertEqual(generated_dir.name, "generated_commands")
-
-    def test_config_paths_preserve_absolute_overrides(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp_path = Path(tmp)
-            self.cfg["general"]["decoder_yml"] = str(tmp_path / "decoder.yml")
-            self.cfg["general"]["generated_commands_dir"] = str(tmp_path / "exports")
-            self.assertEqual(Path(get_decoder_yml_path(self.cfg)), tmp_path / "decoder.yml")
-            self.assertEqual(get_generated_commands_dir(self.cfg), tmp_path / "exports")
 
     def test_parse_import_file_produces_mission_cmd_items(self):
         payload = """

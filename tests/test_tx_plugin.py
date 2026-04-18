@@ -39,17 +39,6 @@ class TestTxPluginHelpers(unittest.TestCase):
         caps = get_tx_capabilities(FakeAdapter())
         self.assertEqual(caps, {"raw_send": True})
 
-    def test_get_tx_capabilities_custom_override(self):
-        """Adapters can override tx_capabilities() to declare support."""
-        from mav_gss_lib.mission_adapter import get_tx_capabilities
-
-        class CustomAdapter:
-            def tx_capabilities(self):
-                return {"raw_send": True, "extra_feature": True}
-
-        caps = get_tx_capabilities(CustomAdapter())
-        self.assertEqual(caps, {"raw_send": True, "extra_feature": True})
-
 
 import threading
 

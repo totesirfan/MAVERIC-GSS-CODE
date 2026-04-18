@@ -85,11 +85,6 @@ class TxService:
         from . import tx_queue as _tq
         return _tq.load_queue(self.queue_file(), runtime=self.runtime)
 
-    def json_to_item(self, payload):
-        """Convert one persisted JSON payload back into a runtime queue item."""
-        from . import tx_queue as _tq
-        return _tq.json_to_item(payload, runtime=self.runtime)
-
     def renumber_queue(self) -> None:
         """Assign sequential display numbers to queued command items."""
         from . import tx_queue as _tq

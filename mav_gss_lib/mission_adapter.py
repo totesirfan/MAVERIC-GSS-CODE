@@ -167,8 +167,6 @@ def validate_adapter(adapter, api_version: int, mission_name: str) -> None:
 def get_tx_capabilities(adapter) -> dict:
     """Return backend TX capabilities. Builder UI availability is
     determined by the frontend from convention-based discovery."""
-    if hasattr(adapter, 'tx_capabilities') and callable(adapter.tx_capabilities):
-        return adapter.tx_capabilities()
     return {"raw_send": True}
 
 

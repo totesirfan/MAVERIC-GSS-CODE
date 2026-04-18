@@ -32,7 +32,6 @@ class TestStripPersistedJunk(unittest.TestCase):
                 "mission": "maveric",
                 "log_dir": "logs",
                 "version": "5.0.0",
-                "ui_scale": 100,
                 "mission_name": "MAVERIC",
                 "gs_node": "GS",
                 "command_defs": "commands.yml",
@@ -46,7 +45,7 @@ class TestStripPersistedJunk(unittest.TestCase):
         cleaned = _strip_persisted_junk(copy.deepcopy(update))
         self.assertEqual(
             cleaned["general"],
-            {"mission": "maveric", "log_dir": "logs", "ui_scale": 100},
+            {"mission": "maveric", "log_dir": "logs"},
         )
         self.assertNotIn("version", cleaned["general"])
 

@@ -8,6 +8,7 @@ import unittest
 from ops_test_support import CMD_DEFS, NODES
 
 from mav_gss_lib.missions.maveric.adapter import MavericMissionAdapter
+from mav_gss_lib.missions.maveric import tx_ops
 from mav_gss_lib.protocols.ax25 import AX25Config
 from mav_gss_lib.protocols.csp import CSPConfig
 from mav_gss_lib.protocols.crc import verify_csp_crc32
@@ -117,10 +118,10 @@ class TestProtocolCore(unittest.TestCase):
         self.assertFalse(self.adapter.is_uplink_echo({"src": 2}))
 
     def test_adapter_build_and_validate_tx_command(self):
-        raw = self.adapter.build_raw_command(6, 2, 0, 1, "gnc_set_mode", "NOMINAL")
+        raw = tx_ops.build_raw_command(6, 2, 0, 1, "gnc_set_mode", "NOMINAL")
         self.assertIsInstance(raw, (bytes, bytearray))
         self.assertGreater(len(raw), 0)
-        valid, issues = self.adapter.validate_tx_args("gnc_set_mode", "NOMINAL")
+        valid, issues = tx_ops.validate_tx_args("gnc_set_mode", "NOMINAL", self.adapter.cmd_defs)
         self.assertTrue(valid)
         self.assertEqual(issues, [])
 

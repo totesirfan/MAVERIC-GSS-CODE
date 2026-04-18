@@ -38,7 +38,6 @@ _DEFAULTS = {
         "delay_ms":  500,
     },
     "rx": {
-        "zmq_port": 52001,
         "zmq_addr": "tcp://127.0.0.1:52001",
         "tx_blackout_ms": 0,
     },
@@ -82,15 +81,6 @@ def resolve_project_path(path_value, *, base_dir=None):
         return path
     root = _PROJECT_ROOT if base_dir is None else Path(base_dir)
     return (root / path).resolve()
-
-
-def get_decoder_yml_path(cfg):
-    """Return the resolved decoder YAML path from config, or empty string if unset."""
-    general = cfg.get("general", {})
-    raw = general.get("decoder_yml", "")
-    if not raw:
-        return ""
-    return str(resolve_project_path(raw, base_dir=_LIB_DIR))
 
 
 def get_generated_commands_dir(cfg):

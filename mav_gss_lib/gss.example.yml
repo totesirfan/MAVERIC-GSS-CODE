@@ -10,7 +10,6 @@ tx:
   zmq_addr: tcp://127.0.0.1:52002
   delay_ms: 500
 rx:
-  zmq_port: 52001
   zmq_addr: tcp://127.0.0.1:52001
 general:
   log_dir: logs

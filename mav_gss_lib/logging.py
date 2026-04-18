@@ -17,7 +17,6 @@ import threading
 from datetime import datetime
 
 from mav_gss_lib.textutil import clean_text
-from mav_gss_lib.protocols.crc import crc16, crc32c
 
 TS_FULL = "%Y-%m-%d %H:%M:%S %Z"   # Full timestamp with timezone
 
@@ -25,6 +24,32 @@ TS_FULL = "%Y-%m-%d %H:%M:%S %Z"   # Full timestamp with timezone
 LOG_LINE_WIDTH = 80
 SEP_CHAR = "\u2500"      # ─
 HEADER_CHAR = "\u2550"   # ═
+
+
+def _format_session_header(mission_name: str, version: str, mode: str, zmq_addr: str) -> str:
+    """Render the text-log banner (six lines + trailing blank). Captures its own
+    timestamp via datetime.now().astimezone() — caller invokes this immediately
+    before writing so filename-ts and session-ts reflect their real creation order."""
+    session_ts = datetime.now().astimezone().strftime(TS_FULL)
+    return (
+        f"{HEADER_CHAR * LOG_LINE_WIDTH}\n"
+        f"  {mission_name} Ground Station Log  v{version}\n"
+        f"  Mode:      {mode}\n"
+        f"  Session:   {session_ts}\n"
+        f"  ZMQ:       {zmq_addr}\n"
+        f"{HEADER_CHAR * LOG_LINE_WIDTH}\n\n"
+    )
+
+
+def _compose_log_paths(log_dir: str, prefix: str, tag: str) -> tuple[str, str]:
+    """Return (text_path, jsonl_path) under log_dir/text and log_dir/json.
+    *tag* must be pre-sanitized — callers handle the regex."""
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    name = f"{prefix}_{ts}_{tag}" if tag else f"{prefix}_{ts}"
+    return (
+        os.path.join(log_dir, "text", f"{name}.txt"),
+        os.path.join(log_dir, "json", f"{name}.jsonl"),
+    )
 
 
 # =============================================================================
@@ -190,21 +215,12 @@ class _BaseLog:
     def _open_files(self, tag=""):
         """Open new log files with fresh timestamp, write header, start writer thread."""
         tag = re.sub(r'[^\w\-.]', '_', tag.strip()).strip('_') if tag else ""
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        name = f"{self._prefix}_{ts}_{tag}" if tag else f"{self._prefix}_{ts}"
-        self.text_path = os.path.join(self._log_dir, "text", f"{name}.txt")
-        self.jsonl_path = os.path.join(self._log_dir, "json", f"{name}.jsonl")
+        self.text_path, self.jsonl_path = _compose_log_paths(self._log_dir, self._prefix, tag)
         self._text_f = open(self.text_path, "w")
         self._jsonl_f = open(self.jsonl_path, "a")
-        session_ts = datetime.now().astimezone().strftime(TS_FULL)
-        self._text_f.write(
-            f"{HEADER_CHAR * LOG_LINE_WIDTH}\n"
-            f"  {self._mission_name} Ground Station Log  v{self._version}\n"
-            f"  Mode:      {self._mode}\n"
-            f"  Session:   {session_ts}\n"
-            f"  ZMQ:       {self._zmq_addr}\n"
-            f"{HEADER_CHAR * LOG_LINE_WIDTH}\n\n"
-        )
+        self._text_f.write(_format_session_header(
+            self._mission_name, self._version, self._mode, self._zmq_addr,
+        ))
         self._text_f.flush()
         self._q = queue.Queue()
         self._writer = threading.Thread(target=self._writer_loop,
@@ -218,10 +234,7 @@ class _BaseLog:
         cleans up any partially created files and raises.
         """
         tag = re.sub(r'[^\w\-.]', '_', tag.strip()).strip('_') if tag else ""
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        name = f"{self._prefix}_{ts}_{tag}" if tag else f"{self._prefix}_{ts}"
-        new_text_path = os.path.join(self._log_dir, "text", f"{name}.txt")
-        new_jsonl_path = os.path.join(self._log_dir, "json", f"{name}.jsonl")
+        new_text_path, new_jsonl_path = _compose_log_paths(self._log_dir, self._prefix, tag)
         new_text_f = None
         new_jsonl_f = None
         try:
@@ -229,15 +242,9 @@ class _BaseLog:
             os.makedirs(os.path.join(self._log_dir, "json"), exist_ok=True)
             new_text_f = open(new_text_path, "w")
             new_jsonl_f = open(new_jsonl_path, "a")
-            session_ts = datetime.now().astimezone().strftime(TS_FULL)
-            new_text_f.write(
-                f"{HEADER_CHAR * LOG_LINE_WIDTH}\n"
-                f"  {self._mission_name} Ground Station Log  v{self._version}\n"
-                f"  Mode:      {self._mode}\n"
-                f"  Session:   {session_ts}\n"
-                f"  ZMQ:       {self._zmq_addr}\n"
-                f"{HEADER_CHAR * LOG_LINE_WIDTH}\n\n"
-            )
+            new_text_f.write(_format_session_header(
+                self._mission_name, self._version, self._mode, self._zmq_addr,
+            ))
             new_text_f.flush()
         except Exception:
             # Clean up partial files on failure
