@@ -13,6 +13,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
 
+from mav_gss_lib.config import get_rx_zmq_addr, get_tx_zmq_addr
+from mav_gss_lib.constants import DEFAULT_MISSION
+
 _LIB_DIR = Path(__file__).resolve().parent
 
 
@@ -95,7 +98,7 @@ def run_preflight(cfg: dict | None = None,
         from mav_gss_lib.config import load_gss_config
         cfg = load_gss_config(str(gss_yml)) if gss_yml.is_file() else {}
 
-    mission = cfg.get("general", {}).get("mission", "maveric")
+    mission = cfg.get("general", {}).get("mission", DEFAULT_MISSION)
     mission_dir = lib_dir / "missions" / mission
     if mission_dir.is_dir():
         yield CheckResult("config", f"Mission: {mission}", "ok")
@@ -129,7 +132,7 @@ def run_preflight(cfg: dict | None = None,
                           fix="Run: cd mav_gss_lib/web && npm install && npm run build")
 
     # ── ZMQ Addresses ──
-    rx_addr = cfg.get("rx", {}).get("zmq_addr", "tcp://127.0.0.1:52001")
-    tx_addr = cfg.get("tx", {}).get("zmq_addr", "tcp://127.0.0.1:52002")
+    rx_addr = get_rx_zmq_addr(cfg)
+    tx_addr = get_tx_zmq_addr(cfg)
     yield CheckResult("zmq", "RX SUB", "ok", detail=rx_addr)
     yield CheckResult("zmq", "TX PUB", "ok", detail=tx_addr)

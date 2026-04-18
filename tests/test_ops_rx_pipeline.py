@@ -18,7 +18,7 @@ META_GOLAY = {"transmitter": "4k8 FSK AX100 ASM+Golay downlink"}
 
 class TestRxPipelineBehavior(unittest.TestCase):
     def setUp(self):
-        self.pipeline = RxPipeline(CMD_DEFS, {})
+        self.pipeline = RxPipeline.from_cmd_defs(CMD_DEFS)
         self.csp = CSPConfig()
         self.ax25 = AX25Config()
 

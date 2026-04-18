@@ -18,7 +18,7 @@ META_GOLAY = {"transmitter": "4k8 FSK AX100 ASM+Golay downlink"}
 class TestGolayPath(unittest.TestCase):
     def setUp(self):
         self.csp = CSPConfig()
-        self.pipeline = RxPipeline(CMD_DEFS, {})
+        self.pipeline = RxPipeline.from_cmd_defs(CMD_DEFS)
 
     def test_frame_size_is_fixed(self):
         packet = self.csp.wrap(build_cmd_raw(6, 2, "com_ping", ""))

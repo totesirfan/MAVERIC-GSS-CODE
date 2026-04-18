@@ -30,7 +30,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from mav_gss_lib.config import load_gss_config
+from mav_gss_lib.config import get_rx_zmq_addr, load_gss_config
 from mav_gss_lib.transport import init_zmq_pub, send_pdu
 
 
@@ -68,7 +68,7 @@ def main() -> int:
     args = ap.parse_args()
 
     cfg = load_gss_config()
-    addr = cfg.get("rx", {}).get("zmq_addr", "tcp://127.0.0.1:52001")
+    addr = get_rx_zmq_addr(cfg)
     print(f"[preview] binding ZMQ PUB on {addr}")
     print(f"[preview] make sure MAV_WEB.py is already running and its RX status is ONLINE.")
 

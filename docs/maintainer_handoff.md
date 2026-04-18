@@ -67,9 +67,11 @@ ZMQ addresses are configurable in `gss.yml` under `rx.zmq_addr` and `tx.zmq_addr
 
 ```
 web_runtime/
-    state.py         WebRuntime class — owns all mutable backend state, SHUTDOWN_DELAY = 15
+    state.py         WebRuntime class — owns all mutable backend state, tx_status as AtomicStatus
     app.py           FastAPI factory, lifespan, static file serving, plugin router auto-mount
-    runtime.py       Send-context + shutdown helpers (build_send_context, check_shutdown, schedule_shutdown_check)
+    shutdown.py      Delayed-shutdown helpers (SHUTDOWN_DELAY = 2, check_shutdown, schedule_shutdown_check)
+    tx_context.py    Send-context snapshot helper (build_send_context)
+    _atomics.py      AtomicStatus primitive — thread-safe string status holder (.get()/.set(), non-hashable)
     api/             REST routes package
       config.py      /api/status, /api/config, /api/selfcheck
       schema.py      /api/schema, /api/columns, /api/tx-columns, /api/tx/capabilities
@@ -82,7 +84,6 @@ web_runtime/
     tx_service.py    TxService — queue + send loop + ZMQ PUB lifetime
     tx_queue.py      Pure queue helpers: make_mission_cmd, make_delay, make_note, validate, persist, import
     tx_actions.py    Queue mutation actions invoked by tx.py
-    services.py      Re-export shim (RxService, TxService, broadcast_safe) — back-compat
     _broadcast.py    broadcast_safe helper — drops dead WS clients
     session_ws.py    /ws/session WebSocket session management
     preflight_ws.py  /ws/preflight + run_preflight_and_broadcast + updater scheduling
@@ -271,8 +272,11 @@ mav_gss_lib/
     rx.py                             RX WebSocket handler
     tx.py                             TX WebSocket handler
     tx_queue.py                       Queue operations
-    services.py                       RxService + TxService
-    runtime.py                        Queue helpers
+    rx_service.py                     RxService
+    tx_service.py                     TxService
+    shutdown.py                       Delayed-shutdown helpers
+    tx_context.py                     Send-context snapshot
+    _atomics.py                       AtomicStatus primitive
     security.py                       CORS/CSP middleware
     session_ws.py                     WebSocket session management
   web/                              Frontend

@@ -21,7 +21,7 @@ from fastapi.responses import JSONResponse
 
 from ..state import Session, get_runtime
 from ..security import require_api_token
-from ..services import broadcast_safe
+from .._broadcast import broadcast_safe
 
 router = APIRouter()
 

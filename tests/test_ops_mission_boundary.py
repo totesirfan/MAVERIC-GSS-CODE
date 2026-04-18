@@ -115,7 +115,7 @@ class TestMissionBoundary(unittest.TestCase):
 
     def test_rx_pipeline_with_echo_adapter(self):
         """RxPipeline processes a raw PDU through the echo adapter."""
-        pipeline = RxPipeline(self.adapter, tx_freq_map={})
+        pipeline = RxPipeline.from_adapter(self.adapter)
         meta = {"transmitter": "raw test"}
         raw = b"\x01\x02\x03\x04"
         pkt = pipeline.process(meta, raw)

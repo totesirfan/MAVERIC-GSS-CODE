@@ -15,6 +15,7 @@ bootstrap_dependencies()
 # Safe — all critical deps guaranteed importable past this line.
 import uvicorn
 
+from mav_gss_lib.constants import DEFAULT_MISSION
 from mav_gss_lib.web_runtime.app import create_app
 from mav_gss_lib.web_runtime.state import HOST, PORT
 
@@ -36,11 +37,12 @@ def _wait_for_server_and_open(url: str, host: str, port: int, timeout_s: float =
 if __name__ == "__main__":
     url = f"http://{HOST}:{PORT}"
     mission_name = app.state.runtime.cfg.get("general", {}).get("mission_name", "Mission")
+    mission = app.state.runtime.cfg.get("general", {}).get("mission", DEFAULT_MISSION)
     print(f"{mission_name} GSS Web -> {url}")
     threading.Thread(
         target=_wait_for_server_and_open,
         args=(url, HOST, PORT),
         daemon=True,
-        name="maveric-web-open",
+        name=f"{mission}-web-open",
     ).start()
     uvicorn.run(app, host=HOST, port=PORT, log_level="warning", ws_max_size=65536)

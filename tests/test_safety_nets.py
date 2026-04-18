@@ -100,10 +100,10 @@ class TestTaskCallbacksWired(unittest.TestCase):
         )
 
     def test_shutdown_task_has_callback(self):
-        # runtime.py uses loop.create_task(...) after modernizing away from
+        # shutdown.py uses loop.create_task(...) after modernizing away from
         # the deprecated asyncio.get_event_loop() form.
         self._assert_callback_wired(
-            "mav_gss_lib/web_runtime/runtime.py",
+            "mav_gss_lib/web_runtime/shutdown.py",
             "runtime.shutdown_task = loop.create_task(check_shutdown(runtime))",
         )
 

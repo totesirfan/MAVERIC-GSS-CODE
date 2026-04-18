@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mav_gss_lib.web_runtime import runtime as runtime_mod
+from mav_gss_lib.web_runtime import shutdown as shutdown_mod
 
 
 class _FakeService:
@@ -37,7 +37,7 @@ class TestScheduleShutdownCheckUsesRunningLoop(unittest.TestCase):
 
         async def run():
             with patch.object(asyncio, "get_event_loop") as gel:
-                runtime_mod.schedule_shutdown_check(rt)
+                shutdown_mod.schedule_shutdown_check(rt)
                 self.assertFalse(
                     gel.called,
                     "schedule_shutdown_check called deprecated asyncio.get_event_loop()",
@@ -57,13 +57,13 @@ class TestIdleShutdownUsesRaiseSignal(unittest.TestCase):
         """check_shutdown must use signal.raise_signal(SIGINT), not os.kill(pid, SIGINT)."""
         rt = _FakeRuntime()
 
-        original_delay = runtime_mod.SHUTDOWN_DELAY
-        runtime_mod.SHUTDOWN_DELAY = 0
+        original_delay = shutdown_mod.SHUTDOWN_DELAY
+        shutdown_mod.SHUTDOWN_DELAY = 0
 
         async def run():
             with patch.object(signal, "raise_signal") as raise_sig, \
                  patch.object(os, "kill") as os_kill:
-                await runtime_mod.check_shutdown(rt)
+                await shutdown_mod.check_shutdown(rt)
                 self.assertTrue(
                     raise_sig.called,
                     "check_shutdown did not call signal.raise_signal(SIGINT)",
@@ -76,7 +76,7 @@ class TestIdleShutdownUsesRaiseSignal(unittest.TestCase):
         try:
             asyncio.run(run())
         finally:
-            runtime_mod.SHUTDOWN_DELAY = original_delay
+            shutdown_mod.SHUTDOWN_DELAY = original_delay
 
 
 class TestCheckShutdownLocksSendingRead(unittest.TestCase):
@@ -117,17 +117,17 @@ class TestCheckShutdownLocksSendingRead(unittest.TestCase):
         rt.tx.send_lock = spy_lock
         rt.tx.sending = _SpyDict(spy_lock, active=True)  # active → reschedule path
 
-        original_delay = runtime_mod.SHUTDOWN_DELAY
-        runtime_mod.SHUTDOWN_DELAY = 0
+        original_delay = shutdown_mod.SHUTDOWN_DELAY
+        shutdown_mod.SHUTDOWN_DELAY = 0
 
         async def run():
-            with patch.object(runtime_mod, "schedule_shutdown_check"):
-                await runtime_mod.check_shutdown(rt)
+            with patch.object(shutdown_mod, "schedule_shutdown_check"):
+                await shutdown_mod.check_shutdown(rt)
 
         try:
             asyncio.run(run())
         finally:
-            runtime_mod.SHUTDOWN_DELAY = original_delay
+            shutdown_mod.SHUTDOWN_DELAY = original_delay
 
         self.assertTrue(
             _SpyDict.lock_held_during_read,

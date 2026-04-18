@@ -15,6 +15,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
+from mav_gss_lib.constants import DEFAULT_MISSION
+
 
 # =============================================================================
 #  PLATFORM CORE -- ParsedPacket
@@ -256,7 +258,7 @@ def load_mission_metadata(cfg: dict) -> dict:
     import logging
     import os
 
-    mission = cfg.get("general", {}).get("mission", "maveric")
+    mission = cfg.get("general", {}).get("mission", DEFAULT_MISSION)
     spec = importlib.util.find_spec(f"mav_gss_lib.missions.{mission}")
     if spec is None:
         return {}
@@ -306,7 +308,7 @@ def load_mission_adapter(cfg: dict, cmd_defs: dict | None = None):
     import importlib
     import logging
 
-    mission = cfg.get("general", {}).get("mission", "maveric")
+    mission = cfg.get("general", {}).get("mission", DEFAULT_MISSION)
     mission_name = cfg.get("general", {}).get("mission_name", mission.upper())
 
     # Ensure mission metadata is merged (idempotent — safe if already called)

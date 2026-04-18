@@ -85,7 +85,7 @@ class FakeRuntime:
 class TestMakeMissionCmd(unittest.TestCase):
 
     def test_make_mission_cmd_builds_item(self):
-        from mav_gss_lib.web_runtime.runtime import make_mission_cmd
+        from mav_gss_lib.web_runtime.tx_queue import make_mission_cmd
         adapter = FakeBuildAdapter()
         payload = {"cmd_id": "ping", "target": "obc"}
         item = make_mission_cmd(payload, adapter=adapter)
@@ -96,21 +96,21 @@ class TestMakeMissionCmd(unittest.TestCase):
         self.assertEqual(item["payload"], payload)
 
     def test_make_mission_cmd_with_guard(self):
-        from mav_gss_lib.web_runtime.runtime import make_mission_cmd
+        from mav_gss_lib.web_runtime.tx_queue import make_mission_cmd
         adapter = FakeBuildAdapter()
         payload = {"cmd_id": "reboot", "guard": True}
         item = make_mission_cmd(payload, adapter=adapter)
         self.assertTrue(item["guard"])
 
     def test_validate_mission_cmd_passes(self):
-        from mav_gss_lib.web_runtime.runtime import validate_mission_cmd
+        from mav_gss_lib.web_runtime.tx_queue import validate_mission_cmd
         adapter = FakeBuildAdapter()
         rt = FakeRuntime(adapter)
         item = validate_mission_cmd({"cmd_id": "ping"}, runtime=rt)
         self.assertEqual(item["type"], "mission_cmd")
 
     def test_validate_mission_cmd_rejects_invalid(self):
-        from mav_gss_lib.web_runtime.runtime import validate_mission_cmd
+        from mav_gss_lib.web_runtime.tx_queue import validate_mission_cmd
         adapter = FakeBuildAdapter()
         rt = FakeRuntime(adapter)
         with self.assertRaises(ValueError) as ctx:
@@ -133,7 +133,7 @@ class TestMissionCmdQueueProjection(unittest.TestCase):
         }
 
     def test_item_to_json_strips_raw_cmd(self):
-        from mav_gss_lib.web_runtime.services import item_to_json
+        from mav_gss_lib.web_runtime.tx_queue import item_to_json
         item = self._make_item()
         result = item_to_json(item)
         self.assertNotIn("raw_cmd", result)
@@ -601,7 +601,7 @@ class TestCmdLineToPayload(unittest.TestCase):
 class TestQueuePersistence(unittest.TestCase):
 
     def test_item_to_json_strips_raw_cmd(self):
-        from mav_gss_lib.web_runtime.services import item_to_json
+        from mav_gss_lib.web_runtime.tx_queue import item_to_json
         item = {
             "type": "mission_cmd",
             "raw_cmd": b"\x01\x02",
@@ -615,7 +615,7 @@ class TestQueuePersistence(unittest.TestCase):
         self.assertEqual(result["display"]["title"], "ping")
 
     def test_item_to_json_delay(self):
-        from mav_gss_lib.web_runtime.services import item_to_json
+        from mav_gss_lib.web_runtime.tx_queue import item_to_json
         item = {"type": "delay", "delay_ms": 2000}
         result = item_to_json(item)
         self.assertEqual(result, {"type": "delay", "delay_ms": 2000})

@@ -16,6 +16,7 @@ import sys
 import threading
 from datetime import datetime
 
+from mav_gss_lib.constants import DEFAULT_MISSION_NAME
 from mav_gss_lib.textutil import clean_text
 
 TS_FULL = "%Y-%m-%d %H:%M:%S %Z"   # Full timestamp with timezone
@@ -65,7 +66,7 @@ class _BaseLog:
 
     _SENTINEL = None  # poison pill to stop the writer thread
 
-    def __init__(self, log_dir, prefix, version, mode, zmq_addr, mission_name="MAVERIC"):
+    def __init__(self, log_dir, prefix, version, mode, zmq_addr, mission_name=DEFAULT_MISSION_NAME):
         self._log_dir = log_dir
         self._prefix = prefix
         self._version = version
@@ -373,7 +374,7 @@ class _BaseLog:
 class SessionLog(_BaseLog):
     """RX session log — JSONL + text."""
 
-    def __init__(self, log_dir, zmq_addr, version="", mission_name="MAVERIC"):
+    def __init__(self, log_dir, zmq_addr, version="", mission_name=DEFAULT_MISSION_NAME):
         super().__init__(log_dir, "downlink", version, "RX Monitor", zmq_addr, mission_name=mission_name)
 
     def write_packet(self, pkt, adapter=None):
@@ -415,7 +416,7 @@ class SessionLog(_BaseLog):
 class TXLog(_BaseLog):
     """TX session log — JSONL + text."""
 
-    def __init__(self, log_dir, zmq_addr, version="", mission_name="MAVERIC"):
+    def __init__(self, log_dir, zmq_addr, version="", mission_name=DEFAULT_MISSION_NAME):
         super().__init__(log_dir, "uplink", version, "TX Dashboard", zmq_addr, mission_name=mission_name)
 
     def write_mission_command(self, n, display, mission_payload,

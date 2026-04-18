@@ -68,7 +68,7 @@ def validate_mission_cmd(payload, runtime: "WebRuntime | None" = None):
     Checks: build succeeds, MTU fits.
     """
     from .state import ensure_runtime
-    from .runtime import build_send_context
+    from .tx_context import build_send_context
 
     runtime = ensure_runtime(runtime)
 

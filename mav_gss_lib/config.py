@@ -9,6 +9,7 @@ Falls back to hardcoded defaults if the file is missing.
 Author:  Irfan Annuar - USC ISI SERC
 """
 
+import copy
 import json
 import os
 import tempfile
@@ -32,17 +33,23 @@ def _read_version() -> str:
         return "0.0.0"
 
 
+from mav_gss_lib.constants import (
+    DEFAULT_MISSION,
+    DEFAULT_RX_ZMQ_ADDR,
+    DEFAULT_TX_ZMQ_ADDR,
+)
+
 _DEFAULTS = {
     "tx": {
-        "zmq_addr":  "tcp://127.0.0.1:52002",
+        "zmq_addr":  DEFAULT_TX_ZMQ_ADDR,
         "delay_ms":  500,
     },
     "rx": {
-        "zmq_addr": "tcp://127.0.0.1:52001",
+        "zmq_addr": DEFAULT_RX_ZMQ_ADDR,
         "tx_blackout_ms": 0,
     },
     "general": {
-        "mission":      "maveric",
+        "mission":      DEFAULT_MISSION,
         "version":      _read_version(),
         "log_dir":      "logs",
         "generated_commands_dir": "generated_commands",
@@ -50,15 +57,33 @@ _DEFAULTS = {
 }
 
 
-def _deep_merge(base, override):
-    """Merge *override* into *base*, returning a new dict."""
-    merged = dict(base)
+def deep_merge(base, override):
+    """Merge *override* into *base*, returning a new dict.
+
+    Uses copy.deepcopy on *base* so the returned dict does not alias any
+    nested dicts in *base* (important when base is _DEFAULTS — otherwise
+    a later in-place mutation would corrupt module-level defaults).
+    """
+    merged = copy.deepcopy(base)
     for k, v in override.items():
         if k in merged and isinstance(merged[k], dict) and isinstance(v, dict):
-            merged[k] = _deep_merge(merged[k], v)
+            merged[k] = deep_merge(merged[k], v)
         else:
-            merged[k] = v
+            merged[k] = copy.deepcopy(v) if isinstance(v, (dict, list)) else v
     return merged
+
+
+def deep_merge_inplace(base: dict, override: dict) -> None:
+    """Mutate *base* in place, merging *override* into it.
+
+    Deep-copies nested dict/list values from *override* to prevent aliasing
+    into the caller's override structure.
+    """
+    for k, v in override.items():
+        if k in base and isinstance(base[k], dict) and isinstance(v, dict):
+            deep_merge_inplace(base[k], v)
+        else:
+            base[k] = copy.deepcopy(v) if isinstance(v, (dict, list)) else v
 
 
 def load_gss_config(path=None):
@@ -71,7 +96,7 @@ def load_gss_config(path=None):
             raw = yaml.safe_load(f)
         if isinstance(raw, dict):
             user = raw
-    return _deep_merge(_DEFAULTS, user)
+    return deep_merge(_DEFAULTS, user)
 
 
 def resolve_project_path(path_value, *, base_dir=None):
@@ -83,11 +108,40 @@ def resolve_project_path(path_value, *, base_dir=None):
     return (root / path).resolve()
 
 
+def get_rx_zmq_addr(cfg: dict) -> str:
+    return cfg.get("rx", {}).get("zmq_addr", DEFAULT_RX_ZMQ_ADDR)
+
+
+def get_tx_zmq_addr(cfg: dict) -> str:
+    return cfg.get("tx", {}).get("zmq_addr", DEFAULT_TX_ZMQ_ADDR)
+
+
 def get_generated_commands_dir(cfg):
     """Return the resolved import/export directory for queue JSONL files."""
     general = cfg.get("general", {})
     raw = general.get("generated_commands_dir", "generated_commands")
     return resolve_project_path(raw)
+
+
+def get_operator_config_path() -> Path:
+    """Return the on-disk path for the operator gss.yml (used by /api/selfcheck).
+    The _DEFAULT_GSS_PATH module constant stays private."""
+    return _DEFAULT_GSS_PATH
+
+
+def load_operator_config_raw() -> dict:
+    """Read the operator gss.yml as-is (no defaults merge). Returns {} if absent."""
+    p = Path(_DEFAULT_GSS_PATH) if not isinstance(_DEFAULT_GSS_PATH, Path) else _DEFAULT_GSS_PATH
+    if not p.is_file():
+        return {}
+    with open(p) as f:
+        return yaml.safe_load(f) or {}
+
+
+def save_operator_config_raw(merged: dict) -> None:
+    """Atomic write *merged* to the operator gss.yml. Caller MUST have stripped
+    any keys that should not persist (mission-owned, platform-derived, etc.)."""
+    save_gss_config(merged)
 
 
 def save_gss_config(cfg, path=None):

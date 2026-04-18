@@ -17,7 +17,11 @@ from collections import deque
 from queue import Empty, Queue
 from typing import TYPE_CHECKING
 
+from mav_gss_lib.config import get_rx_zmq_addr
+from mav_gss_lib.constants import DEFAULT_MISSION
 from mav_gss_lib.parsing import RxPipeline, build_rx_log_record
+
+from ._atomics import AtomicStatus
 from mav_gss_lib.protocols.frame_detect import is_noise_frame
 from mav_gss_lib.transport import SUB_STATUS, init_zmq_sub, poll_monitor, receive_pdu, zmq_cleanup
 
@@ -32,7 +36,7 @@ class RxService:
 
     def __init__(self, runtime: "WebRuntime") -> None:
         self.runtime = runtime
-        self.status = ["OFFLINE"]
+        self.status = AtomicStatus()
         self.packets: deque = deque(maxlen=runtime.max_packets)
         self.queue: Queue = Queue()
         self.stop = threading.Event()
@@ -42,7 +46,7 @@ class RxService:
         self.log = None
         self.thread_handle: threading.Thread | None = None
         self.broadcast_task = None
-        self.pipeline = RxPipeline(runtime.adapter, {})
+        self.pipeline = RxPipeline.from_adapter(runtime.adapter)
         self.last_rx_at: float = 0.0
         self._was_traffic_active: bool = False
 
@@ -70,7 +74,8 @@ class RxService:
         if self.thread_handle and self.thread_handle.is_alive():
             return
         self.stop.clear()
-        self.thread_handle = threading.Thread(target=self._thread, daemon=True, name="maveric-rx-sub")
+        mission = self.runtime.cfg.get("general", {}).get("mission", DEFAULT_MISSION)
+        self.thread_handle = threading.Thread(target=self._thread, daemon=True, name=f"{mission}-rx-sub")
         self.thread_handle.start()
 
     def restart_receiver(self) -> None:
@@ -78,11 +83,12 @@ class RxService:
         if self.thread_handle:
             self.thread_handle.join(timeout=1.0)
         self.stop.clear()
-        self.thread_handle = threading.Thread(target=self._thread, daemon=True, name="maveric-rx-sub")
+        mission = self.runtime.cfg.get("general", {}).get("mission", DEFAULT_MISSION)
+        self.thread_handle = threading.Thread(target=self._thread, daemon=True, name=f"{mission}-rx-sub")
         self.thread_handle.start()
 
     def _thread(self) -> None:
-        addr = self.runtime.cfg.get("rx", {}).get("zmq_addr", "tcp://127.0.0.1:52001")
+        addr = get_rx_zmq_addr(self.runtime.cfg)
         try:
             ctx, sock, monitor = init_zmq_sub(addr)
         except Exception as exc:
@@ -92,7 +98,7 @@ class RxService:
         status = "OFFLINE"
         while not self.stop.is_set():
             status = poll_monitor(monitor, SUB_STATUS, status)
-            self.status[0] = status
+            self.status.set(status)
             result = receive_pdu(sock)
             if result is not None:
                 if self._should_drop_rx(time.time()):
@@ -188,7 +194,7 @@ class RxService:
                 status_msg = json.dumps(
                     {
                         "type": "status",
-                        "zmq": self.status[0],
+                        "zmq": self.status.get(),
                         "pkt_rate": pkt_rate,
                         "silence_s": silence_s,
                         "packet_count": self.pipeline.packet_count,

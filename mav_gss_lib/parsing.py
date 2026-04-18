@@ -48,19 +48,9 @@ class RxPipeline:
     for each received PDU -- counters update automatically.
     """
 
-    def __init__(self, adapter_or_cmd_defs, tx_freq_map, max_seen_fps=10_000):
-        # Backward-compatible constructor:
-        #   RxPipeline(cmd_defs, tx_freq_map)
-        # New constructor:
-        #   RxPipeline(adapter, tx_freq_map)
-        if hasattr(adapter_or_cmd_defs, "detect_frame_type"):
-            self.adapter = adapter_or_cmd_defs
-        else:
-            # Fallback: cmd_defs dict passed directly — load via shared loader
-            from mav_gss_lib.config import load_gss_config
-            cfg = load_gss_config()
-            self.adapter = load_mission_adapter(cfg, adapter_or_cmd_defs)
-        self.tx_freq_map = tx_freq_map
+    def __init__(self, adapter, tx_freq_map=None, max_seen_fps=10_000):
+        self.adapter = adapter   # public: tests read pipeline.adapter
+        self.tx_freq_map = tx_freq_map or {}
         self.max_seen_fps = max_seen_fps
 
         # Counters and state
@@ -72,6 +62,21 @@ class RxPipeline:
         self.uplink_echo_count = 0
         self.last_arrival = None
         self.frequency = None
+
+    @classmethod
+    def from_adapter(cls, adapter, tx_freq_map=None, max_seen_fps=10_000):
+        return cls(adapter, tx_freq_map=tx_freq_map, max_seen_fps=max_seen_fps)
+
+    @classmethod
+    def from_cmd_defs(cls, cmd_defs, tx_freq_map=None, max_seen_fps=10_000):
+        """Legacy: build adapter from a cmd_defs dict. Overrides adapter.cmd_defs
+        after construction so missions with init_mission hooks don't silently
+        drop the caller's dict."""
+        from mav_gss_lib.config import load_gss_config
+        cfg = load_gss_config()
+        adapter = load_mission_adapter(cfg)
+        adapter.cmd_defs = cmd_defs
+        return cls(adapter, tx_freq_map=tx_freq_map, max_seen_fps=max_seen_fps)
 
     def reset_counts(self):
         """Reset counters for a new log session."""

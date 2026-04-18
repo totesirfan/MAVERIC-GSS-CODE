@@ -16,10 +16,14 @@ from fastapi.responses import JSONResponse
 from mav_gss_lib.config import (
     apply_ax25,
     apply_csp,
-    save_gss_config,
+    deep_merge_inplace,
+    get_rx_zmq_addr,
+    get_tx_zmq_addr,
+    load_operator_config_raw,
+    save_operator_config_raw,
 )
+from mav_gss_lib.constants import DEFAULT_MISSION, DEFAULT_MISSION_NAME
 from ..state import get_runtime
-from ..runtime import deep_merge
 from ..security import require_api_token
 
 router = APIRouter()
@@ -29,11 +33,11 @@ router = APIRouter()
 async def api_status(request: Request):
     runtime = get_runtime(request)
     return {
-        "mission": runtime.cfg.get("general", {}).get("mission", "maveric"),
-        "mission_name": runtime.cfg.get("general", {}).get("mission_name", "MAVERIC"),
+        "mission": runtime.cfg.get("general", {}).get("mission", DEFAULT_MISSION),
+        "mission_name": runtime.cfg.get("general", {}).get("mission_name", DEFAULT_MISSION_NAME),
         "version": runtime.cfg.get("general", {}).get("version", ""),
-        "zmq_rx": runtime.rx.status[0],
-        "zmq_tx": runtime.tx.status[0],
+        "zmq_rx": runtime.rx.status.get(),
+        "zmq_tx": runtime.tx.status.get(),
         "uplink_mode": runtime.cfg.get("tx", {}).get("uplink_mode", "AX.25"),
         "frequency": runtime.cfg.get("tx", {}).get("frequency", ""),
         "schema_path": runtime.cfg.get("general", {}).get("command_defs_resolved", "")
@@ -57,8 +61,8 @@ async def api_selfcheck(request: Request):
     general = runtime.cfg.get("general", {})
 
     # Resolve config file path
-    from mav_gss_lib.config import _DEFAULT_GSS_PATH
-    config_path = str(_DEFAULT_GSS_PATH)
+    from mav_gss_lib.config import get_operator_config_path
+    config_path = str(get_operator_config_path())
     config_exists = os.path.isfile(config_path)
 
     # Resolve command schema path
@@ -71,7 +75,7 @@ async def api_selfcheck(request: Request):
     asset_dir = (WEB_DIR / "assets").is_dir()
 
     return {
-        "mission": general.get("mission", "maveric"),
+        "mission": general.get("mission", DEFAULT_MISSION),
         "mission_name": general.get("mission_name", ""),
         "version": general.get("version", ""),
         "config_path": config_path,
@@ -84,8 +88,8 @@ async def api_selfcheck(request: Request):
         "web_assets": asset_dir,
         "zmq_rx_addr": runtime.cfg.get("rx", {}).get("zmq_addr", ""),
         "zmq_tx_addr": runtime.cfg.get("tx", {}).get("zmq_addr", ""),
-        "zmq_rx_status": runtime.rx.status[0],
-        "zmq_tx_status": runtime.tx.status[0],
+        "zmq_rx_status": runtime.rx.status.get(),
+        "zmq_tx_status": runtime.tx.status.get(),
         "log_dir": general.get("log_dir", "logs"),
         "uplink_mode": runtime.cfg.get("tx", {}).get("uplink_mode", ""),
     }
@@ -137,8 +141,8 @@ async def api_config_put(update: dict, request: Request):
     if denied:
         return denied
 
-    old_rx_addr = runtime.cfg.get("rx", {}).get("zmq_addr", "tcp://127.0.0.1:52001")
-    old_tx_addr = runtime.cfg.get("tx", {}).get("zmq_addr", "tcp://127.0.0.1:52002")
+    old_rx_addr = get_rx_zmq_addr(runtime.cfg)
+    old_tx_addr = get_tx_zmq_addr(runtime.cfg)
     requested_rx_addr = update.get("rx", {}).get("zmq_addr", old_rx_addr) if isinstance(update.get("rx"), dict) else old_rx_addr
     requested_tx_addr = update.get("tx", {}).get("zmq_addr", old_tx_addr) if isinstance(update.get("tx"), dict) else old_tx_addr
     with runtime.tx.send_lock:
@@ -155,17 +159,11 @@ async def api_config_put(update: dict, request: Request):
     _strip_persisted_junk(update)
 
     with runtime.cfg_lock:
-        deep_merge(runtime.cfg, update)
-        import yaml as _yaml
-        from mav_gss_lib.config import _DEFAULT_GSS_PATH
-        raw_operator = {}
-        gss_path = str(_DEFAULT_GSS_PATH)
-        if os.path.isfile(gss_path):
-            with open(gss_path) as _f:
-                raw_operator = _yaml.safe_load(_f) or {}
-        deep_merge(raw_operator, update)
+        deep_merge_inplace(runtime.cfg, update)
+        raw_operator = load_operator_config_raw()
+        deep_merge_inplace(raw_operator, update)
         raw_operator = _strip_persisted_junk(raw_operator)
-        save_gss_config(raw_operator)
+        save_operator_config_raw(raw_operator)
         apply_csp(runtime.cfg, runtime.csp)
         apply_ax25(runtime.cfg, runtime.ax25)
         new_rx_addr = runtime.cfg.get("rx", {}).get("zmq_addr", old_rx_addr)

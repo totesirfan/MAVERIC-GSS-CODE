@@ -335,7 +335,7 @@ class TestUnknownClassification(unittest.TestCase):
         from tests.echo_mission import EchoMissionAdapter
 
         adapter = EchoMissionAdapter(cmd_defs={})
-        pipeline = RxPipeline(adapter, tx_freq_map={})
+        pipeline = RxPipeline.from_adapter(adapter)
         pkt = pipeline.process({"transmitter": "test"}, b"\x01\x02\x03\x04")
         # Echo adapter: is_unknown_packet always returns True
         self.assertTrue(pkt.is_unknown)
@@ -350,7 +350,7 @@ class TestUnknownClassification(unittest.TestCase):
         cfg = load_gss_config()
         adapter = load_mission_adapter(cfg)
 
-        pipeline = RxPipeline(adapter, tx_freq_map={})
+        pipeline = RxPipeline.from_adapter(adapter)
         # Process a minimal raw packet with no valid command
         pkt = pipeline.process({"transmitter": "test"}, b"\x00\x01\x02\x03")
         # Short payload with no valid command → unknown
@@ -370,7 +370,7 @@ class TestReplayCompat(unittest.TestCase):
 
     def test_new_envelope_replay_passes_through_rendering(self):
         """Replay passes through _rendering from new-format RX log entries."""
-        from mav_gss_lib.web_runtime.api import parse_replay_entry
+        from mav_gss_lib.web_runtime.api.logs import parse_replay_entry
 
         rendering = {
             "row": {"values": {"cmd": "com_ping", "src": "GS"}, "_meta": {"opacity": 1.0}},
@@ -398,7 +398,7 @@ class TestReplayCompat(unittest.TestCase):
 
     def test_rx_entry_without_rendering_gets_empty_rendering(self):
         """RX entry without _rendering gets empty dict — no flat field reconstruction."""
-        from mav_gss_lib.web_runtime.api import parse_replay_entry
+        from mav_gss_lib.web_runtime.api.logs import parse_replay_entry
 
         entry = {
             "v": "4.3.0", "pkt": 1,
@@ -417,7 +417,7 @@ class TestReplayCompat(unittest.TestCase):
 
     def test_tx_log_entry_detected_by_missing_pkt_field(self):
         """TX log entries (no 'pkt' field) are correctly identified."""
-        from mav_gss_lib.web_runtime.api import parse_replay_entry
+        from mav_gss_lib.web_runtime.api.logs import parse_replay_entry
 
         entry = {
             "n": 1, "ts": "2026-04-06T10:30:00",

@@ -232,8 +232,10 @@ mav_gss_lib/
 
     web_runtime/
         app.py                  FastAPI factory + lifespan (mounts plugin routers)
-        state.py                WebRuntime container (SHUTDOWN_DELAY, preflight state)
-        runtime.py              Send-context helpers
+        state.py                WebRuntime container (preflight state, AtomicStatus)
+        shutdown.py             Delayed-shutdown helpers (SHUTDOWN_DELAY, check_shutdown)
+        tx_context.py           Send-context snapshot helper (build_send_context)
+        _atomics.py             AtomicStatus primitive (thread-safe status holder)
         api/                    REST API package (config, schema, logs, queue_io, session)
         rx.py                   /ws/rx WebSocket handler
         tx.py                   /ws/tx WebSocket handler
@@ -241,7 +243,6 @@ mav_gss_lib/
         tx_service.py           TX queue, send loop, history, persistence
         tx_queue.py             Pure queue helpers (build, validate, persist, import)
         tx_actions.py           Queue mutation actions
-        services.py             Re-export shim (back-compat)
         _broadcast.py           broadcast_safe helper
         session_ws.py           /ws/session handler
         preflight_ws.py         /ws/preflight handler + updater scheduling

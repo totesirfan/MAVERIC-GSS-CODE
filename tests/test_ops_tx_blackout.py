@@ -35,7 +35,7 @@ import asyncio
 import tempfile
 
 import mav_gss_lib.web_runtime.tx_service as tx_service
-from mav_gss_lib.web_runtime.runtime import validate_mission_cmd
+from mav_gss_lib.web_runtime.tx_queue import validate_mission_cmd
 
 
 def _make_payload(cmd_id="com_ping", args="", dest="LPPM"):

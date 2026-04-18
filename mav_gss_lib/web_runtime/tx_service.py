@@ -60,15 +60,15 @@ class TxService:
         """Recreate the TX PUB socket at *addr*."""
         if self.zmq_sock:
             try:
-                zmq_cleanup(self.zmq_monitor, PUB_STATUS, self.status[0], self.zmq_sock, self.zmq_ctx)
+                zmq_cleanup(self.zmq_monitor, PUB_STATUS, self.status.get(), self.zmq_sock, self.zmq_ctx)
             except Exception:
                 pass
         self.zmq_ctx = self.zmq_sock = self.zmq_monitor = None
         try:
             self.zmq_ctx, self.zmq_sock, self.zmq_monitor = init_zmq_pub(addr)
-            self.status[0] = "BOUND"
+            self.status.set("BOUND")
         except Exception as exc:
-            self.status[0] = "OFFLINE"
+            self.status.set("OFFLINE")
             logging.error("TX ZMQ PUB init failed: %s", exc)
 
     @property

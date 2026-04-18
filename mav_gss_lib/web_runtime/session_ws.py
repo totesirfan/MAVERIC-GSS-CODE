@@ -14,7 +14,7 @@ import time
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from .state import get_runtime
-from .runtime import schedule_shutdown_check
+from .shutdown import schedule_shutdown_check
 from .security import authorize_websocket
 
 router = APIRouter()

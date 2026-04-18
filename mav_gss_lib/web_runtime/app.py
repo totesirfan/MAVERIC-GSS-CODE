@@ -19,11 +19,13 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from mav_gss_lib.config import get_rx_zmq_addr, get_tx_zmq_addr
+from mav_gss_lib.constants import DEFAULT_MISSION, DEFAULT_MISSION_NAME
 from mav_gss_lib.logging import SessionLog, TXLog
 
 from .api import router as api_router
 from .rx import router as rx_router
-from .runtime import sanitize_queue_items
+from .tx_queue import sanitize_queue_items
 from .session_ws import router as session_router
 from .preflight_ws import (
     router as preflight_router,
@@ -49,13 +51,13 @@ async def lifespan(app: FastAPI):
     if skipped:
         logging.warning("Dropped %d invalid queued item(s) during startup restore", skipped)
 
-    tx_addr = runtime.cfg.get("tx", {}).get("zmq_addr", "tcp://127.0.0.1:52002")
+    tx_addr = get_tx_zmq_addr(runtime.cfg)
     runtime.tx.restart_pub(tx_addr)
 
     log_dir = runtime.cfg.get("general", {}).get("log_dir", "logs")
     version = runtime.cfg.get("general", {}).get("version", "")
-    mission_name = runtime.cfg.get("general", {}).get("mission_name", "MAVERIC")
-    rx_addr = runtime.cfg.get("rx", {}).get("zmq_addr", "tcp://127.0.0.1:52001")
+    mission_name = runtime.cfg.get("general", {}).get("mission_name", DEFAULT_MISSION_NAME)
+    rx_addr = get_rx_zmq_addr(runtime.cfg)
     runtime.rx.log = SessionLog(log_dir, rx_addr, version, mission_name=mission_name)
     runtime.tx.log = TXLog(log_dir, tx_addr, version=version, mission_name=mission_name)
     print(f"RX logging → {runtime.rx.log.jsonl_path}")
@@ -122,7 +124,7 @@ async def _shutdown_runtime(runtime) -> None:
 def create_app() -> FastAPI:
     """Create the configured FastAPI application and attach a WebRuntime."""
     runtime = create_runtime()
-    mission_name = runtime.cfg.get("general", {}).get("mission_name", "MAVERIC")
+    mission_name = runtime.cfg.get("general", {}).get("mission_name", DEFAULT_MISSION_NAME)
     app = FastAPI(title=f"{mission_name} GSS Web", lifespan=lifespan)
     app.state.runtime = runtime
 
@@ -137,7 +139,7 @@ def create_app() -> FastAPI:
 
     # Auto-mount mission plugin routers
     import importlib
-    mission_id = runtime.cfg.get("general", {}).get("mission", "maveric")
+    mission_id = runtime.cfg.get("general", {}).get("mission", DEFAULT_MISSION)
     try:
         mission_pkg = importlib.import_module(f"mav_gss_lib.missions.{mission_id}")
         get_routers = getattr(mission_pkg, "get_plugin_routers", None)

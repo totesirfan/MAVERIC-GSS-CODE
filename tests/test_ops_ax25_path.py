@@ -19,7 +19,7 @@ class TestAX25Path(unittest.TestCase):
     def setUp(self):
         self.csp = CSPConfig()
         self.ax25 = AX25Config()
-        self.pipeline = RxPipeline(CMD_DEFS, {})
+        self.pipeline = RxPipeline.from_cmd_defs(CMD_DEFS)
 
     def test_ax25_rx_pipeline_recovers_ping(self):
         raw = build_cmd_raw(6, 2, "com_ping", "")

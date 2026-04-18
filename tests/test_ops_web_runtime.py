@@ -15,14 +15,14 @@ from mav_gss_lib.config import (
     get_generated_commands_dir,
     load_gss_config,
 )
-from mav_gss_lib.web_runtime.api import (
+from mav_gss_lib.web_runtime.api.queue_io import (
     export_queue,
     import_file,
     list_import_files,
     parse_import_file,
     preview_import,
 )
-from mav_gss_lib.web_runtime.runtime import make_delay, validate_mission_cmd
+from mav_gss_lib.web_runtime.tx_queue import make_delay, validate_mission_cmd
 from mav_gss_lib.web_runtime.state import create_runtime
 
 
@@ -161,7 +161,7 @@ class TestWebRuntimeWorkflows(unittest.TestCase):
         log_file.write_text("\n".join(entries) + "\n")
 
         # Call the endpoint with offset=1, limit=2
-        from mav_gss_lib.web_runtime.api import api_log_entries
+        from mav_gss_lib.web_runtime.api.logs import api_log_entries
 
         req = _request_for(self.runtime)
         result = asyncio.run(api_log_entries(

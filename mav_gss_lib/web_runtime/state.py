@@ -23,6 +23,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
+if TYPE_CHECKING:
+    from fastapi import FastAPI, Request, WebSocket
+
 from mav_gss_lib.config import (
     apply_ax25,
     apply_csp,
@@ -32,7 +35,9 @@ from mav_gss_lib.config import (
 from mav_gss_lib.mission_adapter import load_mission_adapter
 from mav_gss_lib.protocols.ax25 import AX25Config
 from mav_gss_lib.protocols.csp import CSPConfig
-from .services import RxService, TxService
+from ._atomics import AtomicStatus
+from .rx_service import RxService
+from .tx_service import TxService
 
 if TYPE_CHECKING:
     from mav_gss_lib.updater import UpdateStatus
@@ -43,7 +48,6 @@ PORT = 8080
 MAX_PACKETS = 500
 MAX_HISTORY = 500
 MAX_QUEUE = 200
-SHUTDOWN_DELAY = 15
 
 
 @dataclass
@@ -71,11 +75,11 @@ class WebRuntime:
         self.adapter = load_mission_adapter(self.cfg)
         self.cmd_defs = self.adapter.cmd_defs
 
-        self.rx_status = ["OFFLINE"]
-        self.tx_status = ["OFFLINE"]
+        self.tx_status = AtomicStatus()
 
-        # Wall-clock deadline (time.time()) until which RX packets are silently
-        # dropped to simulate ground-side T/R switching. 0.0 = feature idle.
+        # tx_blackout_until: cross-thread float read/write. CPython float assign
+        # is GIL-atomic; writer (TxService send loop) and reader (RX drop filter)
+        # see a coherent value without a lock. Seconds since epoch.
         self.tx_blackout_until: float = 0.0
 
         self.csp = CSPConfig()
@@ -134,9 +138,13 @@ def ensure_runtime(runtime: WebRuntime | None) -> WebRuntime:
     return runtime if runtime is not None else create_runtime()
 
 
-def get_runtime(holder) -> WebRuntime:
+def get_runtime(holder: "FastAPI | Request | WebSocket") -> WebRuntime:
     """Extract the attached WebRuntime from a FastAPI app/request/websocket."""
-    app = holder if hasattr(holder, "state") and hasattr(holder.state, "runtime") else getattr(holder, "app", None)
-    if app is None or not hasattr(app.state, "runtime"):
-        raise RuntimeError("web runtime is not attached to app.state")
-    return app.state.runtime
+    for candidate in (holder, getattr(holder, "app", None)):
+        if candidate is not None \
+           and hasattr(candidate, "state") \
+           and hasattr(candidate.state, "runtime"):
+            return candidate.state.runtime
+    raise RuntimeError(
+        f"web runtime is not attached to app.state (holder={type(holder).__name__})"
+    )
