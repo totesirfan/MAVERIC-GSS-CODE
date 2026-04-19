@@ -48,8 +48,8 @@ export function useRxSocket() {
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const statsRef = useRef<RxPacketStats>(createEmptyStats())
   const customListenersRef = useRef<Set<(msg: Record<string, unknown>) => void>>(new Set())
-  const [sessionResetGen, setSessionResetGen] = useState(0)
-  const [sessionResetTag, setSessionResetTag] = useState('')
+  const [sessionGeneration, setSessionGeneration] = useState(0)
+  const [sessionTag, setSessionTag] = useState('')
   const [blackoutUntil, setBlackoutUntil] = useState<number | null>(null)
 
   const syncVisiblePackets = useCallback(() => {
@@ -108,8 +108,10 @@ export function useRxSocket() {
           setPackets([])
           setStats(createEmptyStats())
           setBlackoutUntil(null)
-          setSessionResetTag((msg as Record<string, unknown>).tag as string ?? 'untitled')
-          setSessionResetGen(g => g + 1)
+          setSessionTag((msg as Record<string, unknown>).session_tag as string ?? 'untitled')
+          setSessionGeneration((msg as Record<string, unknown>).session_generation as number ?? 0)
+        } else if (msg.type === 'session_renamed') {
+          setSessionTag((msg as Record<string, unknown>).session_tag as string ?? 'untitled')
         } else if (msg.type === 'status') {
           setStatus({
             zmq: (msg.zmq as string) || 'DOWN',
@@ -173,5 +175,5 @@ export function useRxSocket() {
     return () => { customListenersRef.current.delete(fn) }
   }, [])
 
-  return { packets, status, connected, stats, columns, clearPackets, replayMode, replacePackets, enterReplay, exitReplay, sessionResetGen, sessionResetTag, subscribeCustom, blackoutUntil }
+  return { packets, status, connected, stats, columns, clearPackets, replayMode, replacePackets, enterReplay, exitReplay, sessionGeneration, sessionTag, subscribeCustom, blackoutUntil }
 }

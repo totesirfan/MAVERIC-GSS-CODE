@@ -110,10 +110,10 @@ export function GlobalHeader({
   const localTime = now.toLocaleTimeString('en-GB', { hour12: false })
   const tz = now.toLocaleTimeString('en-US', { timeZoneName: 'short' }).split(' ').pop() ?? 'local'
 
-  const isUntitled = !session?.tag || session.tag === 'untitled'
+  const isUntitled = !session?.sessionTag || session.sessionTag === 'untitled'
   const sessionLabel = isUntitled
     ? `untitled @ ${extractTimeLocal(session?.startedAt ?? '')}`
-    : session?.tag ?? ''
+    : session?.sessionTag ?? ''
 
   return (
     <header className="shrink-0" style={{ backgroundColor: colors.bgApp }}>
@@ -319,7 +319,7 @@ export function RenameSessionDialog({ session }: { session: SessionState }) {
 }
 
 function RenameForm({ session }: { session: SessionState }) {
-  const [renameTag, setRenameTag] = useState(session.tag)
+  const [renameTag, setRenameTag] = useState(session.sessionTag)
   const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 

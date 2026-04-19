@@ -176,7 +176,7 @@ class TestBroadcastLoopSuppressesNoise(unittest.TestCase):
     def test_noise_frame_produces_no_side_effects(self):
         meta = {"transmitter": "9k6 FSK AX.25 downlink"}
         raw = b"\x01\x02\x03\x04\x05\x06"  # no 03 F0 anywhere
-        self.rx.queue.put((self.runtime.session.generation, meta, raw))
+        self.rx.queue.put((self.runtime.session.session_generation, meta, raw))
 
         self._run_loop_until_drained()
 
@@ -210,7 +210,7 @@ class TestBroadcastLoopSuppressesNoise(unittest.TestCase):
         payload = ax25.wrap(csp.wrap(raw_cmd))
 
         meta = {"transmitter": "9k6 FSK AX.25 downlink"}
-        self.rx.queue.put((self.runtime.session.generation, meta, payload))
+        self.rx.queue.put((self.runtime.session.session_generation, meta, payload))
 
         self._run_loop_until_drained()
 
@@ -227,7 +227,7 @@ class TestBroadcastLoopSuppressesNoise(unittest.TestCase):
         """Spec requirement: the filter is framing-only, NOT parse-result-based."""
         meta = {"transmitter": "9k6 FSK AX.25 downlink"}
         payload = (b"\xaa" * 14) + b"\x03\xf0" + b"\x00\x01\x02\x03"
-        self.rx.queue.put((self.runtime.session.generation, meta, payload))
+        self.rx.queue.put((self.runtime.session.session_generation, meta, payload))
 
         self._run_loop_until_drained()
 
@@ -247,7 +247,7 @@ class TestBroadcastLoopSuppressesNoise(unittest.TestCase):
         payload = csp.wrap(raw_cmd)
 
         meta = {"transmitter": "4k8 FSK AX100 ASM+Golay downlink"}
-        self.rx.queue.put((self.runtime.session.generation, meta, payload))
+        self.rx.queue.put((self.runtime.session.session_generation, meta, payload))
 
         self._run_loop_until_drained()
 

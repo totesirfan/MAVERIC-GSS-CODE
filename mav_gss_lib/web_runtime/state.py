@@ -53,9 +53,9 @@ MAX_QUEUE = 200
 @dataclass
 class Session:
     session_id: str
-    tag: str
+    session_tag: str
     started_at: str
-    generation: int
+    session_generation: int
 
 
 # =============================================================================
@@ -92,9 +92,9 @@ class WebRuntime:
         self.cfg_lock = threading.Lock()
         self.session = Session(
             session_id=uuid.uuid4().hex,
-            tag="untitled",
+            session_tag="untitled",
             started_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            generation=1,
+            session_generation=1,
         )
         self.session_clients: list = []
         self.session_lock = threading.Lock()

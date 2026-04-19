@@ -104,7 +104,7 @@ interface RxPanelProps {
   replaySession?: string | null
   replacePackets?: (pkts: RxPacket[]) => void
   onStopReplay?: () => void
-  sessionResetGen?: number
+  sessionGeneration?: number
   sessionTag?: string
   blackoutUntil?: number | null
   externalShowHex?: boolean
@@ -127,7 +127,7 @@ function hasEcho(packet: RxPacket): boolean {
   return packet.is_echo
 }
 
-export function RxPanel({ config, packets, status, packetStats, columns, replayMode, replaySession, replacePackets, onStopReplay, sessionResetGen, sessionTag, blackoutUntil, externalShowHex, externalShowFrame, externalShowWrapper, externalHideUplink, onToggleHex, onToggleFrame, onToggleWrapper, onToggleUplink }: RxPanelProps) {
+export function RxPanel({ config, packets, status, packetStats, columns, replayMode, replaySession, replacePackets, onStopReplay, sessionGeneration, sessionTag, blackoutUntil, externalShowHex, externalShowFrame, externalShowWrapper, externalHideUplink, onToggleHex, onToggleFrame, onToggleWrapper, onToggleUplink }: RxPanelProps) {
   const { showHex, showFrame, showWrapper, hideUplink, toggleHex, toggleFrame, toggleWrapper, toggleUplink } = useRxToggles({
     externalShowHex, externalShowFrame, externalShowWrapper, externalHideUplink,
     onToggleHex, onToggleFrame, onToggleWrapper, onToggleUplink,
@@ -305,7 +305,7 @@ export function RxPanel({ config, packets, status, packetStats, columns, replayM
           <ReplayPanel sessionId={replaySession} replacePackets={replacePackets} onStop={onStopReplay} />
         )}
 
-        <SessionBanner sessionResetGen={sessionResetGen} sessionTag={sessionTag} packetCount={packets.length} />
+        <SessionBanner sessionGeneration={sessionGeneration} sessionTag={sessionTag} packetCount={packets.length} />
 
         <PacketList
           packets={filtered}

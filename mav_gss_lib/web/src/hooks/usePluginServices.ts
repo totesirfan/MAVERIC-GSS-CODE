@@ -22,7 +22,7 @@ export interface PluginServices {
   fetchSchema: () => Promise<CommandSchema>
   subscribeRxCustom: (fn: (msg: Record<string, unknown>) => void) => () => void
   sessionTag: string
-  sessionResetGen: number
+  sessionGeneration: number
   /** Live pending TX queue (shared with main TxPanel). Filter by cmd_id in consumers. */
   pendingQueue: TxQueueItem[]
   /** Remove an item from the queue by its index in the full unfiltered queue. */
@@ -60,8 +60,8 @@ export function usePluginServices(): PluginServices {
     config,
     fetchSchema,
     subscribeRxCustom: rx.subscribeCustom,
-    sessionTag: session.tag,
-    sessionResetGen: rx.sessionResetGen,
+    sessionTag: session.sessionTag,
+    sessionGeneration: rx.sessionGeneration,
     pendingQueue: tx.queue,
     removeQueueItem: tx.deleteItem,
   }), [rx, tx, session, config, filterPackets, fetchSchema])

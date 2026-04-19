@@ -204,7 +204,7 @@ function AppShell() {
       />
       <RenameSessionDialog session={session} />
       <RxCrcToastSentinel />
-      <AlarmStripWithPackets status={rx.status} replayMode={rx.replayMode} sessionResetGen={rx.sessionResetGen} />
+      <AlarmStripWithPackets status={rx.status} replayMode={rx.replayMode} sessionGeneration={rx.sessionGeneration} />
       <TabViewport
         plugins={plugins}
         activeId={activeTabId}
@@ -341,8 +341,8 @@ function PopOutRx() {
           replaySession={null}
           replacePackets={rx.replacePackets}
           onStopReplay={() => {}}
-          sessionResetGen={rx.sessionResetGen}
-          sessionTag={rx.sessionResetTag || ''}
+          sessionGeneration={rx.sessionGeneration}
+          sessionTag={rx.sessionTag || ''}
           blackoutUntil={rx.blackoutUntil}
         />
       </div>

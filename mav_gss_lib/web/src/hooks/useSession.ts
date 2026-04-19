@@ -3,7 +3,7 @@ import { createSocket } from '@/lib/ws'
 import { authFetch } from '@/lib/auth'
 
 export interface SessionState {
-  tag: string
+  sessionTag: string
   startedAt: string
   sessionId: string
   isTrafficActive: boolean
@@ -13,49 +13,49 @@ export interface SessionState {
   setOpenRename: (v: boolean) => void
   startNewSession: (tag: string) => Promise<string | null>
   renameSession: (tag: string) => Promise<string | null>
-  sessionResetGen: number
+  sessionGeneration: number
 }
 
 export function useSession(): SessionState {
-  const [tag, setTag] = useState('untitled')
+  const [sessionTag, setSessionTag] = useState('untitled')
   const [startedAt, setStartedAt] = useState('')
   const [sessionId, setSessionId] = useState('')
   const [isTrafficActive, setIsTrafficActive] = useState(false)
   const [openNewSession, setOpenNewSession] = useState(false)
   const [openRename, setOpenRename] = useState(false)
-  const [sessionResetGen, setSessionResetGen] = useState(0)
+  const [sessionGeneration, setSessionGeneration] = useState(0)
   const socketRef = useRef<ReturnType<typeof createSocket> | null>(null)
 
-  // Hydrate from REST on mount
   useEffect(() => {
     authFetch('/api/session')
       .then(r => r.json())
       .then(data => {
-        setTag(data.tag ?? 'untitled')
+        setSessionTag(data.session_tag ?? 'untitled')
         setStartedAt(data.started_at ?? '')
         setSessionId(data.session_id ?? '')
+        setSessionGeneration(data.session_generation ?? 0)
         setIsTrafficActive(data.traffic_active ?? false)
       })
       .catch(() => {})
   }, [])
 
-  // Connect to /ws/session
   useEffect(() => {
     const sock = createSocket('/ws/session', (data: unknown) => {
       const msg = data as Record<string, unknown>
       if (msg.type === 'session_new') {
-        setTag((msg.tag as string) ?? 'untitled')
+        setSessionTag((msg.session_tag as string) ?? 'untitled')
         setStartedAt((msg.started_at as string) ?? '')
         setSessionId((msg.session_id as string) ?? '')
-        setSessionResetGen(g => g + 1)
+        setSessionGeneration((msg.session_generation as number) ?? 0)
       } else if (msg.type === 'session_renamed') {
-        setTag((msg.tag as string) ?? 'untitled')
+        setSessionTag((msg.session_tag as string) ?? 'untitled')
       } else if (msg.type === 'traffic_status') {
         setIsTrafficActive((msg.active as boolean) ?? false)
       } else if (msg.type === 'session_info') {
-        setTag((msg.tag as string) ?? 'untitled')
+        setSessionTag((msg.session_tag as string) ?? 'untitled')
         setStartedAt((msg.started_at as string) ?? '')
         setSessionId((msg.session_id as string) ?? '')
+        setSessionGeneration((msg.session_generation as number) ?? 0)
       }
     })
 
@@ -68,14 +68,13 @@ export function useSession(): SessionState {
       const res = await authFetch('/api/session/new', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tag: newTag }),
+        body: JSON.stringify({ session_tag: newTag }),
       })
       const data = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
       if (!res.ok || data.ok === false) {
-        // 207 partial success or 4xx/5xx failure
         return data.error ?? `Failed (${res.status})`
       }
-      return null // success — state update comes via WS broadcast
+      return null
     } catch (e) {
       return String(e)
     }
@@ -86,23 +85,23 @@ export function useSession(): SessionState {
       const res = await authFetch('/api/session', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tag: newTag }),
+        body: JSON.stringify({ session_tag: newTag }),
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
         return data.error ?? `Failed (${res.status})`
       }
-      return null // success — state update comes via WS broadcast
+      return null
     } catch (e) {
       return String(e)
     }
   }, [])
 
   return {
-    tag, startedAt, sessionId, isTrafficActive,
+    sessionTag, startedAt, sessionId, isTrafficActive,
     openNewSession, openRename,
     setOpenNewSession, setOpenRename,
     startNewSession, renameSession,
-    sessionResetGen,
+    sessionGeneration,
   }
 }

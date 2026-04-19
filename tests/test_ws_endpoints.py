@@ -46,9 +46,9 @@ def _build_stub_runtime():
 
     # Session stubs
     runtime.session.session_id = "sess-123"
-    runtime.session.tag = "untitled"
+    runtime.session.session_tag = "untitled"
     runtime.session.started_at = "2026-04-17T00:00:00Z"
-    runtime.session.generation = 1
+    runtime.session.session_generation = 1
     runtime.session_clients = []
     runtime.session_lock = threading.Lock()
 
@@ -153,8 +153,8 @@ class TestWsSessionHandshake(unittest.TestCase):
                 traffic = ws.receive_json()
                 self.assertEqual(info["type"], "session_info")
                 self.assertEqual(info["session_id"], "sess-123")
-                self.assertEqual(info["tag"], "untitled")
-                self.assertEqual(info["generation"], 1)
+                self.assertEqual(info["session_tag"], "untitled")
+                self.assertEqual(info["session_generation"], 1)
                 self.assertEqual(traffic["type"], "traffic_status")
                 self.assertIn("active", traffic)
                 self.assertFalse(traffic["active"])  # last_rx_at == 0

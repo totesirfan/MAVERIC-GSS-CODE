@@ -33,13 +33,13 @@ export function RxCrcToastSentinel() {
 }
 
 /** Wraps AlarmStrip with a packets subscription so MainDashboard doesn't need one. */
-export function AlarmStripWithPackets({ status, replayMode, sessionResetGen }: {
+export function AlarmStripWithPackets({ status, replayMode, sessionGeneration }: {
   status: ReturnType<typeof useRxStatus>['status']
   replayMode: boolean
-  sessionResetGen?: number
+  sessionGeneration?: number
 }) {
   const packets = useRxPackets()
-  return <AlarmStrip status={status} packets={packets} replayMode={replayMode} sessionResetGen={sessionResetGen} />
+  return <AlarmStrip status={status} packets={packets} replayMode={replayMode} sessionGeneration={sessionGeneration} />
 }
 
 /** Wraps RxPanel with packets + stats subscriptions, keeping RxPanel's API unchanged. */
@@ -190,8 +190,8 @@ export function MainDashboard({ config, confirmSendSignal, confirmClearSignal, r
             replaySession={replaySession}
             replacePackets={rx.replacePackets}
             onStopReplay={onStopReplay}
-            sessionResetGen={rx.sessionResetGen}
-            sessionTag={rx.sessionResetTag || session.tag}
+            sessionGeneration={rx.sessionGeneration}
+            sessionTag={rx.sessionTag || session.sessionTag}
             blackoutUntil={rx.blackoutUntil}
             externalShowHex={rxToggles.showHex}
             externalShowFrame={rxToggles.showFrame}

@@ -31,9 +31,9 @@ def _session_info(runtime) -> dict:
     s = runtime.session
     return {
         "session_id": s.session_id,
-        "tag": s.tag,
+        "session_tag": s.session_tag,
         "started_at": s.started_at,
-        "generation": s.generation,
+        "session_generation": s.session_generation,
     }
 
 
@@ -58,16 +58,16 @@ async def api_session_new(body: dict, request: Request):
     if denied:
         return denied
 
-    tag = body.get("tag", "") or "untitled"
+    session_tag = body.get("session_tag") or body.get("tag") or "untitled"
     if not runtime.rx.log and not runtime.tx.log:
         return JSONResponse(status_code=400, content={"error": "No active session"})
 
-    old_gen = runtime.session.generation
+    old_gen = runtime.session.session_generation
     new_session = Session(
         session_id=uuid.uuid4().hex,
-        tag=tag,
+        session_tag=session_tag,
         started_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        generation=old_gen + 1,
+        session_generation=old_gen + 1,
     )
 
     # -- Prepare phase: open new files without closing old ones --
@@ -75,9 +75,9 @@ async def api_session_new(body: dict, request: Request):
     tx_prepared = None
     try:
         if runtime.rx.log:
-            rx_prepared = runtime.rx.log.prepare_new_session(tag)
+            rx_prepared = runtime.rx.log.prepare_new_session(session_tag)
         if runtime.tx.log:
-            tx_prepared = runtime.tx.log.prepare_new_session(tag)
+            tx_prepared = runtime.tx.log.prepare_new_session(session_tag)
     except Exception as exc:
         # Cleanup any prepared files on failure
         for prepared in (rx_prepared, tx_prepared):
@@ -126,7 +126,8 @@ async def api_session_new(body: dict, request: Request):
     event = {
         "type": "session_new",
         "session_id": new_session.session_id,
-        "tag": new_session.tag,
+        "session_tag": new_session.session_tag,
+        "session_generation": new_session.session_generation,
         "started_at": new_session.started_at,
     }
     await runtime.rx.broadcast(event)
@@ -156,17 +157,16 @@ async def api_session_rename(body: dict, request: Request):
     if denied:
         return denied
 
-    tag = body.get("tag", "").strip() or "untitled"
-    old_tag = runtime.session.tag
+    session_tag = (body.get("session_tag") or body.get("tag") or "").strip() or "untitled"
 
     # Preflight: check both log rename targets
     rx_new_text = rx_new_jsonl = None
     tx_new_text = tx_new_jsonl = None
     try:
         if runtime.rx.log:
-            rx_new_text, rx_new_jsonl = runtime.rx.log.rename_preflight(tag)
+            rx_new_text, rx_new_jsonl = runtime.rx.log.rename_preflight(session_tag)
         if runtime.tx.log:
-            tx_new_text, tx_new_jsonl = runtime.tx.log.rename_preflight(tag)
+            tx_new_text, tx_new_jsonl = runtime.tx.log.rename_preflight(session_tag)
     except (FileExistsError, ValueError) as exc:
         return JSONResponse(status_code=409, content={"error": str(exc)})
 
@@ -177,7 +177,7 @@ async def api_session_rename(body: dict, request: Request):
     # Rename RX
     try:
         if runtime.rx.log:
-            runtime.rx.log.rename(tag)
+            runtime.rx.log.rename(session_tag)
     except Exception as exc:
         logging.error("RX rename failed: %s", exc)
         return JSONResponse(status_code=500, content={"error": f"RX rename failed: {exc}"})
@@ -185,7 +185,7 @@ async def api_session_rename(body: dict, request: Request):
     # Rename TX — rollback RX on failure
     try:
         if runtime.tx.log:
-            runtime.tx.log.rename(tag)
+            runtime.tx.log.rename(session_tag)
     except Exception as exc:
         logging.error("TX rename failed: %s, rolling back RX", exc)
         if runtime.rx.log and rx_old_text and rx_old_jsonl:
@@ -199,13 +199,13 @@ async def api_session_rename(body: dict, request: Request):
         return JSONResponse(status_code=500, content={"error": f"TX rename failed: {exc}"})
 
     # Update session tag
-    runtime.session.tag = tag
+    runtime.session.session_tag = session_tag
 
     # Broadcast session_renamed
     event = {
         "type": "session_renamed",
         "session_id": runtime.session.session_id,
-        "tag": tag,
+        "session_tag": session_tag,
     }
     await runtime.rx.broadcast(event)
     await runtime.tx.broadcast(event)

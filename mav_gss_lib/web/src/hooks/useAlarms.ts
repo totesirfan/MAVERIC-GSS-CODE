@@ -33,7 +33,7 @@ export function useAlarms(
   status: RxStatus,
   packets: RxPacket[],
   replayMode: boolean,
-  sessionResetGen: number = 0,
+  sessionGeneration: number = 0,
 ): {
   alarms: Alarm[]
   ackAll: () => void
@@ -55,7 +55,7 @@ export function useAlarms(
 
   // Reset all alarm state on session change
   useEffect(() => {
-    if (sessionResetGen === 0) return // skip initial mount
+    if (sessionGeneration === 0) return // skip initial mount
     prevLen.current = 0
     crcTimes.current = []
     noneTimes.current = []
@@ -64,7 +64,7 @@ export function useAlarms(
     clearedAtMap.current = new Map()
     setAckedSet(new Set())
     clearedSinceAck.current = new Set()
-  }, [sessionResetGen])
+  }, [sessionGeneration])
 
   // Force re-eval for linger expiry
   const [tick, setTick] = useState(0)

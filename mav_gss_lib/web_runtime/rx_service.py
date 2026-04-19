@@ -103,7 +103,7 @@ class RxService:
             if result is not None:
                 if self._should_drop_rx(time.time()):
                     continue  # deaf during TX→RX blackout window
-                self.queue.put((self.runtime.session.generation, *result))
+                self.queue.put((self.runtime.session.session_generation, *result))
 
         zmq_cleanup(monitor, SUB_STATUS, status, sock, ctx)
 
@@ -123,7 +123,7 @@ class RxService:
                     item_gen, meta, raw = self.queue.get_nowait()
                 except Empty:
                     break
-                if item_gen < self.runtime.session.generation:
+                if item_gen < self.runtime.session.session_generation:
                     continue
                 if self._should_drop_noise(meta, raw):
                     continue  # gr-satellites noise — behave as if never received

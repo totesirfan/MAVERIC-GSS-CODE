@@ -32,9 +32,9 @@ async def ws_session(websocket: WebSocket):
     session_info = {
         "type": "session_info",
         "session_id": runtime.session.session_id,
-        "tag": runtime.session.tag,
+        "session_tag": runtime.session.session_tag,
         "started_at": runtime.session.started_at,
-        "generation": runtime.session.generation,
+        "session_generation": runtime.session.session_generation,
     }
     await websocket.send_text(json.dumps(session_info))
 
