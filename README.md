@@ -335,7 +335,6 @@ MAVERIC_FULL_GR=1 python3 tests/test_ops_golay_path.py
 | [`docs/maintainer_handoff.md`](docs/maintainer_handoff.md) | Maintainer | Boot path, required files, config structure, adapter contract, repo map, sensitive surfaces. |
 | [`docs/adding-a-mission.md`](docs/adding-a-mission.md) | Mission author | Step-by-step guide for a new mission package. |
 | [`docs/plugin-system.md`](docs/plugin-system.md) | Mission author | Plugin pages and FastAPI routers beyond core RX/TX. |
-| [`docs/gnc-migration.md`](docs/gnc-migration.md) | Frontend author | GNC dashboard registers, measurements, and migration status. |
 | [`docs/mission-help-contract.md`](docs/mission-help-contract.md) | Architect | Proposal for mission-provided command-entry help. |
 
 ## About MAVERIC
