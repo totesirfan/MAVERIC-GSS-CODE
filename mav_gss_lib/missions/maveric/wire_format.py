@@ -19,7 +19,7 @@ from mav_gss_lib.protocols.csp import kiss_wrap
 #  COMMAND WIRE FORMAT
 #
 #  Layout (from Commands.py):
-#    [orgn][dest][echo][ptype][id_len][args_len]
+#    [src][dest][echo][ptype][id_len][args_len]
 #    [id_str][0x00][args_str][0x00][CRC-16 LE]
 #
 #  Full CSP packet on the wire:
@@ -30,7 +30,7 @@ from mav_gss_lib.protocols.csp import kiss_wrap
 #  both build_cmd_raw() and try_parse_command() delegate to it.
 # =============================================================================
 
-_CMD_HDR_LEN = 6  # origin, dest, echo, ptype, id_len, args_len
+_CMD_HDR_LEN = 6  # src, dest, echo, ptype, id_len, args_len
 
 class CommandFrame:
     """Symmetric encode/decode for the MAVERIC command wire format."""
@@ -125,19 +125,19 @@ class CommandFrame:
         return d
 
 
-def build_cmd_raw(origin, dest, cmd, args="", echo=0, ptype=1):
+def build_cmd_raw(src, dest, cmd, args="", echo=0, ptype=1):
     """Build raw MAVERIC command payload with CRC-16.
 
-    origin is required — caller must pass the source node explicitly.
+    src is required — caller must pass the source node explicitly.
     Returns bytearray matching Commands.py wire format.
     Ready for CSP wrapping via CSPConfig.wrap()."""
-    return CommandFrame(origin, dest, echo, ptype, cmd, args).to_bytes()
+    return CommandFrame(src, dest, echo, ptype, cmd, args).to_bytes()
 
 
-def build_kiss_cmd(origin, dest, cmd, args="", echo=0, ptype=1):
+def build_kiss_cmd(src, dest, cmd, args="", echo=0, ptype=1):
     """Build a complete KISS-wrapped command.
     Returns (kiss_bytes, raw_bytes)."""
-    raw = build_cmd_raw(origin, dest, cmd, args, echo, ptype)
+    raw = build_cmd_raw(src, dest, cmd, args, echo, ptype)
     return kiss_wrap(raw), raw
 
 
