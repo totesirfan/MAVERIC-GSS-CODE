@@ -4,7 +4,7 @@
 
 # MAVERIC Ground Station Software
 
-**Full-duplex ground station for the MAVERIC CubeSat, built at USC SERC.**
+**Full-duplex-capable ground station for the MAVERIC CubeSat, built at USC SERC.**
 
 [![Version](https://img.shields.io/badge/version-5.5.7-00c9a7)](mav_gss_lib/web/package.json)
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](requirements.txt)
@@ -46,13 +46,13 @@
 
 ## Overview
 
-MAVERIC GSS is the ground station software for the MAVERIC CubeSat mission, developed at the University of Southern California Space Engineering Research Center (SERC). It performs simultaneous full-duplex uplink and downlink through a single USRP B210 radio driven by GNU Radio, and presents a web-based operator console for command composition, live telemetry, imaging, and GNC monitoring.
+MAVERIC GSS is the ground station software for the MAVERIC CubeSat mission, developed at the University of Southern California Space Engineering Research Center (SERC). The software and radio stack are full-duplex capable — a single USRP B210 driven by GNU Radio handles both uplink and downlink channels — and the operational ground station runs half-duplex over a single UHF antenna using a coax switch to alternate between transmit and receive. The platform presents a web-based operator console for command composition, live telemetry, imaging, and GNC monitoring.
 
 The platform is mission-agnostic. Transport, queue, logging, protocol toolkit, and the web UI shell are reusable. Mission-specific parsing, command encoding, and operator rendering live in pluggable mission packages under `mav_gss_lib/missions/`. MAVERIC is the first and default mission package; additional missions drop in without platform changes.
 
 ## Features
 
-- **Single-radio full-duplex** — one USRP B210 handles uplink and downlink concurrently via the `MAV_DUPLEX` GNU Radio flowgraph.
+- **Single-radio, full-duplex capable** — one USRP B210 drives both uplink and downlink channels via the `MAV_DUPLEX` GNU Radio flowgraph. The deployed station operates half-duplex over a single UHF antenna switched between TX and RX by a coax switch.
 - **Two uplink framings** — operator-selectable `AX.25` (Mode 6, HDLC + G3RUH) or `ASM+Golay` (Mode 5, CCSDS + Reed-Solomon FEC).
 - **Mission-agnostic core** — swap the mission package to retarget the platform; the adapter contract is enforced at startup.
 - **Drag-to-reorder command queue** with delay and note items, JSONL import/export, guard confirmation, and persistent recovery after restart.
