@@ -59,7 +59,6 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
     rxColumns,
     txColumns,
     fetchSessions,
-    fetchColumns,
     fetchEntries,
     reset,
   } = useLogQuery()
@@ -67,11 +66,6 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
   useEffect(() => {
     hasLoadedLogViewer = true
   }, [])
-
-  useEffect(() => {
-    if (!open) return
-    fetchColumns()
-  }, [open, fetchColumns])
 
   // Save / restore focus
   useEffect(() => {

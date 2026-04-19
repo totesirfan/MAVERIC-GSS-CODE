@@ -93,6 +93,11 @@ export interface TxColumnDef {
   hide_if_all?: string[]
 }
 
+export interface ColumnDefs {
+  rx: ColumnDef[]
+  tx: TxColumnDef[]
+}
+
 export interface TxQueueCmd {
   type: 'mission_cmd'
   num: number

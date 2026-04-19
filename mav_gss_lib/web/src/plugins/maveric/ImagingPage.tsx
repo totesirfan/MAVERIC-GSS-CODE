@@ -7,6 +7,7 @@ import {
   ResizableHandle,
 } from '@/components/ui/resizable';
 import { usePluginServices } from '@/hooks/usePluginServices';
+import { useColumnDefs } from '@/state/session';
 import type { ColumnDef, RxPacket, TxColumnDef } from '@/lib/types';
 
 import { RxLogPanel } from './imaging/RxLogPanel';
@@ -69,13 +70,19 @@ export default function ImagingPage() {
   const [receiving, setReceiving] = useState(false);
   const receivingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ── Column defs (shared with main dashboard) ────────────────────
-  const [rxColumns, setRxColumns] = useState<ColumnDef[]>([]);
-  const [txColumns, setTxColumns] = useState<TxColumnDef[]>([]);
+  // ── Column defs (shared with main dashboard via SessionProvider) ─
+  // Pop-out windows render outside SessionProvider (hasProvider=false) and
+  // fall back to local fetches. Main window reads from context.
+  const { defs: ctxDefs, hasProvider } = useColumnDefs();
+  const [localRxColumns, setLocalRxColumns] = useState<ColumnDef[]>([]);
+  const [localTxColumns, setLocalTxColumns] = useState<TxColumnDef[]>([]);
   useEffect(() => {
-    fetch('/api/columns').then(r => r.json()).then(setRxColumns).catch(() => {});
-    fetch('/api/tx-columns').then(r => r.json()).then(setTxColumns).catch(() => {});
-  }, []);
+    if (hasProvider) return;
+    fetch('/api/columns').then(r => r.json()).then(setLocalRxColumns).catch(() => {});
+    fetch('/api/tx-columns').then(r => r.json()).then(setLocalTxColumns).catch(() => {});
+  }, [hasProvider]);
+  const rxColumns = ctxDefs?.rx ?? localRxColumns;
+  const txColumns = ctxDefs?.tx ?? localTxColumns;
 
   // ── Preview refresh version ─────────────────────────────────────
   const [previewVersion, setPreviewVersion] = useState(0);

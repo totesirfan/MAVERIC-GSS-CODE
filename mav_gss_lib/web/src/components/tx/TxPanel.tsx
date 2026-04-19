@@ -14,6 +14,7 @@ import { SentHistory } from './SentHistory'
 import { CommandInput } from './CommandInput'
 import { ImportDialog } from './ImportDialog'
 import { getMissionBuilder } from '@/plugins/registry'
+import { useColumnDefs } from '@/state/session'
 import type {
   TxQueueItem, TxQueueSummary, TxHistoryItem,
   SendProgress, GuardConfirm, GssConfig, TxColumnDef,
@@ -55,7 +56,8 @@ export function TxPanel({
 }: TxPanelProps) {
   const [showBuilder, setShowBuilder] = useState(false)
   const [showImport, setShowImport] = useState(false)
-  const [txColumns, setTxColumns] = useState<TxColumnDef[]>([])
+  const { defs: ctxDefs, hasProvider } = useColumnDefs()
+  const [localTxColumns, setLocalTxColumns] = useState<TxColumnDef[]>([])
   const [cmdHistory, setCmdHistory] = useState<string[]>([])
   const pushHistory = useCallback((cmd: string) => {
     setCmdHistory(prev => [cmd, ...prev])
@@ -67,9 +69,13 @@ export function TxPanel({
   const MissionBuilder = useMemo(() => getMissionBuilder(missionId), [missionId])
   const hasCommandBuilder = MissionBuilder !== null
 
+  // Pop-out windows render outside SessionProvider (hasProvider=false) and
+  // fall back to a local fetch. Main window reads from context.
   useEffect(() => {
-    fetch('/api/tx-columns').then(r => r.json()).then(setTxColumns).catch(() => {})
-  }, [])
+    if (hasProvider) return
+    fetch('/api/tx-columns').then(r => r.json()).then(setLocalTxColumns).catch(() => {})
+  }, [hasProvider])
+  const txColumns = ctxDefs?.tx ?? localTxColumns
 
   const sending = sendProgress !== null
   const modeColor = uplinkMode.toLowerCase().includes('golay') ? colors.frameGolay : colors.frameAx25

@@ -1,5 +1,6 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { useDebouncedValue } from './useDebouncedValue'
+import { useColumnDefs } from '@/state/session'
 import type { ColumnDef } from '@/lib/types'
 
 type LogEntry = Record<string, unknown>
@@ -22,33 +23,26 @@ export function useLogQuery() {
   const debouncedFrom = useDebouncedValue(fromTime, 300)
   const debouncedTo = useDebouncedValue(toTime, 300)
 
-  const [rxColumns, setRxColumns] = useState<ColumnDef[]>([])
-  const [txColumns, setTxColumns] = useState<ColumnDef[]>([])
+  // Columns come from SessionProvider. LogViewer is only ever mounted in the
+  // main window (behind the Logs button), so context is always available here.
+  // Wrap mission TX columns with platform-owned num/time/size prefix+suffix for
+  // the log viewer's display convention.
+  const { defs: ctxDefs } = useColumnDefs()
+  const rxColumns = ctxDefs?.rx ?? []
+  const txColumns = useMemo<ColumnDef[]>(() => {
+    const mission = ctxDefs?.tx ?? []
+    return [
+      { id: 'num', label: '#', align: 'right', width: 'w-9' },
+      { id: 'time', label: 'time', width: 'w-[68px]' },
+      ...mission,
+      { id: 'size', label: 'size', align: 'right', width: 'w-10' },
+    ]
+  }, [ctxDefs])
 
   const fetchSessions = useCallback(() => {
     fetch('/api/logs')
       .then((r) => r.json())
       .then((data: Record<string, unknown>[]) => setSessions(data))
-      .catch(() => {})
-  }, [])
-
-  const fetchColumns = useCallback(() => {
-    fetch('/api/columns')
-      .then((r) => r.json())
-      .then((data: ColumnDef[]) => setRxColumns(data))
-      .catch(() => {})
-    fetch('/api/tx-columns')
-      .then((r) => r.json())
-      .then((data: ColumnDef[]) => {
-        // Wrap mission TX columns with platform-owned num/time/size for log viewer
-        const full: ColumnDef[] = [
-          { id: 'num', label: '#', align: 'right', width: 'w-9' },
-          { id: 'time', label: 'time', width: 'w-[68px]' },
-          ...data,
-          { id: 'size', label: 'size', align: 'right', width: 'w-10' },
-        ]
-        setTxColumns(full)
-      })
       .catch(() => {})
   }, [])
 
@@ -109,7 +103,6 @@ export function useLogQuery() {
     rxColumns,
     txColumns,
     fetchSessions,
-    fetchColumns,
     fetchEntries,
     reset,
   }
