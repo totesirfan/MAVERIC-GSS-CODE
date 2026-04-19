@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 from mav_gss_lib.missions.maveric.display_helpers import (
     md as _md,
     has_decoded_gnc as _has_decoded_gnc,
+    ptype_of as _ptype_of,
     unwrap_typed_arg_for_display,
     is_nvg_sensor, is_bcd_display, is_adcs_tmp, is_nvg_heartbeat,
     is_gnc_mode, is_gnc_counters, is_bitfield, is_generic_dict,
@@ -79,7 +80,7 @@ def packet_list_row(pkt, nodes: NodeTable) -> dict:
             "frame": pkt.frame_type,
             "src": nodes.node_name(cmd["src"]) if cmd else "",
             "echo": nodes.node_name(cmd["echo"]) if cmd else "",
-            "ptype": nodes.ptype_name(cmd["pkt_type"]) if cmd else "",
+            "ptype": nodes.ptype_name(_ptype_of(md)) if (cmd and _ptype_of(md) is not None) else "",
             "cmd": ((cmd["cmd_id"] + " " + args_str).strip() if args_str else cmd["cmd_id"]) if cmd else "",
             "flags": flags,
             "size": len(pkt.raw),
@@ -176,7 +177,7 @@ def packet_detail_blocks(pkt, nodes: NodeTable) -> list[dict]:
             {"name": "Src", "value": nodes.node_name(cmd["src"])},
             {"name": "Dest", "value": nodes.node_name(cmd["dest"])},
             {"name": "Echo", "value": nodes.node_name(cmd["echo"])},
-            {"name": "Type", "value": nodes.ptype_name(cmd["pkt_type"])},
+            {"name": "Type", "value": nodes.ptype_name(_ptype_of(md))},
             {"name": "Cmd", "value": cmd["cmd_id"]},
         ]})
 

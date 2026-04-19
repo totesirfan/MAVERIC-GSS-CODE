@@ -20,6 +20,20 @@ def md(pkt: Any) -> dict:
     return getattr(pkt, "mission_data", {}) or {}
 
 
+def ptype_of(mission_data: dict) -> int | None:
+    """Return the display ptype for a packet.
+
+    rx_ops.parse_packet populates mission_data["ptype"] as the single
+    normalization point. This helper tolerates fixtures that build
+    mission_data by hand and only set cmd["pkt_type"].
+    """
+    pt = mission_data.get("ptype")
+    if pt is not None:
+        return pt
+    cmd = mission_data.get("cmd")
+    return cmd.get("pkt_type") if cmd else None
+
+
 def has_decoded_gnc(mission_data: dict) -> bool:
     """True if any GNC register decoded successfully.
 

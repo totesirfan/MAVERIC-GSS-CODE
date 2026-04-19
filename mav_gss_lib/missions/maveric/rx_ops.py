@@ -72,6 +72,7 @@ def parse_packet(inner_payload: bytes, cmd_defs: dict, warnings: list[str] | Non
     mission_data = {
         "csp": csp, "csp_plausible": csp_plausible,
         "cmd": cmd, "cmd_tail": cmd_tail,
+        "ptype": cmd["pkt_type"] if cmd else None,
         "ts_result": ts_result,
         "crc_status": {
             "csp_crc32_valid": crc_valid,

@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 from mav_gss_lib.missions.maveric.display_helpers import (
     md as _md,
     has_decoded_gnc as _has_decoded_gnc,
+    ptype_of as _ptype_of,
     unwrap_typed_arg_for_log,
     format_typed_arg_value,
     is_nvg_sensor, is_bcd_display, is_adcs_tmp, is_nvg_heartbeat,
@@ -125,7 +126,7 @@ def format_log_lines(pkt, nodes: NodeTable) -> list[str]:
     if cmd:
         lines.append(f"  {'CMD':<12}"
             f"Src:{nodes.node_name(cmd['src'])}  Dest:{nodes.node_name(cmd['dest'])}  "
-            f"Echo:{nodes.node_name(cmd['echo'])}  Type:{nodes.ptype_name(cmd['pkt_type'])}")
+            f"Echo:{nodes.node_name(cmd['echo'])}  Type:{nodes.ptype_name(_ptype_of(md))}")
         lines.append(f"  {'CMD ID':<12}{cmd['cmd_id']}")
 
         if not hide_args:

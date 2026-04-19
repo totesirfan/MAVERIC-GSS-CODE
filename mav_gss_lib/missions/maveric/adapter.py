@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 from mav_gss_lib.missions.maveric import rendering as _rendering, rx_ops, tx_ops
 from mav_gss_lib.missions.maveric import log_format as _log_format
-from mav_gss_lib.missions.maveric.display_helpers import md as _md_helper
+from mav_gss_lib.missions.maveric.display_helpers import md as _md_helper, ptype_of as _ptype_of
 from mav_gss_lib.missions.maveric.nodes import NodeTable
 
 
@@ -134,7 +134,7 @@ class MavericMissionAdapter:
         # reuse the rx_args slots with empty data, so emitting for them
         # would overwrite good snapshots with decode_ok=False entries.
         gnc_registers = md.get("gnc_registers")
-        if gnc_registers and self.nodes.ptype_name(cmd.get("pkt_type")) == "RES":
+        if gnc_registers and self.nodes.ptype_name(_ptype_of(md)) == "RES":
             import time
             now_ms = int(time.time() * 1000)
             wrapped = {
@@ -165,7 +165,7 @@ class MavericMissionAdapter:
         # uplink echoes (CMD) and ACKs, whose wire args alias rx_args and
         # would poison chunk 0 before the real data arrives.
         expected_ptype = "FILE" if cmd_id == "img_get_chunk" else "RES"
-        if self.nodes.ptype_name(cmd.get("pkt_type")) != expected_ptype:
+        if self.nodes.ptype_name(_ptype_of(md)) != expected_ptype:
             return messages or None
 
         if cmd.get("schema_match") and cmd.get("typed_args"):

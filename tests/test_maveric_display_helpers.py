@@ -4,7 +4,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import unittest
 from mav_gss_lib.missions.maveric.display_helpers import (
-    md, has_decoded_gnc,
+    md, has_decoded_gnc, ptype_of,
     unwrap_typed_arg_for_log, format_typed_arg_value, unwrap_typed_arg_for_display,
     is_nvg_sensor, is_bcd_display, is_adcs_tmp, is_nvg_heartbeat,
     is_gnc_mode, is_gnc_counters, is_bitfield, is_generic_dict,
@@ -32,6 +32,20 @@ class MdTests(unittest.TestCase):
 
     def test_none_mission_data(self):
         self.assertEqual(md(FakePkt(None)), {})
+
+
+class PtypeOfTests(unittest.TestCase):
+    def test_prefers_md_ptype_when_set(self):
+        self.assertEqual(ptype_of({"ptype": 3, "cmd": {"pkt_type": 9}}), 3)
+
+    def test_falls_back_to_cmd_pkt_type(self):
+        self.assertEqual(ptype_of({"cmd": {"pkt_type": 2}}), 2)
+
+    def test_returns_none_when_md_empty(self):
+        self.assertIsNone(ptype_of({}))
+
+    def test_returns_none_when_cmd_is_none(self):
+        self.assertIsNone(ptype_of({"cmd": None}))
 
 
 class HasDecodedGncTests(unittest.TestCase):
