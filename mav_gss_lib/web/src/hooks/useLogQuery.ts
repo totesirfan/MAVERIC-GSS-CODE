@@ -6,6 +6,10 @@ import type { ColumnDef } from '@/lib/types'
 type LogEntry = Record<string, unknown>
 const PAGE_SIZE = 200
 
+const NUM_COL: ColumnDef = { id: 'num', label: '#', align: 'right', width: 'w-9' }
+const TIME_COL: ColumnDef = { id: 'time', label: 'time', width: 'w-[68px]' }
+const SIZE_COL: ColumnDef = { id: 'size', label: 'size', align: 'right', width: 'w-10' }
+
 export function useLogQuery() {
   const [sessions, setSessions] = useState<Record<string, unknown>[]>([])
   const [selected, setSelected] = useState<string | null>(null)
@@ -31,12 +35,7 @@ export function useLogQuery() {
   const rxColumns = ctxDefs?.rx ?? []
   const txColumns = useMemo<ColumnDef[]>(() => {
     const mission = ctxDefs?.tx ?? []
-    return [
-      { id: 'num', label: '#', align: 'right', width: 'w-9' },
-      { id: 'time', label: 'time', width: 'w-[68px]' },
-      ...mission,
-      { id: 'size', label: 'size', align: 'right', width: 'w-10' },
-    ]
+    return [NUM_COL, TIME_COL, ...mission, SIZE_COL]
   }, [ctxDefs])
 
   const fetchSessions = useCallback(() => {

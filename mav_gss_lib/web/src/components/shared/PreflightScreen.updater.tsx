@@ -16,7 +16,8 @@ interface UpdatesExtrasProps {
   meta: UpdatesCheckMeta | null
   updateState: UpdateUIState
   updatePhases: Record<UpdatePhase, UpdateProgress>
-  onShowConfirm: () => void
+  /** Unused by the inline variant (idle row handles its own button); kept optional for prop-symmetry with UpdaterStage. */
+  onShowConfirm?: () => void
   onCancelConfirm: () => void
   onApplyUpdate: () => void
   onReloadPage: () => void

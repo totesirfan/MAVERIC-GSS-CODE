@@ -22,15 +22,39 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     ])
       .then(([tx, rx]) => setColumns({ rx, tx }))
       .catch(() => {
-        // Keep prior value on transient error rather than stick to null — matches
-        // the config path and prevents one flaky boot from blanking column
-        // renderers across all main-window consumers for the whole session.
+        // On boot-time fetch failure, columns stays null and consumers render
+        // empty column lists until the page reloads. `/api/columns` is served
+        // from static mission schema so this only fires if the server is in a
+        // badly broken state.
       })
   }, [])
 
+  // Destructure `session` so the memo depends on primitive-ish fields; the raw
+  // `useSession()` return is a fresh object literal per render.
+  const {
+    tag, startedAt, sessionId, isTrafficActive,
+    openNewSession, openRename,
+    setOpenNewSession, setOpenRename,
+    startNewSession, renameSession,
+    sessionResetGen,
+  } = session
   const value = useMemo<SessionContextValue>(
-    () => ({ ...session, config, setConfig, columns }),
-    [session, config, columns],
+    () => ({
+      tag, startedAt, sessionId, isTrafficActive,
+      openNewSession, openRename,
+      setOpenNewSession, setOpenRename,
+      startNewSession, renameSession,
+      sessionResetGen,
+      config, setConfig, columns,
+    }),
+    [
+      tag, startedAt, sessionId, isTrafficActive,
+      openNewSession, openRename,
+      setOpenNewSession, setOpenRename,
+      startNewSession, renameSession,
+      sessionResetGen,
+      config, columns,
+    ],
   )
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>
