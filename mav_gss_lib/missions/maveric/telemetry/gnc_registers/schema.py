@@ -1,32 +1,25 @@
-"""MAVERIC TensorADCS register decoder.
+"""MAVERIC TensorADCS register catalog and typed decoding.
 
-Decodes `mtq_get_1` RES packets into named, typed values. The wire
-format is whitespace-separated ASCII tokens: after `<Module> <Register>`
-come N tokens, where N is the register's declared type arity. Tokens
-are stored little-endian when the register is a multi-byte packed word
-(uint8[4] bitfields, BCD TIME/DATE, int16 ADCS_TMP).
+Defines the register catalog (`REGISTERS`), per-register bit-field
+decoders, `RegisterDef` / `DecodedRegister` dataclasses, and the
+`decode_register(module, register, tokens)` entry point that turns
+raw ASCII tokens into typed values.
 
 Bit layouts and unit conversions per TensorADCS V2.0.12a User Manual
-§6.2 (pp. 24-37). Wire format confirmed via sample capture
-`logs/text/downlink_20260417_120330_dashval.txt`.
+§6.2 (pp. 24-37).
 
 Scope: v1 covers only the 9 registers the GNC dashboard consumes.
 Other registers decode to a generic typed value (array of ints/floats)
 so they still surface in raw views.
+
+Command-level dispatch (mtq_get_1, mtq_get_fast, gnc_get_*) lives in
+the sibling `handlers` module.
 """
 
 from __future__ import annotations
 
-import json
-import logging
 from dataclasses import dataclass, asdict
-from pathlib import Path
 from typing import Any, Callable
-
-from mav_gss_lib.missions.maveric.telemetry.nvg_sensors import (
-    _handle_nvg_get_1,
-    _handle_nvg_heartbeat,
-)
 
 
 # ── Type parsing ────────────────────────────────────────────────────
@@ -82,6 +75,19 @@ def _nibble_lo(byte_val: int) -> int:
     return byte_val & 0xF
 
 
+# Referenced by _decode_stat and _decode_conf below.
+MODE_NAMES: dict[int, str] = {
+    0: "Safe",
+    1: "De-tumbling",
+    2: "Sun Spin",
+    3: "Sun-Pointing",
+    4: "Fine Pointing",
+    5: "LVLH",
+    6: "Target Tracking",
+    7: "Manual",
+}
+
+
 def _decode_stat(bytes_le: list[int]) -> dict[str, Any]:
     """STAT (0, 128) uint8[4] little-endian. Manual §6.2 pp. 31-32.
 
@@ -117,18 +123,6 @@ def _decode_stat(bytes_le: list[int]) -> dict[str, Any]:
         # Preserve reserved byte so unexpected nonzero values are visible.
         "byte2_raw": b2,
     }
-
-
-MODE_NAMES: dict[int, str] = {
-    0: "Safe",
-    1: "De-tumbling",
-    2: "Sun Spin",
-    3: "Sun-Pointing",
-    4: "Fine Pointing",
-    5: "LVLH",
-    6: "Target Tracking",
-    7: "Manual",
-}
 
 
 def _decode_act_err(bytes_le: list[int]) -> dict[str, Any]:
@@ -455,271 +449,3 @@ def decode_register(module: int, register: int, tokens: list[str]) -> DecodedReg
         raw_tokens=list(tokens),
         decode_ok=True,
     )
-
-
-def _handle_mtq_get_1(cmd: dict) -> dict[str, dict] | None:
-    """Decode an `mtq_get_1` RES (or echo/ACK) into a one-entry dict."""
-    typed = cmd.get("typed_args") or []
-    extras = cmd.get("extra_args") or []
-
-    if len(typed) < 2:
-        return None
-
-    try:
-        module = int(typed[0]["value"])
-        register = int(typed[1]["value"])
-    except (ValueError, TypeError, KeyError):
-        return None
-
-    # typed_args[2] is the first token that fell into the "Reg Data"
-    # slot from the schema; the rest of the data tokens are in extras.
-    reg_data_tokens: list[str] = []
-    if len(typed) > 2:
-        reg_data_tokens.append(str(typed[2]["value"]))
-    reg_data_tokens.extend(str(t) for t in extras)
-
-    decoded = decode_register(module, register, reg_data_tokens)
-    return {decoded.name: decoded.to_dict()}
-
-
-# Command → handler dispatch. Each handler returns
-#   {register_name: decoded_dict}  or  None.
-# To have a new command feed the dashboard, add its handler here.
-# The handler can write into any register-name slot — the snapshot
-# store does not care which command produced the value, so if multiple
-# commands expose the same logical field they simply overwrite each
-# other (last write wins).
-# GNC Planner mode enum — separate from the MTQ STAT.MODE enum. Per
-# MAVERIC flight software: 0=Safe, 1=Auto, 2=Manual.
-GNC_PLANNER_MODE_NAMES: dict[int, str] = {
-    0: "Safe",
-    1: "Auto",
-    2: "Manual",
-}
-
-
-def _handle_gnc_get_mode(cmd: dict) -> dict[str, dict] | None:
-    """Decode `gnc_get_mode` RES → `GNC_MODE` snapshot."""
-    typed = cmd.get("typed_args") or []
-    if len(typed) < 1:
-        return None
-    try:
-        mode = int(typed[0]["value"])
-    except (ValueError, TypeError, KeyError):
-        return None
-    return {
-        "GNC_MODE": {
-            "name": "GNC_MODE",
-            "module": None,
-            "register": None,
-            "type": "gnc_mode",
-            "unit": "",
-            "value": {
-                "mode": mode,
-                "mode_name": GNC_PLANNER_MODE_NAMES.get(mode, f"UNKNOWN_{mode}"),
-            },
-            "raw_tokens": [str(mode)],
-            "decode_ok": True,
-            "decode_error": None,
-        }
-    }
-
-
-def _handle_gnc_get_cnts(cmd: dict) -> dict[str, dict] | None:
-    """Decode `gnc_get_cnts` RES → `GNC_COUNTERS` snapshot.
-
-    Wire fields per commands.yml: Unexpected Safe Count,
-    Unexpected Detumble Count, Sunspin Count. Maps to the dashboard's
-    Reboot / De-Tumble / Sunspin counters respectively — "Reboot" on
-    the mockup = unexpected safe-mode entries (which are the GNC-side
-    recovery events; true power-cycle reboot count lives on
-    `tlm_beacon`).
-    """
-    typed = cmd.get("typed_args") or []
-    if len(typed) < 3:
-        return None
-    try:
-        safe     = int(typed[0]["value"])
-        detumble = int(typed[1]["value"])
-        sunspin  = int(typed[2]["value"])
-    except (ValueError, TypeError, KeyError):
-        return None
-    return {
-        "GNC_COUNTERS": {
-            "name": "GNC_COUNTERS",
-            "module": None,
-            "register": None,
-            "type": "gnc_counters",
-            "unit": "",
-            "value": {
-                "reboot": safe,       # unexpected-safe count — mockup label
-                "detumble": detumble,
-                "sunspin": sunspin,
-                "unexpected_safe": safe,  # kept under its wire name for clarity
-            },
-            "raw_tokens": [str(safe), str(detumble), str(sunspin)],
-            "decode_ok": True,
-            "decode_error": None,
-        }
-    }
-
-
-def _walk_fast_frame(tokens: list[str]):
-    """Yield `(module, register, values)` tuples from an mtq_get_fast stream.
-
-    The stream alternates `<module>,<register>` marker tokens and raw
-    value tokens. Each marker starts a new register; collect subsequent
-    non-marker tokens until the next marker or end of stream.
-    """
-    i = 0
-    while i < len(tokens):
-        token = tokens[i]
-        if "," not in token:
-            i += 1
-            continue
-        try:
-            module_s, reg_s = token.split(",", 1)
-            module = int(module_s)
-            register = int(reg_s)
-        except ValueError:
-            i += 1
-            continue
-        j = i + 1
-        values: list[str] = []
-        while j < len(tokens) and "," not in tokens[j]:
-            values.append(tokens[j])
-            j += 1
-        yield module, register, values
-        i = j
-
-
-def _handle_mtq_get_fast(cmd: dict) -> dict[str, dict] | None:
-    """Decode `mtq_get_fast` RES — 4-page fast-frame dump.
-
-    Wire per MAVERIC flight software: Status, Page, then a sequence of
-    `<module>,<register>` markers each followed by that register's
-    payload values. Pages 0-2 carry 5 registers; page 3 carries 1.
-
-    Canonical register order across pages (MTQ_FAST_FRAME_REGS):
-      CONF, TIME, DATE, MTQ_USER, STAT,
-      ACT_ERR, SEN_ERR, Q, RATE, LLA,
-      ATT_ERROR, ATT_ERROR_RATE, SV, MAG, MTQ,
-      MTQ_USER
-    """
-    typed = cmd.get("typed_args") or []
-    extras = cmd.get("extra_args") or []
-
-    if len(typed) < 3:
-        return None
-
-    # typed_args[0]=Status, [1]=Page, [2]=Reg Data (first marker token);
-    # extras carry the rest of the stream.
-    tokens: list[str] = [str(typed[2]["value"])]
-    tokens.extend(str(t) for t in extras)
-
-    out: dict[str, dict] = {}
-    for module, register, values in _walk_fast_frame(tokens):
-        decoded = decode_register(module, register, values)
-        out[decoded.name] = decoded.to_dict()
-    return out or None
-
-
-COMMAND_HANDLERS: dict[str, Callable[[dict], dict[str, dict] | None]] = {
-    "mtq_get_1":     _handle_mtq_get_1,
-    "mtq_get_fast":  _handle_mtq_get_fast,
-    "nvg_get_1":     _handle_nvg_get_1,
-    "nvg_heartbeat": _handle_nvg_heartbeat,
-    "gnc_get_mode":  _handle_gnc_get_mode,
-    "gnc_get_cnts":  _handle_gnc_get_cnts,
-}
-
-
-def decode_from_cmd(cmd: dict) -> dict[str, dict] | None:
-    """Dispatch a parsed cmd dict through the command handler table.
-
-    Called from `rx_ops.parse_packet`. Returns `{register_name: decoded}`
-    or `None` if no handler is registered for this command. The caller
-    merges the returned dict into `mission_data["gnc_registers"]`.
-    """
-    if cmd is None:
-        return None
-    handler = COMMAND_HANDLERS.get(cmd.get("cmd_id"))
-    if handler is None:
-        return None
-    return handler(cmd)
-
-
-# ── Persistent snapshot store ───────────────────────────────────────
-
-
-class GncRegisterStore:
-    """Latest-value snapshot per register, persisted to disk.
-
-    Survives `MAV_WEB.py` restart and seeds new dashboard mounts via
-    the `/api/plugins/gnc/snapshot` endpoint. Writes atomically on every
-    update so an interrupted write cannot corrupt the file.
-
-    Each snapshot dict holds the decoded register plus server-side
-    timestamps (`gs_ts`, `pkt_num`, `received_at_ms`) so the frontend
-    can compute age off a server clock anchor rather than the moment
-    the WS message happened to arrive.
-    """
-
-    def __init__(self, path: str | Path = ".gnc_snapshot.json"):
-        self.path = Path(path)
-        self.snapshots: dict[str, dict] = {}
-        self._load()
-
-    def _load(self) -> None:
-        # Clean up any leftover .tmp from a previous interrupted save.
-        tmp = self.path.with_suffix(self.path.suffix + ".tmp")
-        try:
-            tmp.unlink(missing_ok=True)
-        except OSError:
-            pass
-        if not self.path.exists():
-            return
-        try:
-            data = json.loads(self.path.read_text())
-            if isinstance(data, dict):
-                self.snapshots = data
-        except (OSError, json.JSONDecodeError) as e:
-            logging.warning("GNC store: failed to load %s (%s)", self.path, e)
-
-    def _save(self) -> None:
-        tmp = self.path.with_suffix(self.path.suffix + ".tmp")
-        try:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            tmp.write_text(json.dumps(self.snapshots))
-            tmp.replace(self.path)
-        except OSError as e:
-            logging.warning("GNC store: failed to save %s (%s)", self.path, e)
-
-    def update_many(self, updates: dict[str, dict]) -> None:
-        if not updates:
-            return
-        for name, snap in updates.items():
-            self.snapshots[name] = snap
-        self._save()
-
-    def get_all(self) -> dict[str, dict]:
-        return dict(self.snapshots)
-
-    def clear(self) -> None:
-        self.snapshots = {}
-        try:
-            self.path.unlink(missing_ok=True)
-        except OSError:
-            pass
-
-
-__all__ = [
-    "DecodedRegister",
-    "GncRegisterStore",
-    "MODE_NAMES",
-    "REGISTERS",
-    "RegisterDef",
-    "decode_from_cmd",
-    "decode_register",
-    "parse_type",
-]
