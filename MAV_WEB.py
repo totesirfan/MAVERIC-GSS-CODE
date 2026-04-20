@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import socket
 import threading
 import time
@@ -39,10 +40,19 @@ if __name__ == "__main__":
     mission_name = app.state.runtime.cfg.get("general", {}).get("mission_name", "Mission")
     mission = app.state.runtime.cfg.get("general", {}).get("mission", DEFAULT_MISSION)
     print(f"{mission_name} GSS Web -> {url}")
-    threading.Thread(
-        target=_wait_for_server_and_open,
-        args=(url, HOST, PORT),
-        daemon=True,
-        name=f"{mission}-web-open",
-    ).start()
+    # Skip the auto-open when the updater restarted us. `_reexec` sets
+    # MAV_UPDATE_APPLIED in the new process env for exactly this kind of
+    # signal — the operator's existing browser tab is already polling
+    # /api/status and will reload itself once uvicorn is ready, so spawning
+    # a second tab just leaves them with duplicates. Read non-destructively
+    # so `check_for_updates` can still pop it later to render the UI's
+    # "Updated to <sha>" label. Read happens before the thread starts, which
+    # is before uvicorn's lifespan schedules the check — race-free.
+    if not os.environ.get("MAV_UPDATE_APPLIED"):
+        threading.Thread(
+            target=_wait_for_server_and_open,
+            args=(url, HOST, PORT),
+            daemon=True,
+            name=f"{mission}-web-open",
+        ).start()
     uvicorn.run(app, host=HOST, port=PORT, log_level="warning", ws_max_size=65536)
