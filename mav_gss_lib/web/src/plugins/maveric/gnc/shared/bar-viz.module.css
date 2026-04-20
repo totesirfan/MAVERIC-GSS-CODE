@@ -1,0 +1,63 @@
+.block { padding: 12px 14px; border-bottom: 1px solid rgba(255, 255, 255, 0.03); }
+
+.head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+.headTitle { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8A8A8A; letter-spacing: 0.14em; text-transform: uppercase; }
+.headSub { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #777777; }
+
+.axisRow {
+  display: grid; grid-template-columns: 32px 1fr 90px;
+  align-items: center; gap: 10px; padding: 3px 0;
+}
+.axisLabel { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #8A8A8A; }
+
+.bar {
+  position: relative; height: 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid #222222; border-radius: 1px;
+}
+.bar::before {
+  content: ''; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px;
+  transform: translateX(-50%);
+  background: #333333; z-index: 2;
+}
+.satLo,
+.satHi {
+  position: absolute; top: -3px; bottom: -3px; width: 2px;
+  transform: translateX(-50%);
+  background: #E8B83A; opacity: 0.65;
+}
+.fill {
+  position: absolute; top: 0; bottom: 0;
+  background: #3CC98E; opacity: 0.55;
+}
+
+.val {
+  font-family: 'JetBrains Mono', monospace; font-size: 12px;
+  text-align: right; color: #E5E5E5; font-variant-numeric: tabular-nums;
+}
+.valMuted { color: #8A8A8A; }
+.unit { font-size: 11px; color: #777777; margin-left: 3px; }
+
+.scaleRow {
+  display: grid; grid-template-columns: 32px 1fr 90px;
+  gap: 10px; padding: 0 0 6px 0;
+}
+.ticks {
+  position: relative; height: 18px;
+  margin: 0 1px;
+}
+.tick {
+  position: absolute; top: 4px;
+  font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  color: #777777; letter-spacing: 0.04em; line-height: 1;
+  transform: translateX(-50%);
+}
+.tick::before {
+  content: ''; position: absolute;
+  top: -7px; left: 50%; transform: translateX(-50%);
+  width: 1px; height: 6px; background: #777777;
+}
+.tickEdgeLo { transform: translateX(0); }
+.tickEdgeLo::before { left: 0; transform: none; }
+.tickEdgeHi { transform: translateX(-100%); }
+.tickEdgeHi::before { left: 100%; transform: translateX(-1px); }

@@ -23,7 +23,7 @@ export function FlagsStrip({ state, nowMs }: FlagsStripProps) {
     <div className="bg-black border border-[#222222] rounded-sm">
       <div className="px-3 py-2 border-b border-[#1a1a1a]">
         <h3 className="font-sans text-[12px] uppercase tracking-wider text-[#E5E5E5]">
-          ADCS-MTQ Flags
+          ADCS · MTQ Flags
         </h3>
       </div>
 

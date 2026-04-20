@@ -2,11 +2,14 @@ import { Card } from './Card'
 import { FieldDisplay } from '../shared/FieldDisplay'
 import type { GncState, GncMode, GncCounters } from '../types'
 import { colors } from '@/lib/colors'
+import styles from './GncPlannerCard.module.css'
 
 interface GncPlannerCardProps {
   state: GncState
   nowMs: number
 }
+
+const PLANNER_MODES = ['Safe', 'Auto', 'Manual']
 
 /** GNC Planner panel.
  *  Mode:    gnc_get_mode RES (0=Safe, 1=Auto, 2=Manual)
@@ -19,6 +22,8 @@ export function GncPlannerCard({ state, nowMs }: GncPlannerCardProps) {
 
   const modeV = mode?.value as GncMode | undefined
   const cntV  = counters?.value as GncCounters | undefined
+
+  const activeMode = modeV?.mode
 
   const modeChip = modeV ? (
     <div
@@ -34,12 +39,18 @@ export function GncPlannerCard({ state, nowMs }: GncPlannerCardProps) {
 
   return (
     <Card title="GNC Planner" status={modeChip}>
-      <FieldDisplay
-        label="Mode"
-        value={modeV?.mode_name ?? '—'}
-        receivedAt={mode?.received_at_ms}
-        nowMs={nowMs}
-      />
+      <div className={styles.modeStrip}>
+        {PLANNER_MODES.map((label, idx) => (
+          <div
+            key={idx}
+            className={`${styles.modeCell} ${activeMode === idx ? styles.modeCellActive : ''}`}
+          >
+            <span className={styles.modeCellIdx}>{idx}</span>
+            <span className={styles.modeCellLabel}>{label}</span>
+          </div>
+        ))}
+      </div>
+
       <FieldDisplay
         label="Reboot"
         value={cntV != null ? String(cntV.reboot) : '—'}

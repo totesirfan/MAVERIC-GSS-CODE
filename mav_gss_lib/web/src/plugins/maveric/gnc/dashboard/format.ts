@@ -5,6 +5,16 @@ export function fmtVec3(v: number[] | null | undefined, decimals = 4): string {
   return `${v[0].toFixed(decimals)}, ${v[1].toFixed(decimals)}, ${v[2].toFixed(decimals)}`
 }
 
+export function fmtQuat(v: number[] | null | undefined, decimals = 3): string {
+  if (!v || v.length < 4) return '—'
+  return v.map(n => n.toFixed(decimals)).join(', ')
+}
+
+export function fmtYpr(ypr: [number, number, number] | null, decimals = 2): string {
+  if (!ypr) return '—, —, —'
+  return ypr.map(n => n.toFixed(decimals)).join(', ')
+}
+
 const WEEKDAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 export function fmtDateDisplay(date: { display: string; weekday: number } | null | undefined): string {

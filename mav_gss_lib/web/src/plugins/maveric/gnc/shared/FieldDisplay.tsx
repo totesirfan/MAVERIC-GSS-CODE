@@ -18,6 +18,9 @@ interface FieldDisplayProps {
   nowMs: number
   /** Force a tone regardless of staleness (e.g. danger on decode error). */
   forceTone?: 'danger' | 'warning' | 'success' | 'info' | 'neutral'
+  /** Render as a "↳ {label}" secondary row with muted value and the
+   *  literal string "derived" in the age slot. Skip staleness tiers. */
+  derived?: boolean
 }
 
 export function FieldDisplay({
@@ -26,25 +29,27 @@ export function FieldDisplay({
   receivedAt,
   nowMs,
   forceTone,
+  derived,
 }: FieldDisplayProps) {
   const hasData = receivedAt != null
   const age = ageMs(receivedAt ?? null, nowMs)
   const level: StaleLevel = hasData ? staleLevel(age) : 'critical'
 
   let tone: string = forceTone ?? 'neutral'
-  if (!forceTone && hasData) {
+  if (!forceTone && hasData && !derived) {
     if (level === 'warning') tone = 'warning'
     else if (level === 'critical') tone = 'danger'
   }
 
-  const valueColor =
-    tone === 'danger'  ? colors.danger  :
-    tone === 'warning' ? colors.warning :
-    tone === 'success' ? colors.success :
-    tone === 'info'    ? colors.info    :
-                         colors.textPrimary
+  const valueColor = derived
+    ? colors.textMuted
+    : tone === 'danger'  ? colors.danger
+    : tone === 'warning' ? colors.warning
+    : tone === 'success' ? colors.success
+    : tone === 'info'    ? colors.info
+    :                      colors.textPrimary
 
-  const opacity = hasData ? STALE_OPACITY[level] : NO_DATA_OPACITY
+  const opacity = derived ? 1.0 : hasData ? STALE_OPACITY[level] : NO_DATA_OPACITY
 
   return (
     <div
@@ -52,7 +57,7 @@ export function FieldDisplay({
       style={{ opacity }}
     >
       <div className="text-[11px] uppercase tracking-wide text-[#8A8A8A] font-sans">
-        {label}
+        {derived ? `↳ ${label}` : label}
       </div>
       <div className="flex items-center gap-2">
         <div
@@ -61,11 +66,15 @@ export function FieldDisplay({
         >
           {value}
         </div>
-        {hasData && (
+        {derived ? (
+          <div className="font-mono text-[11px] text-[#555555] min-w-[28px] text-right">
+            derived
+          </div>
+        ) : hasData ? (
           <div className="font-mono text-[11px] text-[#555555] min-w-[28px] text-right">
             {formatAge(age)}
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   )

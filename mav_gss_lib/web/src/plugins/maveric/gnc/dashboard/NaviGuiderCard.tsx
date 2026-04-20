@@ -1,6 +1,10 @@
 import { Card } from './Card'
 import { FieldDisplay } from '../shared/FieldDisplay'
-import type { GncState, NvgSensor, NvgStatus } from '../types'
+import { MtqBar, MtqBlock, type AxisTick } from '../shared/MtqBars'
+import { TempGauge } from '../shared/TempGauge'
+import { nvgSensorFrom, nvgNumericValues, magMagnitude } from '../shared/type-guards'
+import { TEMP_BANDS, tempPercent } from '../shared/zones'
+import type { GncState, NvgStatus } from '../types'
 import { colors } from '@/lib/colors'
 
 interface NaviGuiderCardProps {
@@ -8,51 +12,72 @@ interface NaviGuiderCardProps {
   nowMs: number
 }
 
-/** Extract the leading XYZ values from an NvgSensor. Returns '—' if
- *  fewer than `count` numeric values arrived (e.g. when the MAVERIC
- *  cache only holds a truncated payload). */
-function fmtNvgVec(snap: NvgSensor | undefined, count: number, decimals = 4): string {
-  if (!snap) return '—'
-  const vals = snap.values
+const RAD_TO_DEG = 180 / Math.PI
+
+// Gyroscope bars visualize ±2 °/s.
+const GYRO_VISUAL_RANGE_DPS = 2
+function gyroPercent(valueDeg: number): number {
+  const clamped = Math.max(-GYRO_VISUAL_RANGE_DPS, Math.min(GYRO_VISUAL_RANGE_DPS, valueDeg))
+  return 50 + (clamped / GYRO_VISUAL_RANGE_DPS) * 50
+}
+
+const GYRO_TICKS: AxisTick[] = [
+  { label: '−2', percent: 0,   edge: 'lo' },
+  { label: '−1', percent: 25 },
+  { label: '0',  percent: 50 },
+  { label: '+1', percent: 75 },
+  { label: '+2', percent: 100, edge: 'hi' },
+]
+
+const NVG_TEMP_RANGE_TICKS = [
+  { label: '−40', percent: tempPercent(-40), edge: 'lo' as const },
+  { label: '−20', percent: tempPercent(-20), safeEdge: true },
+  { label: '0',   percent: tempPercent(0) },
+  { label: '+85', percent: tempPercent(85), safeEdge: true },
+]
+
+function fmtNvgVec(vals: (number | null)[] | null, count: number, decimals = 2): string {
   if (!vals || vals.length < count) return '—'
-  const head = vals.slice(0, count).map((v) =>
-    typeof v === 'number' ? v.toFixed(decimals) : String(v),
-  )
-  return head.join(', ')
+  return vals.slice(0, count).map(v => v != null ? v.toFixed(decimals) : '—').join(', ')
 }
 
-function fmtNvgScalar(snap: NvgSensor | undefined, suffix: string, decimals = 2): string {
-  if (!snap) return '—'
-  const vals = snap.values
-  if (!vals || vals.length < 1) return '—'
-  const v = vals[0]
-  if (typeof v !== 'number') return '—'
-  return `${v.toFixed(decimals)}${suffix}`
-}
+type BarKind =
+  | { type: 'fill'; leftPercent: number; widthPercent: number }
+  | { type: 'none' }
 
-/** rad/s → deg/s (mockup labels gyro in deg/s; NaviGuider manual returns rad/s). */
-function fmtGyroDegPerSec(snap: NvgSensor | undefined, decimals = 3): string {
-  if (!snap) return '—'
-  const vals = snap.values
-  if (!vals || vals.length < 3) return '—'
-  const xyz = vals.slice(0, 3).map((v) =>
-    typeof v === 'number' ? ((v * 180) / Math.PI).toFixed(decimals) : String(v),
-  )
-  return xyz.join(', ')
+function gyroBarValue(value: number | null): { text: string; kind: BarKind } {
+  if (value == null) return { text: '—', kind: { type: 'none' } }
+  const pct = gyroPercent(value)
+  const text = value.toFixed(3)
+  // Draw from center (50%) toward the value's position.
+  const kind: BarKind = pct >= 50
+    ? { type: 'fill', leftPercent: 50, widthPercent: pct - 50 }
+    : { type: 'fill', leftPercent: pct, widthPercent: 50 - pct }
+  return { text, kind }
 }
 
 export function NaviGuiderCard({ state, nowMs }: NaviGuiderCardProps) {
   const status = state.NVG_STATUS
-  const orient = state.NVG_ORIENTATION
-  const gyro   = state.NVG_GYROSCOPE
-  const mag    = state.NVG_MAGNETOMETER
-  const temp   = state.NVG_TEMPERATURE
+  const gyro = state.NVG_GYROSCOPE
+  const mag = state.NVG_MAGNETOMETER
+  const temp = state.NVG_TEMPERATURE
 
   const statusV = status?.value as NvgStatus | undefined
-  const orientV = orient?.value as NvgSensor | undefined
-  const gyroV   = gyro?.value   as NvgSensor | undefined
-  const magV    = mag?.value    as NvgSensor | undefined
-  const tempV   = temp?.value   as NvgSensor | undefined
+
+  const gyroSensor = nvgSensorFrom(gyro)
+  const gyroRadPerSec = gyroSensor ? nvgNumericValues(gyroSensor).slice(0, 3) : null
+  const gyroDegPerSec = gyroRadPerSec
+    ? gyroRadPerSec.map(v => v != null ? v * RAD_TO_DEG : null)
+    : null
+
+  const magSensor = nvgSensorFrom(mag)
+  const magValues = magSensor ? nvgNumericValues(magSensor).slice(0, 3) : null
+  const magNumeric = magValues?.every((v): v is number => v != null) ? magValues : null
+  const magMag = magNumeric ? magMagnitude(magNumeric) : null
+
+  const tempSensor = nvgSensorFrom(temp)
+  const tempValues = tempSensor ? nvgNumericValues(tempSensor) : null
+  const tempCelsius = tempValues && typeof tempValues[0] === 'number' ? tempValues[0] : null
 
   const statusChip = statusV ? (
     <div
@@ -69,35 +94,48 @@ export function NaviGuiderCard({ state, nowMs }: NaviGuiderCardProps) {
 
   return (
     <Card title="NaviGuider" status={statusChip}>
+      <MtqBlock
+        title="Gyroscope · Body Frame"
+        subtitle="NVG sensor 4 · scale ±2 °/s"
+        ticks={GYRO_TICKS}
+      >
+        {(['ωX', 'ωY', 'ωZ'] as const).map((axis, i) => {
+          const v = gyroDegPerSec?.[i] ?? null
+          const { text, kind } = gyroBarValue(v)
+          return (
+            <MtqBar
+              key={axis}
+              axis={axis}
+              valueText={text}
+              unit="°/s"
+              kind={kind}
+              muted={v == null}
+            />
+          )
+        })}
+      </MtqBlock>
+
       <FieldDisplay
-        label="Status"
-        value={statusV?.label ?? '—'}
-        receivedAt={status?.received_at_ms}
-        nowMs={nowMs}
-        forceTone={statusV?.status === 1 ? 'success' : statusV ? 'neutral' : undefined}
-      />
-      <FieldDisplay
-        label="Orientation"
-        value={orientV ? `${fmtNvgVec(orientV, 3, 2)} deg` : '—'}
-        receivedAt={orient?.received_at_ms}
-        nowMs={nowMs}
-      />
-      <FieldDisplay
-        label="Gyroscope"
-        value={gyroV ? `${fmtGyroDegPerSec(gyroV)} deg/s` : '—'}
-        receivedAt={gyro?.received_at_ms}
-        nowMs={nowMs}
-      />
-      <FieldDisplay
-        label="Temperature"
-        value={fmtNvgScalar(tempV, ' °C', 1)}
-        receivedAt={temp?.received_at_ms}
-        nowMs={nowMs}
-      />
-      <FieldDisplay
-        label="Magnetometer"
-        value={magV ? `${fmtNvgVec(magV, 3, 2)} µT` : '—'}
+        label="Mag XYZ"
+        value={magValues ? `${fmtNvgVec(magValues, 3)} µT` : '—'}
         receivedAt={mag?.received_at_ms}
+        nowMs={nowMs}
+      />
+      <FieldDisplay
+        label="Mag ‖B‖"
+        value={magMag != null ? `${magMag.toFixed(1)} µT` : '—'}
+        nowMs={nowMs}
+        derived
+      />
+
+      <TempGauge
+        label="NVG_TMP"
+        celsius={tempCelsius}
+        band={TEMP_BANDS.FSS_TMP1}
+        safeLoPercent={tempPercent(TEMP_BANDS.FSS_TMP1.lo)}
+        safeHiPercent={tempPercent(TEMP_BANDS.FSS_TMP1.hi)}
+        ticks={NVG_TEMP_RANGE_TICKS}
+        receivedAt={temp?.received_at_ms}
         nowMs={nowMs}
       />
     </Card>

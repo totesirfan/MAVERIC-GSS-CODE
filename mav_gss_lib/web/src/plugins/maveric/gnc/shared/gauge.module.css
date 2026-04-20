@@ -1,0 +1,67 @@
+.row {
+  display: grid; grid-template-columns: auto 1fr auto auto;
+  align-items: center; gap: 14px;
+  padding: 10px 14px 28px;
+}
+.label {
+  font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  color: #8A8A8A; letter-spacing: 0.08em;
+}
+.value {
+  font-family: 'JetBrains Mono', monospace; font-size: 13px;
+  color: #E5E5E5; font-variant-numeric: tabular-nums;
+}
+.nominal { color: #3CC98E; }
+.caution { color: #E8B83A; }
+.danger  { color: #FF3838; }
+.age {
+  font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  color: #777777;
+}
+
+.gauge {
+  position: relative; height: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid #222222; border-radius: 1px;
+}
+.limDanger,
+.limCaution,
+.limSafe {
+  position: absolute; top: -3px; bottom: -3px; width: 2px;
+  transform: translateX(-50%);
+}
+.limDanger  { background: #FF3838; opacity: 0.75; }
+.limCaution { background: #E8B83A; opacity: 0.65; }
+.limSafe    { background: #888888; opacity: 0.85; }
+
+.marker {
+  position: absolute; top: -4px; bottom: -4px;
+  width: 2px; transform: translateX(-50%);
+  background: #E5E5E5;
+  box-shadow: 0 0 6px rgba(229, 229, 229, 0.7);
+}
+
+.range {
+  position: absolute; top: 14px; left: 0; right: 0;
+  height: 18px;
+  font-family: 'JetBrains Mono', monospace;
+  color: #777777;
+}
+.tick {
+  position: absolute; top: 4px;
+  font-size: 11px; line-height: 1;
+  transform: translateX(-50%);
+}
+.tick::before {
+  content: ''; position: absolute;
+  top: -5px; left: 50%; transform: translateX(-50%);
+  width: 1px; height: 4px; background: #777777;
+}
+.tickEdgeLo { transform: translateX(0); }
+.tickEdgeLo::before { left: 0; transform: none; }
+.tickEdgeHi { transform: translateX(-100%); }
+.tickEdgeHi::before { left: 100%; transform: translateX(-1px); }
+
+.safeEdge {
+  color: #8A8A8A; font-weight: 600;
+}
