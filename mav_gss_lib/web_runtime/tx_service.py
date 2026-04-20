@@ -225,7 +225,14 @@ class TxService:
     def _build_frame(self, raw_cmd: bytes, uplink_mode: str, send_csp, send_ax25) -> bytes:
         """Wrap a raw command in CSP + the configured uplink framing."""
         csp_packet = send_csp.wrap(raw_cmd)
-        if uplink_mode == "ASM+Golay" and GOLAY_OK:
+        if uplink_mode == "ASM+Golay":
+            if not GOLAY_OK:
+                raise RuntimeError(
+                    "ASM+Golay selected but libfec RS encoder is unavailable in this "
+                    "environment. Install libfec (e.g. `sudo apt install libfec-dev && "
+                    "sudo ldconfig`, `conda install -c ryanvolz libfec`, or build from "
+                    "https://github.com/quiet/libfec) or switch tx.uplink_mode to AX.25."
+                )
             return build_asm_golay_frame(csp_packet)
         ax25_frame = send_ax25.wrap(csp_packet)
         return build_ax25_gfsk_frame(ax25_frame)

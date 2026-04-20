@@ -122,6 +122,34 @@ def run_preflight(cfg: dict | None = None,
         yield CheckResult("config", f"Command schema: {cmd_schema.name}", "warn",
                           fix="System starts but cannot validate or send commands")
 
+    # ── Uplink Capability (libfec / ASM+Golay RS encoder) ──
+    # Imported lazily so preflight never fails hard on the capability probe.
+    try:
+        from mav_gss_lib.protocols.golay import _GR_RS_OK as _golay_rs_ok
+    except ImportError:
+        _golay_rs_ok = False
+
+    selected_mode = cfg.get("tx", {}).get("uplink_mode", "AX.25")
+    golay_fix = (
+        "Install libfec (e.g. `sudo apt install libfec-dev && sudo ldconfig`, "
+        "`conda install -c ryanvolz libfec`, or build from "
+        "https://github.com/quiet/libfec)"
+    )
+    if _golay_rs_ok:
+        yield CheckResult("uplink", "libfec (ASM+Golay RS encoder)", "ok")
+    elif selected_mode == "ASM+Golay":
+        yield CheckResult(
+            "uplink", "libfec (ASM+Golay RS encoder)", "fail",
+            fix=f"{golay_fix}, or switch tx.uplink_mode to AX.25",
+            detail="tx.uplink_mode='ASM+Golay' selected but libfec is not loadable",
+        )
+    else:
+        yield CheckResult(
+            "uplink", "libfec (ASM+Golay RS encoder)", "warn",
+            fix=f"{golay_fix} to enable tx.uplink_mode='ASM+Golay'",
+            detail="AX.25 mode active; ASM+Golay would be unavailable if selected",
+        )
+
     # ── Web Build ──
     dist = lib_dir / "web" / "dist"
     index = dist / "index.html"
