@@ -215,6 +215,30 @@ def _ensure_git_repo(timeout_s: float) -> Optional[str]:
     return None
 
 
+def _clean_dist_strays() -> None:
+    """Delete untracked files under `mav_gss_lib/web/dist/assets/`.
+
+    Vite writes content-hashed bundle filenames (e.g. `index-DpEPWUcJ.js`).
+    When a remote commit changes the hash, `git pull --ff-only` on a machine
+    that happens to have a differently-hashed leftover refuses to proceed,
+    and even when it does, the stray file leaves `git status --porcelain`
+    non-empty — which flips `working_tree_dirty` and disables the APPLY
+    UPDATE button ("commit or stash local changes to enable").
+
+    `dist/assets/` is purely build output — nothing operator-editable lives
+    there — so pruning strays is always safe. `git clean -f` only touches
+    untracked files; tracked and modified files are left alone. Scope is
+    tight to `dist/assets/` so this can't reach anything else.
+
+    Silent no-op on any failure: the caller still runs its dirty check
+    afterwards, so a failed clean just surfaces as "dirty" as before.
+    """
+    try:
+        _run_git(["clean", "-f", "mav_gss_lib/web/dist/assets/"], timeout=5.0)
+    except Exception:
+        pass
+
+
 def _scan_missing_pip_deps() -> list[str]:
     """Return the subset of _ALL_PIP_MODULES currently not importable.
 
@@ -305,7 +329,11 @@ def check_for_updates(timeout_s: float = 10.0) -> UpdateStatus:
         status.fetch_error = f"git rev-parse HEAD failed: {exc}"
         return status
 
-    # Dirty tree check — always run, independent of fetch success
+    # Dirty tree check — always run, independent of fetch success.
+    # Prune stale hashed bundles in dist/assets/ first so orphan files from
+    # a prior build on this (or another) machine don't masquerade as real
+    # local changes and block the updater.
+    _clean_dist_strays()
     try:
         r = _run_git(["status", "--porcelain"], timeout=5.0)
         if r.returncode == 0:
@@ -507,6 +535,9 @@ def apply_update(
         raise PreflightError("no cached update status")
 
     # Final dirty-tree gate: re-check right before running any phase.
+    # Re-prune dist/assets/ strays so a build that raced between the cached
+    # status snapshot and now doesn't spuriously trip the gate.
+    _clean_dist_strays()
     try:
         r = _run_git(["status", "--porcelain"], timeout=5.0)
     except Exception as exc:

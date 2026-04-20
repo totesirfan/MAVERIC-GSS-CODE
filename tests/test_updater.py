@@ -51,6 +51,12 @@ class TestCheckForUpdates(unittest.TestCase):
         sentinel = self._dev_patch.start()
         sentinel.exists.return_value = False
         self.addCleanup(self._dev_patch.stop)
+        # `_clean_dist_strays` runs its own `_run_git(["clean", ...])` call —
+        # neutralize it here so each test's side_effect sequence represents
+        # only the real flow, not the prune step.
+        self._clean_patch = mock.patch.object(updater, "_clean_dist_strays")
+        self._clean_patch.start()
+        self.addCleanup(self._clean_patch.stop)
 
     def _run_git_responses(self, *responses):
         """Turn a sequence of CompletedProcess responses into a _run_git side_effect."""
@@ -209,6 +215,12 @@ class TestApplyUpdate(unittest.TestCase):
         def broadcast(event: dict) -> None:
             self.events.append(event)
         self._broadcast = broadcast
+        # `_clean_dist_strays` runs a `_run_git(["clean", ...])` call before
+        # the dirty-tree gate — stub it out so each test's side_effect
+        # sequence covers only the real flow.
+        self._clean_patch = mock.patch.object(updater, "_clean_dist_strays")
+        self._clean_patch.start()
+        self.addCleanup(self._clean_patch.stop)
 
     def _status(self, behind: int = 2, dirty: bool = False) -> UpdateStatus:
         return UpdateStatus(
@@ -276,6 +288,22 @@ class TestApplyUpdate(unittest.TestCase):
         rx.assert_not_called()
         fail_events = [e for e in self.events if e.get("status") == "fail"]
         self.assertTrue(any(e.get("phase") == "git_pull" for e in fail_events))
+
+
+class TestCleanDistStrays(unittest.TestCase):
+    """_clean_dist_strays is scoped tight to build output — anything it runs
+    must never reach outside `mav_gss_lib/web/dist/assets/`."""
+
+    def test_invokes_git_clean_scoped_to_dist_assets(self):
+        with mock.patch.object(updater, "_run_git") as rg:
+            updater._clean_dist_strays()
+        rg.assert_called_once()
+        args, _ = rg.call_args
+        self.assertEqual(args[0], ["clean", "-f", "mav_gss_lib/web/dist/assets/"])
+
+    def test_swallows_exceptions_silently(self):
+        with mock.patch.object(updater, "_run_git", side_effect=RuntimeError("boom")):
+            updater._clean_dist_strays()  # must not raise
 
 
 if __name__ == "__main__":
