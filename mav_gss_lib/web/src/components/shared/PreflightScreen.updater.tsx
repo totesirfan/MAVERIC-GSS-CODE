@@ -270,7 +270,7 @@ export function UpdaterStage({
     <div
       className="flex flex-col items-stretch"
       style={{
-        width: 'clamp(320px, 34vmin, 460px)',
+        width: 'clamp(380px, 44vmin, 620px)',
         padding: 'clamp(1rem, 2vmin, 1.5rem)',
         background: 'rgba(14, 14, 14, 0.85)',
         border: `1px solid ${colors.borderSubtle}`,
@@ -319,9 +319,9 @@ export function UpdaterStage({
           }}
         >
           {commits.map((c) => (
-            <div key={c.sha} style={{ display: 'flex', gap: '0.6rem', padding: '2px 0' }}>
+            <div key={c.sha} style={{ display: 'flex', gap: '0.6rem', padding: '2px 0', alignItems: 'flex-start' }}>
               <span style={{ color: colors.textMuted, flexShrink: 0 }}>{c.sha.slice(0, 7)}</span>
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <span style={{ minWidth: 0, flex: 1, overflowWrap: 'anywhere', lineHeight: 1.4 }}>
                 {c.subject}
               </span>
             </div>
