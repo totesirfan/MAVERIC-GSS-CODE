@@ -30,6 +30,7 @@ import type { AlarmLevel } from './types'
 // Live-pane children (all React.memo'd internally on narrow primitive props).
 import { HeroCardBus }       from './live/HeroCardBus'
 import { HeroCardBat }       from './live/HeroCardBat'
+import { HeroCardSys }       from './live/HeroCardSys'
 import { HeroCardThermal }   from './live/HeroCardThermal'
 import { FlowCard }          from './live/FlowCard'
 import { VoutStrip }         from './live/VoutStrip'
@@ -108,6 +109,11 @@ export default function EpsPage() {
               chargeDir={chargeDir}
               soc={soc}
               alarm={alarms.V_BAT as AlarmLevel ?? 'unknown'}
+            />
+            <HeroCardSys
+              V_SYS={fields?.V_SYS ?? NaN}
+              prev_V_SYS={prevFields?.V_SYS ?? NaN}
+              alarm={alarms.V_SYS as AlarmLevel ?? 'unknown'}
             />
             <HeroCardThermal
               T_DIE={fields?.T_DIE ?? NaN}

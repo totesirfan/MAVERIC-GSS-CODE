@@ -31,6 +31,7 @@ function FlowCardInner({ fields, chargeDir, efficiency, activeSource }: Props) {
   const hub = useMemo(() => ({
     V_BUS: finite(fields?.V_BUS),
     I_BUS: finite(fields?.I_BUS),
+    V_SYS: finite(fields?.V_SYS),
     I_BAT: finite(fields?.I_BAT),
   }), [fields])
 
@@ -69,7 +70,7 @@ function FlowCardInner({ fields, chargeDir, efficiency, activeSource }: Props) {
       <div className="card-head">
         <div className="card-head-left">
           <span className="card-title">Power Flow</span>
-          <span className="card-sub">sources → bus → loads</span>
+          <span className="card-sub">sources → bus → sys → loads</span>
         </div>
         <span className="card-sub flow-eff">
           <span className="k">P_in</span>
@@ -98,7 +99,8 @@ function FlowCardInner({ fields, chargeDir, efficiency, activeSource }: Props) {
           VSIN3_active={Number.isFinite(src.VSIN3) && src.VSIN3 > 1.0}
         />
         <FlowBusCore
-          V_BUS={hub.V_BUS} I_BUS={hub.I_BUS} I_BAT={hub.I_BAT} chargeDir={chargeDir}
+          V_BUS={hub.V_BUS} I_BUS={hub.I_BUS} V_SYS={hub.V_SYS}
+          I_BAT={hub.I_BAT} chargeDir={chargeDir}
         />
         <FlowLoadDrops
           VOUT1_on={Number.isFinite(load.VOUT1) && load.VOUT1 > 0.5}

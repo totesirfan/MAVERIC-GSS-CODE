@@ -47,7 +47,9 @@
   .eps-page .flow-drop path.flow,
   .eps-page .flow-bus-rail .bat-link path.flow,
   .eps-page .flow-bus-rail .bat-link.charge path,
-  .eps-page .flow-bus-rail .bat-link.discharge path {
+  .eps-page .flow-bus-rail .bat-link.discharge path,
+  .eps-page .flow-bus-rail .bus-link path.flow,
+  .eps-page .flow-bus-rail .bus-link.active path {
     animation: none !important;
   }
 }
@@ -753,15 +755,19 @@
 }
 .eps-page .flow-bus-rail .bus-badge .p .sep { color: var(--border-strong); }
 
-.eps-page .flow-bus-rail .bat-link {
+.eps-page .flow-bus-rail .bat-link,
+.eps-page .flow-bus-rail .bus-link {
   width: 22px; height: 2px;
   background: rgba(60, 201, 142, 0.75);
   flex: 0 0 auto;
 }
 .eps-page .flow-bus-rail .bat-link.charge    { background: var(--state-success); }
 .eps-page .flow-bus-rail .bat-link.discharge { background: var(--state-warning); }
+.eps-page .flow-bus-rail .bus-link.active    { background: var(--state-success); }
+.eps-page .flow-bus-rail .bus-link.idle      { background: rgba(60, 201, 142, 0.45); }
 
-.eps-page .flow-bus-rail .bat {
+.eps-page .flow-bus-rail .bat,
+.eps-page .flow-bus-rail .bus-side {
   display: inline-flex; align-items: baseline; gap: 8px;
   padding: 8px 14px;
   background: var(--bg-panel);
@@ -769,16 +775,20 @@
   border-radius: 3px;
   white-space: nowrap;
 }
+.eps-page .flow-bus-rail .bus-side { border-color: rgba(60, 201, 142, 0.55); }
 .eps-page .flow-bus-rail .bat.charge    { border-color: rgba(60, 201, 142, 0.55); }
 .eps-page .flow-bus-rail .bat.discharge { border-color: rgba(232, 184, 58, 0.55); }
-.eps-page .flow-bus-rail .bat .label {
+.eps-page .flow-bus-rail .bat .label,
+.eps-page .flow-bus-rail .bus-side .label {
   font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
   color: var(--text-muted);
 }
-.eps-page .flow-bus-rail .bat .i {
+.eps-page .flow-bus-rail .bat .i,
+.eps-page .flow-bus-rail .bus-side .i {
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
 }
+.eps-page .flow-bus-rail .bus-side .sep { color: var(--border-strong); font-size: 11px; }
 .eps-page .flow-bus-rail .bat .state {
   font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
   color: var(--text-muted);
@@ -831,7 +841,8 @@
   .eps-page .flow-bus-rail { padding: 10px 0; min-height: 56px; }
   .eps-page .flow-bus-rail .bus-badge { padding: 8px 18px; }
   .eps-page .flow-bus-rail .bus-badge .v { font-size: 24px; }
-  .eps-page .flow-bus-rail .bat { padding: 6px 12px; }
+  .eps-page .flow-bus-rail .bat,
+  .eps-page .flow-bus-rail .bus-side { padding: 6px 12px; }
   .eps-page .flow-balance .legend { display: none; }
 }
 @media (max-height: 680px) {
