@@ -1,4 +1,5 @@
 import { FlagDot } from '../shared/FlagDot'
+import { colors } from '@/lib/colors'
 import type { GncState, StatBitfield, ActErrBitfield, SenErrBitfield } from '../types'
 
 interface FlagsStripProps {
@@ -20,9 +21,18 @@ export function FlagsStrip({ state, nowMs }: FlagsStripProps) {
   const senAt  = senErr?.received_at_ms ?? null
 
   return (
-    <div className="bg-black border border-[#222222] rounded-sm">
-      <div className="px-3 py-2 border-b border-[#1a1a1a]">
-        <h3 className="font-sans text-[12px] uppercase tracking-wider text-[#E5E5E5]">
+    <div
+      className="border rounded-sm"
+      style={{ backgroundColor: colors.bgPanel, borderColor: colors.borderSubtle }}
+    >
+      <div
+        className="px-3 py-2 border-b"
+        style={{ borderColor: colors.borderSubtle }}
+      >
+        <h3
+          className="font-sans text-[12px] uppercase tracking-wider"
+          style={{ color: colors.textPrimary }}
+        >
           ADCS · MTQ Flags
         </h3>
       </div>

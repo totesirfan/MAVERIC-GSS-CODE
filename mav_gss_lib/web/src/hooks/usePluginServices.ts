@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react'
-import { useRx } from '@/state/rx'
+import { useRx, useRxStatus } from '@/state/rx'
 import { useTx } from '@/state/tx'
 import { useSessionContext, useConfig } from '@/state/session'
 import type { RxPacket, RxStatus, GssConfig, SendProgress, GuardConfirm, TxQueueItem } from '@/lib/types'
@@ -65,4 +65,14 @@ export function usePluginServices(): PluginServices {
     pendingQueue: tx.queue,
     removeQueueItem: tx.deleteItem,
   }), [rx, tx, session, config, filterPackets, fetchSchema])
+}
+
+/**
+ * Lightweight plugin-facing subscription hook for custom RX broadcasts.
+ * Use this when a plugin only needs mission/plugin-specific WS messages and
+ * should not rerender on the live packet stream.
+ */
+export function usePluginRxCustomSubscription(): PluginServices['subscribeRxCustom'] {
+  const { subscribeCustom } = useRxStatus()
+  return subscribeCustom
 }

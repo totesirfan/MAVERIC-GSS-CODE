@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { usePluginServices } from '@/hooks/usePluginServices'
+import { usePluginRxCustomSubscription } from '@/hooks/usePluginServices'
 import type { GncState, GncRegisterUpdateMsg, RegisterSnapshot } from './types'
 
 /** Subscribe to `gnc_register_update` WS messages and seed state from
@@ -17,7 +17,7 @@ export function useGncRegisters(): {
   lastUpdateAt: number | null
   clearSnapshot: () => Promise<void>
 } {
-  const { subscribeRxCustom } = usePluginServices()
+  const subscribeRxCustom = usePluginRxCustomSubscription()
   const [state, setState] = useState<GncState>({})
   const [lastUpdateAt, setLastUpdateAt] = useState<number | null>(null)
 

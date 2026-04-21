@@ -98,14 +98,13 @@ export function AdcsMtqCard({ state, nowMs }: AdcsMtqCardProps) {
   ) : null
 
   return (
-    <Card title="ADCS · MTQ" status={modeChip}>
-      <ModeStrip labels={ADCS_MODES} activeIndex={statV?.MODE} columns={4} />
+    <Card title="ADCS · MTQ" status={modeChip} className="h-full">
+      <ModeStrip labels={ADCS_MODES} activeIndex={statV?.MODE} columns={8} />
 
-      <div
-        className="grid gap-3 px-3 py-2 border-b border-[#1a1a1a]"
-        style={{ gridTemplateColumns: '150px 1fr' }}
-      >
-        <Maveric3DViewer q={qArr} size={150} />
+      <div className="grid grid-cols-2 border-t border-[#1a1a1a]">
+        <div className="border-r border-[#1a1a1a] min-h-0">
+          <Maveric3DViewer q={qArr} />
+        </div>
         <div className="min-w-0">
           <FieldDisplay
             label="Att Q"
@@ -143,73 +142,72 @@ export function AdcsMtqCard({ state, nowMs }: AdcsMtqCardProps) {
             nowMs={nowMs}
             derived
           />
+          <FieldDisplay
+            label="Time"
+            value={timeV?.display ?? '—'}
+            receivedAt={time?.received_at_ms}
+            nowMs={nowMs}
+          />
+          <FieldDisplay
+            label="Date"
+            value={fmtDateDisplay(dateV)}
+            receivedAt={date?.received_at_ms}
+            nowMs={nowMs}
+          />
+
+          <MtqBlock
+            title="MTQ_User · Dipole"
+            subtitle="A·m² · ±0.2 X,Y · ±0.1 Z"
+            ticks={MTQ_TICKS}
+          >
+            <MtqBar
+              axis="MX"
+              valueText={mtqArr ? mtqArr[0].toFixed(4) : '—'}
+              unit="A·m²"
+              kind={{
+                type: 'saturation',
+                loPercent: mtqPercent(-MTQ_XY_SAT),
+                hiPercent: mtqPercent(MTQ_XY_SAT),
+              }}
+              muted={!mtqArr}
+            />
+            <MtqBar
+              axis="MY"
+              valueText={mtqArr ? mtqArr[1].toFixed(4) : '—'}
+              unit="A·m²"
+              kind={{
+                type: 'saturation',
+                loPercent: mtqPercent(-MTQ_XY_SAT),
+                hiPercent: mtqPercent(MTQ_XY_SAT),
+              }}
+              muted={!mtqArr}
+            />
+            <MtqBar
+              axis="MZ"
+              valueText={mtqArr ? mtqArr[2].toFixed(4) : '—'}
+              unit="A·m²"
+              kind={{
+                type: 'saturation',
+                loPercent: mtqPercent(-MTQ_Z_SAT),
+                hiPercent: mtqPercent(MTQ_Z_SAT),
+              }}
+              muted={!mtqArr}
+            />
+          </MtqBlock>
+
+          <TempGauge
+            label="ADCS_TMP"
+            celsius={tmpV?.celsius ?? null}
+            commFault={tmpV?.comm_fault}
+            band={TEMP_BANDS.ADCS_TMP}
+            safeLoPercent={tempPercent(TEMP_BANDS.ADCS_TMP.lo)}
+            safeHiPercent={tempPercent(TEMP_BANDS.ADCS_TMP.hi)}
+            ticks={ADCS_TEMP_RANGE_TICKS}
+            receivedAt={tmp?.received_at_ms}
+            nowMs={nowMs}
+          />
         </div>
       </div>
-
-      <FieldDisplay
-        label="Time"
-        value={timeV?.display ?? '—'}
-        receivedAt={time?.received_at_ms}
-        nowMs={nowMs}
-      />
-      <FieldDisplay
-        label="Date"
-        value={fmtDateDisplay(dateV)}
-        receivedAt={date?.received_at_ms}
-        nowMs={nowMs}
-      />
-
-      <MtqBlock
-        title="MTQ_User · Dipole"
-        subtitle="A·m² · ±0.2 X,Y · ±0.1 Z"
-        ticks={MTQ_TICKS}
-      >
-        <MtqBar
-          axis="MX"
-          valueText={mtqArr ? mtqArr[0].toFixed(4) : '—'}
-          unit="A·m²"
-          kind={{
-            type: 'saturation',
-            loPercent: mtqPercent(-MTQ_XY_SAT),
-            hiPercent: mtqPercent(MTQ_XY_SAT),
-          }}
-          muted={!mtqArr}
-        />
-        <MtqBar
-          axis="MY"
-          valueText={mtqArr ? mtqArr[1].toFixed(4) : '—'}
-          unit="A·m²"
-          kind={{
-            type: 'saturation',
-            loPercent: mtqPercent(-MTQ_XY_SAT),
-            hiPercent: mtqPercent(MTQ_XY_SAT),
-          }}
-          muted={!mtqArr}
-        />
-        <MtqBar
-          axis="MZ"
-          valueText={mtqArr ? mtqArr[2].toFixed(4) : '—'}
-          unit="A·m²"
-          kind={{
-            type: 'saturation',
-            loPercent: mtqPercent(-MTQ_Z_SAT),
-            hiPercent: mtqPercent(MTQ_Z_SAT),
-          }}
-          muted={!mtqArr}
-        />
-      </MtqBlock>
-
-      <TempGauge
-        label="ADCS_TMP"
-        celsius={tmpV?.celsius ?? null}
-        commFault={tmpV?.comm_fault}
-        band={TEMP_BANDS.ADCS_TMP}
-        safeLoPercent={tempPercent(TEMP_BANDS.ADCS_TMP.lo)}
-        safeHiPercent={tempPercent(TEMP_BANDS.ADCS_TMP.hi)}
-        ticks={ADCS_TEMP_RANGE_TICKS}
-        receivedAt={tmp?.received_at_ms}
-        nowMs={nowMs}
-      />
     </Card>
   )
 }

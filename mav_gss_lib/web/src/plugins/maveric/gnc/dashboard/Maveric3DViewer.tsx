@@ -6,11 +6,9 @@ import maveric3DModelUrl from '../assets/maveric.stl?url'
 interface Maveric3DViewerProps {
   /** Scalar-first attitude quaternion [q0, q1, q2, q3]. null → identity. */
   q: number[] | null
-  /** Pixel side length. Fixed — no ResizeObserver. */
-  size?: number
 }
 
-export function Maveric3DViewer({ q, size = 220 }: Maveric3DViewerProps) {
+export function Maveric3DViewer({ q }: Maveric3DViewerProps) {
   const mountRef = useRef<HTMLDivElement>(null)
   const bodyGroupRef = useRef<THREE.Group | null>(null)
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
@@ -27,8 +25,8 @@ export function Maveric3DViewer({ q, size = 220 }: Maveric3DViewerProps) {
       await document.fonts.ready
       if (cancelled) return
 
-      const W = mount.clientWidth || size
-      const H = mount.clientHeight || size
+      const W = mount.clientWidth || 1
+      const H = mount.clientHeight || 1
 
       const scene = new THREE.Scene()
       scene.background = null
@@ -108,6 +106,18 @@ export function Maveric3DViewer({ q, size = 220 }: Maveric3DViewerProps) {
       rendererRef.current = renderer
       bodyGroupRef.current = bodyGroup
 
+      const ro = new ResizeObserver(() => {
+        const nw = mount.clientWidth
+        const nh = mount.clientHeight
+        if (nw <= 0 || nh <= 0) return
+        renderer.setSize(nw, nh)
+        camera.aspect = nw / nh
+        camera.updateProjectionMatrix()
+        renderer.render(scene, camera)
+      })
+      ro.observe(mount)
+      disposables.push({ dispose: () => ro.disconnect() })
+
       new STLLoader().load(maveric3DModelUrl, (loaded: THREE.BufferGeometry) => {
         if (cancelled) {
           loaded.dispose()
@@ -152,7 +162,7 @@ export function Maveric3DViewer({ q, size = 220 }: Maveric3DViewerProps) {
       cameraRef.current = null
       bodyGroupRef.current = null
     }
-  }, [size])
+  }, [])
 
   useEffect(() => {
     const bg = bodyGroupRef.current
@@ -180,7 +190,7 @@ export function Maveric3DViewer({ q, size = 220 }: Maveric3DViewerProps) {
   return (
     <div
       ref={mountRef}
-      style={{ width: size, height: size, position: 'relative' }}
+      style={{ width: '100%', height: '100%', position: 'relative' }}
     />
   )
 }

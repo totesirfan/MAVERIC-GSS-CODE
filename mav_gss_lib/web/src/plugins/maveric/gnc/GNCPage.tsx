@@ -6,6 +6,7 @@ import { NaviGuiderCard } from './dashboard/NaviGuiderCard'
 import { FlagsStrip } from './dashboard/FlagsStrip'
 import { RegistersTable } from './registers/RegistersTable'
 import { useRegisterCatalog } from './registers/useRegisterCatalog'
+import { useTabActive } from '@/components/layout/TabActiveContext'
 import { colors } from '@/lib/colors'
 
 type TabId = 'dashboard' | 'registers'
@@ -34,6 +35,7 @@ function readTabFromUrl(): TabId {
 export default function GNCPage() {
   const { state, lastUpdateAt } = useGncRegisters()
   const catalog = useRegisterCatalog()
+  const tabActive = useTabActive()
   const [tab, setTab] = useState<TabId>(readTabFromUrl)
 
   // Sync tab with URL when navigation happens elsewhere (palette, browser back/forward)
@@ -70,11 +72,13 @@ export default function GNCPage() {
   const [dashNominalWidth, setDashNominalWidth] = useState(DASH_INITIAL_WIDTH)
 
   useEffect(() => {
-    if (tab !== 'dashboard') return
+    if (tab !== 'dashboard' || !tabActive) return
     const container = dashContainerRef.current
     const content = dashContentRef.current
     if (!container || !content) return
+    let frame = 0
     const update = () => {
+      frame = 0
       const cw = container.clientWidth
       const ch = container.clientHeight
       const nh = content.offsetHeight
@@ -84,12 +88,19 @@ export default function GNCPage() {
       setDashNominalWidth(prev => Math.abs(prev - targetWidth) > 1 ? targetWidth : prev)
       setDashScale(prev => Math.abs(prev - targetScale) > 0.005 ? targetScale : prev)
     }
+    const scheduleUpdate = () => {
+      if (frame !== 0) return
+      frame = requestAnimationFrame(update)
+    }
     update()
-    const ro = new ResizeObserver(update)
+    const ro = new ResizeObserver(scheduleUpdate)
     ro.observe(container)
     ro.observe(content)
-    return () => ro.disconnect()
-  }, [tab])
+    return () => {
+      ro.disconnect()
+      if (frame !== 0) cancelAnimationFrame(frame)
+    }
+  }, [tab, tabActive])
 
   // Shared "now" tick so all age chips in one render share a timebase.
   // Pauses when the tab is backgrounded to avoid burning render cycles.
@@ -97,7 +108,7 @@ export default function GNCPage() {
   useEffect(() => {
     let id: ReturnType<typeof setInterval> | null = null
     const start = () => {
-      if (id !== null) return
+      if (id !== null || !tabActive) return
       setNowMs(Date.now())
       id = setInterval(() => setNowMs(Date.now()), 1000)
     }
@@ -111,7 +122,7 @@ export default function GNCPage() {
       stop()
       document.removeEventListener('visibilitychange', onVis)
     }
-  }, [])
+  }, [tabActive])
 
   return (
     <div className="h-full w-full flex flex-col bg-[#080808] text-[#E5E5E5]">
@@ -159,9 +170,13 @@ export default function GNCPage() {
               }}
             >
               <div className="grid grid-cols-3 gap-3 mb-3">
-                <GncPlannerCard state={state} nowMs={nowMs} />
-                <AdcsMtqCard state={state} nowMs={nowMs} />
-                <NaviGuiderCard state={state} nowMs={nowMs} />
+                <div className="flex flex-col gap-3 min-w-0">
+                  <GncPlannerCard state={state} nowMs={nowMs} />
+                  <NaviGuiderCard state={state} nowMs={nowMs} />
+                </div>
+                <div className="col-span-2 min-w-0">
+                  <AdcsMtqCard state={state} nowMs={nowMs} />
+                </div>
               </div>
               <FlagsStrip state={state} nowMs={nowMs} />
             </div>
