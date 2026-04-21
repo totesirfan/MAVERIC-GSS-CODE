@@ -82,6 +82,8 @@ scripts/preview_*.py
 # into the production React app (same category as gnc-migration.md)
 docs/eps-port-spec.md
 docs/eps-port/
+# Operator setup doc referencing the three gitignored local YAMLs — local-only
+docs/mission-config-files.md
 
 # === Legacy / Retired ===
 legacy/
