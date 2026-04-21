@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useGncRegisters } from './useGncRegisters'
 import { GncPlannerCard } from './dashboard/GncPlannerCard'
 import { AdcsMtqCard } from './dashboard/AdcsMtqCard'
@@ -14,6 +14,11 @@ const TABS: Array<{ id: TabId; label: string }> = [
   { id: 'dashboard', label: 'Dashboard' },
   { id: 'registers', label: 'Registers' },
 ]
+
+// Starting width for the first layout pass. The dashboard then adapts
+// its composition width to the container aspect each frame so uniform
+// scale fills both axes with no horizontal gap or vertical clipping.
+const DASH_INITIAL_WIDTH = 1440
 
 function readTabFromUrl(): TabId {
   const t = new URLSearchParams(window.location.search).get('tab')
@@ -50,6 +55,41 @@ export default function GNCPage() {
     else url.searchParams.set('tab', next)
     window.history.replaceState({}, '', url.toString())
   }
+
+  // Aspect-adaptive fit-to-window for the dashboard tab.
+  // Each pass: measure natural content height at current layout width,
+  // then solve for (nominalWidth, scale) so that
+  //   scale × nominalWidth = containerWidth
+  //   scale × naturalHeight = containerHeight
+  // i.e. scale = ch/nh and nominalWidth = cw × nh/ch. The grid reflows at
+  // that width; card heights usually shift by a few pixels as columns
+  // widen/narrow, so epsilons guard against ResizeObserver oscillation.
+  const dashContainerRef = useRef<HTMLDivElement>(null)
+  const dashContentRef = useRef<HTMLDivElement>(null)
+  const [dashScale, setDashScale] = useState(1)
+  const [dashNominalWidth, setDashNominalWidth] = useState(DASH_INITIAL_WIDTH)
+
+  useEffect(() => {
+    if (tab !== 'dashboard') return
+    const container = dashContainerRef.current
+    const content = dashContentRef.current
+    if (!container || !content) return
+    const update = () => {
+      const cw = container.clientWidth
+      const ch = container.clientHeight
+      const nh = content.offsetHeight
+      if (nh === 0 || cw === 0 || ch === 0) return
+      const targetWidth = Math.round(cw * nh / ch)
+      const targetScale = ch / nh
+      setDashNominalWidth(prev => Math.abs(prev - targetWidth) > 1 ? targetWidth : prev)
+      setDashScale(prev => Math.abs(prev - targetScale) > 0.005 ? targetScale : prev)
+    }
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(container)
+    ro.observe(content)
+    return () => ro.disconnect()
+  }, [tab])
 
   // Shared "now" tick so all age chips in one render share a timebase.
   // Pauses when the tab is backgrounded to avoid burning render cycles.
@@ -105,13 +145,26 @@ export default function GNCPage() {
       {/* Tab content */}
       <div className="flex-1 min-h-0 overflow-hidden">
         {tab === 'dashboard' ? (
-          <div className="h-full overflow-auto p-3">
-            <div className="grid grid-cols-3 gap-3 mb-3">
-              <GncPlannerCard state={state} nowMs={nowMs} />
-              <AdcsMtqCard state={state} nowMs={nowMs} />
-              <NaviGuiderCard state={state} nowMs={nowMs} />
+          <div
+            ref={dashContainerRef}
+            className="h-full w-full overflow-hidden"
+          >
+            <div
+              ref={dashContentRef}
+              className="p-3"
+              style={{
+                width: dashNominalWidth,
+                transform: `scale(${dashScale})`,
+                transformOrigin: 'top left',
+              }}
+            >
+              <div className="grid grid-cols-3 gap-3 mb-3">
+                <GncPlannerCard state={state} nowMs={nowMs} />
+                <AdcsMtqCard state={state} nowMs={nowMs} />
+                <NaviGuiderCard state={state} nowMs={nowMs} />
+              </div>
+              <FlagsStrip state={state} nowMs={nowMs} />
             </div>
-            <FlagsStrip state={state} nowMs={nowMs} />
           </div>
         ) : (
           <RegistersTable catalog={catalog} state={state} nowMs={nowMs} />

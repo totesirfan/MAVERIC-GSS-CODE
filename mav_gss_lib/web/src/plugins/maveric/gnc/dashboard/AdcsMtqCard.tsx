@@ -1,6 +1,7 @@
 import { Card } from './Card'
 import { FieldDisplay } from '../shared/FieldDisplay'
 import { Maveric3DViewer } from './Maveric3DViewer'
+import { ModeStrip } from '../shared/ModeStrip'
 import { MtqBar, MtqBlock, type AxisTick } from '../shared/MtqBars'
 import { TempGauge } from '../shared/TempGauge'
 import { fmtQuat, fmtYpr, fmtDateDisplay } from './format'
@@ -26,6 +27,18 @@ interface AdcsMtqCardProps {
 const MTQ_VISUAL_RANGE = 0.25
 const MTQ_XY_SAT = 0.2
 const MTQ_Z_SAT  = 0.1
+
+// Mirrors MODE_NAMES in mav_gss_lib/missions/maveric/telemetry/gnc_registers/schema.py.
+const ADCS_MODES = [
+  'Safe',
+  'De-tumble',
+  'Sun Spin',
+  'Sun Point',
+  'Fine Point',
+  'LVLH',
+  'Target Trk',
+  'Manual',
+]
 
 function mtqPercent(value: number): number {
   const clamped = Math.max(-MTQ_VISUAL_RANGE, Math.min(MTQ_VISUAL_RANGE, value))
@@ -86,6 +99,8 @@ export function AdcsMtqCard({ state, nowMs }: AdcsMtqCardProps) {
 
   return (
     <Card title="ADCS · MTQ" status={modeChip}>
+      <ModeStrip labels={ADCS_MODES} activeIndex={statV?.MODE} columns={4} />
+
       <div
         className="grid gap-3 px-3 py-2 border-b border-[#1a1a1a]"
         style={{ gridTemplateColumns: '150px 1fr' }}
