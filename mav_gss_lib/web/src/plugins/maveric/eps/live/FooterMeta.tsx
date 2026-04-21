@@ -1,9 +1,8 @@
-import { memo } from 'react'
+import { memo, useEffect, useState } from 'react'
 
 interface Props {
   pktNum: number | null
   receivedAtMs: number | null
-  onClearSnapshot: () => Promise<void>
 }
 
 function formatAge(nowMs: number, pastMs: number): string {
@@ -23,33 +22,24 @@ function formatUtc(ms: number): string {
     + `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}Z`
 }
 
-function FooterMetaInner({ pktNum, receivedAtMs, onClearSnapshot }: Props) {
-  const now = Date.now()
+function FooterMetaInner({ pktNum, receivedAtMs }: Props) {
+  const [nowMs, setNowMs] = useState<number>(() => Date.now())
+  useEffect(() => {
+    const id = window.setInterval(() => setNowMs(Date.now()), 1000)
+    return () => window.clearInterval(id)
+  }, [])
+
   const hasSnap = receivedAtMs !== null && Number.isFinite(receivedAtMs)
-  const ageText = hasSnap ? formatAge(now, receivedAtMs!) : '—'
+  const ageText = hasSnap ? formatAge(nowMs, receivedAtMs!) : '—'
   const snapText = hasSnap ? formatUtc(receivedAtMs!) : '—'
-  const pktText = pktNum !== null && Number.isFinite(pktNum) ? `eps_hk · 48 F · #${pktNum}` : 'eps_hk · 48 F'
+  const pktText = pktNum !== null && Number.isFinite(pktNum) ? `eps_hk · #${pktNum}` : 'eps_hk'
   return (
     <div className="footer-row" data-component="FooterMeta" aria-live="polite">
       <span><span className="k">pkt</span><span className="v">{pktText}</span></span>
       <span className="sep">|</span>
-      <span><span className="k">payload</span><span className="v">96 B</span></span>
-      <span className="sep">|</span>
       <span><span className="k">last</span><span className="v" data-age="lastRxAt">{ageText}</span></span>
       <span className="right">
         <span className="k">snapshot</span><span className="v">{snapText}</span>
-        <button
-          type="button"
-          onClick={() => { void onClearSnapshot() }}
-          aria-label="Clear EPS snapshot"
-          style={{
-            marginLeft: 10, fontSize: 10, padding: '2px 8px',
-            background: 'transparent', color: 'var(--text-muted)',
-            border: '1px solid var(--border-strong)', borderRadius: 3, cursor: 'pointer',
-          }}
-        >
-          CLEAR
-        </button>
       </span>
     </div>
   )

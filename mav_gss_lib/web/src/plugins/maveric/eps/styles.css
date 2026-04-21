@@ -266,11 +266,6 @@
   color: var(--text-disabled); letter-spacing: 0.04em;
   margin-top: 2px;
 }
-.eps-page .soc-caveat {
-  font-family: 'JetBrains Mono', monospace; font-size: 11px;
-  color: var(--state-warning); letter-spacing: 0.04em;
-  margin-top: 4px;
-}
 .eps-page .therm-gauge {
   position: relative; height: 10px;
   background: rgba(255, 255, 255, 0.04);
@@ -600,7 +595,7 @@
   grid-template-columns: 80px repeat(8, minmax(0, 1fr));
 }
 .eps-page .flow-row.src-drops,
-.eps-page .flow-row.ld-drops { min-height: 40px; }
+.eps-page .flow-row.ld-drops { min-height: 40px; flex: 1 1 auto; }
 .eps-page .flow-row > .flow-label {
   font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
   color: var(--text-disabled);

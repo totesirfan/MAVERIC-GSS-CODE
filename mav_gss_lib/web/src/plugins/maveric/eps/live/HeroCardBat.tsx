@@ -97,9 +97,6 @@ function HeroCardBatInner({ V_BAT, I_BAT, prev_V_BAT, chargeDir, soc, alarm }: P
           <div className="soc-axis">
             <span>0 %</span><span>warn 25</span><span>nom 58</span><span>100 %</span>
           </div>
-          <div className="soc-caveat" title="Replace with vendor-supplied Li-ion discharge curve before flight">
-            ⚠ COARSE · linear V→SoC · replace with vendor curve
-          </div>
         </div>
         {hasPrev && (
           <div className="delta-row" data-delta="V_BAT" title="Change since previous packet in this link">

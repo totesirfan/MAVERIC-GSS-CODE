@@ -50,7 +50,7 @@ export default function EpsPage() {
   const [tab, setTab] = useState<Subtab>(readSubtabFromUrl)
 
   // ── Single useEps() call for the whole EPS tree ──
-  const { current, prev, chargeDir, latched, receivedThisLink, acknowledgeLatch, clearSnapshot } = useEps()
+  const { current, prev, chargeDir, latched, receivedThisLink, acknowledgeLatch } = useEps()
 
   // Stable primitive props. All children receive these; none call
   // useEps() themselves. useMemo ensures alarmState/activeSource etc.
@@ -145,7 +145,6 @@ export default function EpsPage() {
             <FooterMeta
               pktNum={current?.pkt_num ?? null}
               receivedAtMs={current?.received_at_ms ?? null}
-              onClearSnapshot={clearSnapshot}
             />
           </div>
         </section>
