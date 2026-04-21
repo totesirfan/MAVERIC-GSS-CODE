@@ -91,7 +91,7 @@ class _BaseLog:
         self._station = station
         self._operator = operator
         self._host = host
-        self._q_lock = threading.Lock()
+        self._q_lock = threading.Lock()  # guards _q replacement during new_session
         os.makedirs(os.path.join(log_dir, "text"), exist_ok=True)
         os.makedirs(os.path.join(log_dir, "json"), exist_ok=True)
         self._open_files()
