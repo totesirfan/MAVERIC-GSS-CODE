@@ -32,6 +32,7 @@ from mav_gss_lib.config import (
     get_generated_commands_dir,
     load_gss_config,
 )
+from mav_gss_lib.identity import capture_host, capture_operator, capture_station
 from mav_gss_lib.mission_adapter import load_mission_adapter
 from mav_gss_lib.protocols.ax25 import AX25Config
 from mav_gss_lib.protocols.csp import CSPConfig
@@ -56,6 +57,9 @@ class Session:
     session_tag: str
     started_at: str
     session_generation: int
+    operator: str
+    host: str
+    station: str
 
 
 # =============================================================================
@@ -72,6 +76,9 @@ class WebRuntime:
         self.max_queue = MAX_QUEUE
 
         self.cfg = load_gss_config()
+        self.operator = capture_operator()
+        self.host = capture_host()
+        self.station = capture_station(self.cfg, self.host)
         self.adapter = load_mission_adapter(self.cfg)
         self.cmd_defs = self.adapter.cmd_defs
 
@@ -95,6 +102,9 @@ class WebRuntime:
             session_tag="untitled",
             started_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             session_generation=1,
+            operator=self.operator,
+            host=self.host,
+            station=self.station,
         )
         self.session_clients: list = []
         self.session_lock = threading.Lock()
