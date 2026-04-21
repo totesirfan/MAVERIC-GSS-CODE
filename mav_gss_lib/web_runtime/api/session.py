@@ -34,6 +34,9 @@ def _session_info(runtime) -> dict:
         "session_tag": s.session_tag,
         "started_at": s.started_at,
         "session_generation": s.session_generation,
+        "operator": s.operator,
+        "host": s.host,
+        "station": s.station,
     }
 
 
@@ -68,6 +71,9 @@ async def api_session_new(body: dict, request: Request):
         session_tag=session_tag,
         started_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         session_generation=old_gen + 1,
+        operator=runtime.operator,
+        host=runtime.host,
+        station=runtime.station,
     )
 
     # -- Prepare phase: open new files without closing old ones --
@@ -129,6 +135,9 @@ async def api_session_new(body: dict, request: Request):
         "session_tag": new_session.session_tag,
         "session_generation": new_session.session_generation,
         "started_at": new_session.started_at,
+        "operator": new_session.operator,
+        "host": new_session.host,
+        "station": new_session.station,
     }
     await runtime.rx.broadcast(event)
     await runtime.tx.broadcast(event)
@@ -206,6 +215,9 @@ async def api_session_rename(body: dict, request: Request):
         "type": "session_renamed",
         "session_id": runtime.session.session_id,
         "session_tag": session_tag,
+        "operator": runtime.session.operator,
+        "host": runtime.session.host,
+        "station": runtime.session.station,
     }
     await runtime.rx.broadcast(event)
     await runtime.tx.broadcast(event)
