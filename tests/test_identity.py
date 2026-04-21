@@ -75,3 +75,35 @@ def test_station_id_strip_preserves_disk_value(tmp_path, monkeypatch):
     reloaded = yaml.safe_load(gss_path.read_text())
     assert reloaded["general"]["station_id"] == "GS-7"
     assert reloaded["tx"]["delay_ms"] == 1000
+
+
+def test_preflight_yields_identity_row_from_capture():
+    """CLI path: no identity injected — falls back to capture."""
+    from unittest import mock
+    from mav_gss_lib.preflight import run_preflight
+    cfg = {"general": {"mission": "maveric", "station_id": "GS-0"}}
+    with mock.patch("mav_gss_lib.identity.getpass.getuser", return_value="irfan"), \
+         mock.patch("mav_gss_lib.identity.socket.gethostname", return_value="dev-host"):
+        results = list(run_preflight(cfg=cfg))
+    identity_rows = [r for r in results if r.group == "identity"]
+    assert len(identity_rows) == 1
+    row = identity_rows[0]
+    assert row.status == "ok"
+    assert "irfan" in row.label or "irfan" in row.detail
+    assert "GS-0" in row.label or "GS-0" in row.detail
+
+
+def test_preflight_uses_injected_identity_over_capture():
+    """Web path: runtime injects identity — capture must not run."""
+    from mav_gss_lib.preflight import run_preflight
+    cfg = {"general": {"mission": "maveric", "station_id": "IGNORED"}}
+    results = list(run_preflight(
+        cfg=cfg,
+        operator="alice", host="gs1", station="GS-1",
+    ))
+    identity_rows = [r for r in results if r.group == "identity"]
+    assert len(identity_rows) == 1
+    row = identity_rows[0]
+    assert "alice" in row.detail and "GS-1" in row.detail
+    # cfg station_id="IGNORED" must not leak in — injected identity wins
+    assert "IGNORED" not in row.label and "IGNORED" not in row.detail

@@ -115,7 +115,12 @@ async def _run_mission_checks(runtime) -> list[CheckResult]:
     """Stream mission preflight checks, broadcast each, return the list."""
     results: list[CheckResult] = []
     try:
-        for check in run_preflight(cfg=runtime.cfg):
+        for check in run_preflight(
+            cfg=runtime.cfg,
+            operator=runtime.operator,
+            host=runtime.host,
+            station=runtime.station,
+        ):
             await _broadcast(runtime, {
                 "type": "check",
                 "group": check.group,

@@ -51,15 +51,40 @@ def summarize(results: list[CheckResult]) -> PreflightSummary:
 
 
 def run_preflight(cfg: dict | None = None,
-                  lib_dir: Path | None = None) -> Iterator[CheckResult]:
+                  lib_dir: Path | None = None,
+                  *,
+                  operator: str | None = None,
+                  host: str | None = None,
+                  station: str | None = None) -> Iterator[CheckResult]:
     """Yield check results as each check executes.
 
     Args:
         cfg: Pre-loaded config dict. If None, loads from gss.yml.
         lib_dir: Library directory for path resolution. Defaults to mav_gss_lib/.
+        operator, host, station: Inject identity captured elsewhere (e.g. from
+            the already-running WebRuntime). When any of these is None, the
+            missing field is captured fresh. Keep these in sync with
+            runtime.operator/host/station to avoid drift between preflight
+            and /api/identity.
     """
     if lib_dir is None:
         lib_dir = _LIB_DIR
+
+    # ── Identity (informational — always PASS) ──
+    # Prefer injected identity to avoid drift between preflight and /api/identity.
+    from mav_gss_lib.identity import capture_host, capture_operator, capture_station
+    if operator is None:
+        operator = capture_operator()
+    if host is None:
+        host = capture_host()
+    if station is None:
+        station = capture_station(cfg or {}, host)
+    yield CheckResult(
+        "identity",
+        f"OP {operator}  ·  Station {station}",
+        "ok",
+        detail=f"operator={operator}  host={host}  station={station}",
+    )
 
     # ── Python Dependencies ──
     for mod, pkg, install in [
