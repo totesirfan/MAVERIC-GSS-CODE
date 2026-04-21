@@ -1,0 +1,76 @@
+{
+  "_comment": "Single source of truth for the 48 eps_hk fields. Order MATCHES _EPS_HK_NAMES in mav_gss_lib/missions/maveric/telemetry/eps.py and therefore the int16 LE wire order. Consumed by types.ts (generate EpsFields), FieldsPane (table rows + filter groups), and tests/test_eps_wire_up.py (asserts every data-hk in the preview resolves here).",
+  "version": 1,
+  "wire_struct": "<48h",
+  "wire_bytes": 96,
+  "fields": [
+    { "name": "I_BUS",  "unit": "A",   "digits": 3, "group": "bus",     "raw_scale": 0.001 },
+    { "name": "I_BAT",  "unit": "A",   "digits": 3, "group": "bus",     "raw_scale": 0.001, "signed_display": true },
+    { "name": "V_BUS",  "unit": "V",   "digits": 3, "group": "bus",     "raw_scale": 0.001 },
+    { "name": "V_AC1",  "unit": "V",   "digits": 3, "group": "bus",     "raw_scale": 0.001 },
+    { "name": "V_AC2",  "unit": "V",   "digits": 3, "group": "bus",     "raw_scale": 0.001 },
+    { "name": "V_BAT",  "unit": "V",   "digits": 3, "group": "bus",     "raw_scale": 0.001 },
+    { "name": "V_SYS",  "unit": "V",   "digits": 3, "group": "bus",     "raw_scale": 0.001 },
+
+    { "name": "TS_ADC", "unit": "%",   "digits": 1, "group": "thermal", "raw_scale": 0.0976563, "polarity_inverted": true },
+    { "name": "T_DIE",  "unit": "°C",  "digits": 1, "group": "thermal", "raw_scale": 0.5 },
+
+    { "name": "V3V3",   "unit": "V",   "digits": 3, "group": "rails",   "raw_scale": 0.001 },
+    { "name": "I3V3",   "unit": "A",   "digits": 3, "group": "rails",   "raw_scale": 0.001 },
+    { "name": "P3V3",   "unit": "W",   "digits": 2, "group": "rails",   "raw_scale": 0.001 },
+    { "name": "V5V0",   "unit": "V",   "digits": 3, "group": "rails",   "raw_scale": 0.001 },
+    { "name": "I5V0",   "unit": "A",   "digits": 3, "group": "rails",   "raw_scale": 0.001 },
+    { "name": "P5V0",   "unit": "W",   "digits": 2, "group": "rails",   "raw_scale": 0.001 },
+
+    { "name": "VOUT1",  "unit": "V",   "digits": 3, "group": "vout",    "raw_scale": 0.001, "vout_index": 1 },
+    { "name": "IOUT1",  "unit": "A",   "digits": 3, "group": "vout",    "raw_scale": 0.001, "vout_index": 1 },
+    { "name": "POUT1",  "unit": "W",   "digits": 2, "group": "vout",    "raw_scale": 0.001, "vout_index": 1 },
+    { "name": "VOUT2",  "unit": "V",   "digits": 3, "group": "vout",    "raw_scale": 0.001, "vout_index": 2 },
+    { "name": "IOUT2",  "unit": "A",   "digits": 3, "group": "vout",    "raw_scale": 0.001, "vout_index": 2 },
+    { "name": "POUT2",  "unit": "W",   "digits": 2, "group": "vout",    "raw_scale": 0.001, "vout_index": 2 },
+    { "name": "VOUT3",  "unit": "V",   "digits": 3, "group": "vout",    "raw_scale": 0.001, "vout_index": 3 },
+    { "name": "IOUT3",  "unit": "A",   "digits": 3, "group": "vout",    "raw_scale": 0.001, "vout_index": 3 },
+    { "name": "POUT3",  "unit": "W",   "digits": 2, "group": "vout",    "raw_scale": 0.001, "vout_index": 3 },
+    { "name": "VOUT4",  "unit": "V",   "digits": 3, "group": "vout",    "raw_scale": 0.001, "vout_index": 4 },
+    { "name": "IOUT4",  "unit": "A",   "digits": 3, "group": "vout",    "raw_scale": 0.001, "vout_index": 4 },
+    { "name": "POUT4",  "unit": "W",   "digits": 2, "group": "vout",    "raw_scale": 0.001, "vout_index": 4 },
+    { "name": "VOUT5",  "unit": "V",   "digits": 3, "group": "vout",    "raw_scale": 0.001, "vout_index": 5, "subsystem": "HoloNav" },
+    { "name": "IOUT5",  "unit": "A",   "digits": 3, "group": "vout",    "raw_scale": 0.001, "vout_index": 5, "subsystem": "HoloNav" },
+    { "name": "POUT5",  "unit": "W",   "digits": 2, "group": "vout",    "raw_scale": 0.001, "vout_index": 5, "subsystem": "HoloNav" },
+    { "name": "VOUT6",  "unit": "V",   "digits": 3, "group": "vout",    "raw_scale": 0.001, "vout_index": 6, "subsystem": "AstroBrd" },
+    { "name": "IOUT6",  "unit": "A",   "digits": 3, "group": "vout",    "raw_scale": 0.001, "vout_index": 6, "subsystem": "AstroBrd" },
+    { "name": "POUT6",  "unit": "W",   "digits": 2, "group": "vout",    "raw_scale": 0.001, "vout_index": 6, "subsystem": "AstroBrd" },
+
+    { "name": "VBRN1",  "unit": "V",   "digits": 3, "group": "burn",    "raw_scale": 0.001, "burn_index": 1 },
+    { "name": "IBRN1",  "unit": "A",   "digits": 3, "group": "burn",    "raw_scale": 0.001, "burn_index": 1 },
+    { "name": "PBRN1",  "unit": "W",   "digits": 2, "group": "burn",    "raw_scale": 0.001, "burn_index": 1 },
+    { "name": "VBRN2",  "unit": "V",   "digits": 3, "group": "burn",    "raw_scale": 0.001, "burn_index": 2 },
+    { "name": "IBRN2",  "unit": "A",   "digits": 3, "group": "burn",    "raw_scale": 0.001, "burn_index": 2 },
+    { "name": "PBRN2",  "unit": "W",   "digits": 2, "group": "burn",    "raw_scale": 0.001, "burn_index": 2 },
+
+    { "name": "VSIN1",  "unit": "V",   "digits": 2, "group": "solar",   "raw_scale": 0.001, "solar_index": 1 },
+    { "name": "ISIN1",  "unit": "A",   "digits": 3, "group": "solar",   "raw_scale": 0.001, "solar_index": 1 },
+    { "name": "PSIN1",  "unit": "W",   "digits": 2, "group": "solar",   "raw_scale": 0.001, "solar_index": 1 },
+    { "name": "VSIN2",  "unit": "V",   "digits": 2, "group": "solar",   "raw_scale": 0.001, "solar_index": 2 },
+    { "name": "ISIN2",  "unit": "A",   "digits": 3, "group": "solar",   "raw_scale": 0.001, "solar_index": 2 },
+    { "name": "PSIN2",  "unit": "W",   "digits": 2, "group": "solar",   "raw_scale": 0.001, "solar_index": 2 },
+    { "name": "VSIN3",  "unit": "V",   "digits": 2, "group": "solar",   "raw_scale": 0.001, "solar_index": 3 },
+    { "name": "ISIN3",  "unit": "A",   "digits": 3, "group": "solar",   "raw_scale": 0.001, "solar_index": 3 },
+    { "name": "PSIN3",  "unit": "W",   "digits": 2, "group": "solar",   "raw_scale": 0.001, "solar_index": 3 }
+  ],
+  "derived": [
+    { "name": "P_BUS",      "unit": "W", "digits": 2, "formula": "V_BUS * I_BUS" },
+    { "name": "P_IN",       "unit": "W", "digits": 2, "formula": "PSIN1 + PSIN2 + PSIN3 + (V_BAT * (-I_BAT) if I_BAT < 0 else 0)" },
+    { "name": "P_OUT",      "unit": "W", "digits": 2, "formula": "V_BUS * I_BUS" },
+    { "name": "EFFICIENCY", "unit": "",  "digits": 3, "formula": "P_OUT / P_IN; null when AC source active (AC has no current)" }
+  ],
+  "groups": [
+    { "id": "all",     "label": "All",         "count": 48 },
+    { "id": "bus",     "label": "Bus",         "count": 7  },
+    { "id": "solar",   "label": "Solar",       "count": 9  },
+    { "id": "thermal", "label": "Thermal",     "count": 2  },
+    { "id": "rails",   "label": "Rails",       "count": 6  },
+    { "id": "vout",    "label": "VOUT",        "count": 18 },
+    { "id": "burn",    "label": "Burn",        "count": 6  }
+  ]
+}

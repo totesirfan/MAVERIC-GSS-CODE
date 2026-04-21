@@ -36,6 +36,7 @@ def init_mission(cfg: dict) -> dict:
     from mav_gss_lib.missions.maveric.schema import load_command_defs
     from mav_gss_lib.missions.maveric.imaging import ImageAssembler
     from mav_gss_lib.missions.maveric.telemetry.gnc_registers import GncRegisterStore
+    from mav_gss_lib.missions.maveric.telemetry.eps_store import EpsStore
 
     nodes = init_nodes(cfg)
 
@@ -50,6 +51,10 @@ def init_mission(cfg: dict) -> dict:
     log_dir = cfg.get("general", {}).get("log_dir", "logs")
     gnc_snapshot_path = os.path.join(log_dir, ".gnc_snapshot.json")
     gnc_store = GncRegisterStore(gnc_snapshot_path)
+
+    # EPS HK snapshot — same trust boundary + path convention as GNC.
+    eps_snapshot_path = os.path.join(log_dir, ".eps_snapshot.json")
+    eps_store = EpsStore(eps_snapshot_path)
 
     # Resolve command schema path: check mission package dir first
     cmd_defs_name = cfg.get("general", {}).get("command_defs", "commands.yml")
@@ -76,6 +81,7 @@ def init_mission(cfg: dict) -> dict:
         "nodes": nodes,
         "image_assembler": image_assembler,
         "gnc_store": gnc_store,
+        "eps_store": eps_store,
     }
 
 
@@ -104,5 +110,10 @@ def get_plugin_routers(adapter=None, config_accessor=None):
     if gnc_store is not None:
         from mav_gss_lib.missions.maveric.telemetry.gnc_router import get_gnc_router
         routers.append(get_gnc_router(gnc_store))
+
+    eps_store = getattr(adapter, "eps_store", None)
+    if eps_store is not None:
+        from mav_gss_lib.missions.maveric.telemetry.eps_router import get_eps_router
+        routers.append(get_eps_router(eps_store))
 
     return routers

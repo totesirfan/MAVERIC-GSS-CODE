@@ -36,6 +36,7 @@ class MavericMissionAdapter:
     nodes: NodeTable
     image_assembler: object = None
     gnc_store: object = None
+    eps_store: object = None
 
     def detect_frame_type(self, meta) -> str:
         return rx_ops.detect(meta)
@@ -155,6 +156,29 @@ class MavericMissionAdapter:
                     "registers": wrapped,
                 })
 
+        # -- EPS HK update path --
+        # Only emit on real TLM responses. CMD echoes and ACKs alias
+        # the same args slot but carry no decoded telemetry, so
+        # emitting for them would overwrite a good snapshot with
+        # empty data. Same gating shape as the GNC branch above.
+        telemetry = md.get("telemetry")
+        if telemetry and telemetry.get("cmd_id") == "eps_hk":
+            if self.nodes.ptype_name(_ptype_of(md)) == "TLM":
+                import time
+                now_ms = int(time.time() * 1000)
+                fields_map = {f["name"]: f["value"] for f in telemetry.get("fields", [])}
+                snapshot = {
+                    "received_at_ms": now_ms,
+                    "pkt_num": pkt.pkt_num,
+                    "fields": fields_map,
+                }
+                if self.eps_store is not None:
+                    self.eps_store.update(snapshot)
+                messages.append({
+                    "type": "eps_hk_update",
+                    **snapshot,
+                })
+
         # -- Imaging path (unchanged) --
         if not self.image_assembler:
             return messages or None
@@ -232,3 +256,34 @@ class MavericMissionAdapter:
 
         messages.append(_progress_msg(filename))
         return messages
+
+    # -- Client connect hook --
+    #
+    # Called by `web_runtime.rx` after a fresh /ws/rx client has been
+    # sent the packet history but before live broadcasts begin.
+    # Returns a list of synthetic WS messages that bring the client's
+    # plugin state up to last-known — replaces the prior REST-seed
+    # pattern so consumers see one ordered stream instead of racing
+    # a REST response against the live subscription.
+    def on_client_connect(self) -> list[dict]:
+        msgs: list[dict] = []
+
+        eps_store = getattr(self, "eps_store", None)
+        if eps_store is not None:
+            snap = eps_store.get()
+            if snap and snap.get("fields"):
+                msgs.append({
+                    "type": "eps_hk_update",
+                    "received_at_ms": snap["received_at_ms"],
+                    "pkt_num": snap["pkt_num"],
+                    "fields": snap["fields"],
+                    "replay": True,
+                })
+
+        gnc_store = getattr(self, "gnc_store", None)
+        if gnc_store is not None:
+            regs = gnc_store.get_all()
+            if regs:
+                msgs.append({"type": "gnc_register_update", "registers": regs, "replay": True})
+
+        return msgs

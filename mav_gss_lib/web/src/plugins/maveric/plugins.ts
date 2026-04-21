@@ -1,5 +1,5 @@
 import { lazy } from 'react'
-import { Camera, Compass } from 'lucide-react'
+import { Camera, Compass, BatteryCharging } from 'lucide-react'
 import type { PluginPageDef } from '@/plugins/registry'
 
 const plugins: PluginPageDef[] = [
@@ -21,6 +21,15 @@ const plugins: PluginPageDef[] = [
     order: 20,
     keepAlive: true,   // keep hook state across tab switches
     component: lazy(() => import('./gnc/GNCPage')),
+  },
+  {
+    id: 'eps',
+    name: 'EPS',
+    description: 'Power bus dashboard',
+    icon: BatteryCharging,
+    category: 'mission',
+    order: 25,
+    component: lazy(() => import('./eps/EpsPage')),
   },
 ]
 

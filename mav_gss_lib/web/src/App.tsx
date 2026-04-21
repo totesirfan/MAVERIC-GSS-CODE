@@ -24,6 +24,7 @@ import {
   CommandPaletteSkeleton,
 } from '@/components/MainDashboard'
 import { getPluginPages, type PluginPageDef } from '@/plugins/registry'
+import { MissionProviders } from '@/plugins/missionRuntime'
 import { usePreflight } from '@/hooks/usePreflight'
 import { PreflightScreen } from '@/components/shared/PreflightScreen'
 import { TabViewport } from '@/components/layout/TabViewport'
@@ -68,8 +69,10 @@ export default function App() {
     <SessionProvider>
       <TxProvider>
         <RxProvider>
-          <AppShell />
-          <PreflightOverlay />
+          <MissionProviders>
+            <AppShell />
+            <PreflightOverlay />
+          </MissionProviders>
         </RxProvider>
       </TxProvider>
     </SessionProvider>

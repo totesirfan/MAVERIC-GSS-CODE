@@ -27,6 +27,20 @@ async def ws_rx(websocket: WebSocket):
             await websocket.send_text(json.dumps({"type": "packet", "data": pkt_json}))
         except Exception:
             return
+
+    # Plugin hook — let the adapter replay its current snapshots as
+    # synthetic WS messages before the client enters its live loop.
+    # This removes the need for a REST seed step on the frontend:
+    # the first WS frames a plugin consumer sees are the current state.
+    connect_hook = getattr(runtime.adapter, "on_client_connect", None)
+    if connect_hook is not None:
+        try:
+            for msg in connect_hook() or []:
+                await websocket.send_text(json.dumps(msg))
+        except Exception:
+            import logging
+            logging.warning("on_client_connect hook failed", exc_info=True)
+
     with runtime.rx.lock:
         runtime.rx.clients.append(websocket)
     try:
