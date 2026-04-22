@@ -38,6 +38,7 @@ from mav_gss_lib.protocols.ax25 import AX25Config
 from mav_gss_lib.protocols.csp import CSPConfig
 from ._atomics import AtomicStatus
 from .rx_service import RxService
+from .telemetry import reset_legacy_snapshots
 from .telemetry.router import TelemetryRouter
 from .tx_service import TxService
 
@@ -84,6 +85,18 @@ class WebRuntime:
         self.cmd_defs = self.adapter.cmd_defs
 
         log_dir = self.cfg.get("general", {}).get("log_dir", "logs")
+        # v2 upgrade path: if pre-v2 flat snapshot files are still on
+        # disk from a prior incarnation, remove them once and log the
+        # removal. Operators see the WARNING on startup; dashboards
+        # will be blank until the next live packet arrives.
+        removed = reset_legacy_snapshots(log_dir)
+        if removed:
+            import logging as _logging
+            _logging.warning(
+                "telemetry v2 upgrade: removed %d legacy snapshot file(s): %s. "
+                "Dashboards will show empty state until the next live packet arrives.",
+                len(removed), ", ".join(removed),
+            )
         self.telemetry = TelemetryRouter(Path(log_dir) / ".telemetry")
         for name, spec in self.adapter.telemetry_manifest.items():
             self.telemetry.register_domain(name, **spec)
