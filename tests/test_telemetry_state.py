@@ -26,7 +26,18 @@ def test_fragment_to_dict_is_stable():
     assert f.to_dict() == {
         "domain": "eps", "key": "V_BAT", "value": 7.622,
         "ts_ms": 1_700_000_000_000, "unit": "V",
+        "display_only": False,
     }
+
+
+def test_display_only_fragment_serializes_with_flag():
+    f = TelemetryFragment("eps", "eps_heartbeat", 1, 1_700_000_000_000,
+                          display_only=True)
+    d = f.to_dict()
+    assert d["display_only"] is True
+    # Round-trip: rehydrate through **d must preserve the flag.
+    f2 = TelemetryFragment(**d)
+    assert f2.display_only is True
 
 
 def test_empty_on_first_open(tmp_path):

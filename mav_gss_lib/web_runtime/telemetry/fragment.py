@@ -18,12 +18,21 @@ class TelemetryFragment:
     serialize `unit` into the on-disk `{v, t}` entry — unit is emit-time
     display metadata, not canonical state. A mission that needs unit at
     render time on the frontend reads it from the domain catalog instead.
+
+    `display_only` fragments bypass the TelemetryRouter — they still
+    render in the per-packet detail block and the JSONL / text log,
+    but they do not contribute to canonical domain state. Use this for
+    wire slots an extractor knows how to decode but whose semantics
+    are not yet settled (e.g. raw subsystem heartbeats, mode bytes).
+    The slot is visible to operators and forensics without inventing
+    a canonical key prematurely.
     """
     domain: str
     key: str
     value: Any
     ts_ms: int
     unit: str = ""
+    display_only: bool = False
 
     def to_dict(self) -> dict:
         """Serialize to the JSON-friendly shape stored on `pkt.mission_data["fragments"]`
@@ -31,4 +40,5 @@ class TelemetryFragment:
         return {
             "domain": self.domain, "key": self.key, "value": self.value,
             "ts_ms": self.ts_ms, "unit": self.unit,
+            "display_only": self.display_only,
         }

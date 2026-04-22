@@ -49,15 +49,32 @@ class TestProtocolCore(unittest.TestCase):
         self.assertEqual(ax25_payload[14:16], b"\x03\xf0")
 
     def test_enrich_cmd_in_place_uses_current_definition(self):
-        cmd = {"cmd_id": "tlm_beacon", "args": ["1", "1767230528021", "0", "0"]}
+        # ppm_get_time has 7 typed int rx_args — confirms the schema
+        # enrich path wires up typed_args by name and type.
+        cmd = {"cmd_id": "ppm_get_time",
+               "args": ["3", "4", "22", "2026", "13", "45", "12"]}
         matched = enrich_cmd_in_place(cmd, CMD_DEFS)
         self.assertTrue(matched)
         self.assertTrue(cmd["schema_match"])
-        self.assertGreaterEqual(len(cmd.get("typed_args", [])), 2)
-        typed_names = [arg["name"] for arg in cmd["typed_args"]]
-        self.assertIn("Beacon Type", typed_names)
-        self.assertIn("Unix Time", typed_names)
-        self.assertIsNotNone(cmd.get("sat_time"))
+        typed = cmd.get("typed_args", [])
+        self.assertEqual(len(typed), 7)
+        names = [arg["name"] for arg in typed]
+        self.assertEqual(names,
+                         ["Weekday", "Month", "Day", "Year",
+                          "Hour", "Minute", "Second"])
+        self.assertEqual(typed[3]["value"], 2026)
+
+    def test_enrich_cmd_in_place_tlm_beacon_is_schema_match_without_typed_args(self):
+        """tlm_beacon is a binary-payload command; rx_args is intentionally
+        empty so the schema does not invite text-token parsing of the
+        packed struct. Enrichment still matches the schema — typed_args
+        is simply empty and downstream rendering hides the raw args."""
+        cmd = {"cmd_id": "tlm_beacon", "args": [], "args_raw": b""}
+        matched = enrich_cmd_in_place(cmd, CMD_DEFS)
+        self.assertTrue(matched)
+        self.assertTrue(cmd["schema_match"])
+        self.assertEqual(cmd.get("typed_args", []), [])
+        self.assertTrue(cmd.get("rx_only"))
 
     def test_validate_args_rejects_missing_required_value(self):
         valid, issues = validate_args("gnc_set_mode", "", CMD_DEFS)

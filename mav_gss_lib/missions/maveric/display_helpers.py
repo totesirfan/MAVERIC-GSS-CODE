@@ -52,7 +52,7 @@ def has_decoded_gnc(mission_data: dict) -> bool:
 # ASCII) and should be hidden in favor of their decoded fragments. Kept
 # as a mission-local constant so a future additional cmd_id is a one-
 # line change in one file.
-_HIDE_ARGS_CMD_IDS = frozenset({"eps_hk"})
+_HIDE_ARGS_CMD_IDS = frozenset({"eps_hk", "tlm_beacon"})
 
 
 def should_hide_args(cmd: dict | None, mission_data: dict) -> bool:

@@ -63,6 +63,10 @@ class TelemetryRouter:
     def ingest(self, fragments: Iterable[TelemetryFragment]) -> list[dict]:
         by_domain: dict[str, list[TelemetryFragment]] = {}
         for f in fragments:
+            if f.display_only:
+                # Display-only fragments feed rendering + logs but do
+                # not contribute to canonical domain state.
+                continue
             if f.domain in self._states:
                 by_domain.setdefault(f.domain, []).append(f)
         out: list[dict] = []

@@ -199,9 +199,8 @@ def packet_detail_blocks(pkt, nodes: NodeTable) -> list[dict]:
                 blocks.append({"kind": "args", "label": "Arguments", "fields": args_fields})
 
     # Decoded telemetry fragments. Block order mirrors wire order:
-    # SPACECRAFT prefix first (callsign + time + ops_stage + reboot
-    # counters + heartbeats + hn/ab states), then the variant tail
-    # (EPS or GNC).
+    # SPACECRAFT first (callsign + time + ops_stage + reboot counters
+    # + heartbeats + hn/ab states), then EPS, then GNC.
     #
     # For tlm_beacon we collapse GNC fragments into a SINGLE block
     # because a beacon carries 7+ gnc registers in one snapshot and

@@ -44,10 +44,10 @@ _GNC_NON_REGISTER_ENTRIES = [
      "notes": "Active magnetometer source selector, from tlm_beacon. Raw int."},
     {"module": None, "register": None, "name": "mtq_heartbeat",
      "type": "uint8", "unit": "",
-     "notes": "MTQ subsystem heartbeat byte from tlm_beacon shared prefix."},
+     "notes": "MTQ subsystem heartbeat byte from tlm_beacon."},
     {"module": None, "register": None, "name": "nvg_heartbeat",
      "type": "uint8", "unit": "",
-     "notes": "NVG subsystem heartbeat byte from tlm_beacon shared prefix."},
+     "notes": "NVG subsystem heartbeat byte from tlm_beacon."},
 ]
 
 
@@ -76,10 +76,9 @@ def _gnc_catalog():
 
 
 # Spacecraft domain catalog. Unlike `gnc`, these keys don't come from
-# addressable registers — they're all emitted by tlm_beacon (shared
-# prefix + callsign). The catalog gives the frontend + any future
-# consumer a single source of truth for key→metadata mapping, matching
-# the gnc pattern.
+# addressable registers — they're all emitted by tlm_beacon. The
+# catalog gives the frontend + any future consumer a single source of
+# truth for key→metadata mapping, matching the gnc pattern.
 #
 # type values:
 #   string  — the callsign
@@ -127,9 +126,8 @@ TELEMETRY_MANIFEST: dict[str, dict] = {
     # GNC register catalog served via the platform route; live values
     # come in through the extractor + router.
     "gnc":      {"catalog": _gnc_catalog},
-    # Spacecraft-wide state: callsign + tlm_beacon shared prefix (time,
-    # ops_stage, reboot counters, heartbeats, hn/ab states). Populated
-    # on every beacon packet regardless of beacon_type.
+    # Spacecraft-wide state: callsign + time + ops_stage + reboot
+    # counters + heartbeats + hn/ab states. Populated on every beacon.
     "spacecraft": {"catalog": _spacecraft_catalog},
     # Future-domain examples showing every extension point:
     #   "thermal": {

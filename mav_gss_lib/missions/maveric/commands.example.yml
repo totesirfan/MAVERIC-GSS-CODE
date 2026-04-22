@@ -82,17 +82,11 @@ commands:
 
   tlm_beacon:
     rx_only: true    # Cannot be uplinked; documents the downlink format
-    rx_args:
-      - name: voltage_mv
-        type: int
-        important: true
-      - name: current_ma
-        type: int
-      - name: temp_c
-        type: float
-      - name: timestamp_ms
-        type: epoch_ms
-        important: true
+    # Unified binary beacon: args_raw is a packed little-endian struct
+    # decoded by the mission's telemetry extractor into canonical
+    # fragments. No rx_args because the payload is opaque bytes, not
+    # whitespace-separated tokens.
+    rx_args: []
 
   # ── File transfer ───────────────────────────────────────────────────────
 
