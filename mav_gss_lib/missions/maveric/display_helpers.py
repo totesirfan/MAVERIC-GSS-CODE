@@ -55,6 +55,56 @@ def has_decoded_gnc(mission_data: dict) -> bool:
 _HIDE_ARGS_CMD_IDS = frozenset({"eps_hk", "tlm_beacon"})
 
 
+# Operator-facing labels for fragment keys. Canonical keys stay
+# unchanged everywhere (fragment.to_dict, JSONL, text log, router);
+# this map only affects detail-block field names in the web UI. Missing
+# entries fall through to the key verbatim.
+_DISPLAY_LABELS: dict[str, str] = {
+    # Spacecraft
+    "callsign":        "Callsign",
+    "time":            "SAT Clock",
+    "ops_stage":       "Ops Stage",
+    "lppm_rbt_cnt":    "LPPM Reboots",
+    "lppm_rbt_cause":  "LPPM Reboot Cause",
+    "uppm_rbt_cnt":    "UPPM Reboots",
+    "uppm_rbt_cause":  "UPPM Reboot Cause",
+    "ertc_heartbeat":  "ERTC Heartbeat",
+    "hn_state":        "HoloNav State",
+    "ab_state":        "AstroBoard State",
+    # GNC
+    "mtq_heartbeat":   "MTQ Heartbeat",
+    "nvg_heartbeat":   "NVG Heartbeat",
+    "ACT_ERR":         "Actuator Errors",
+    "GYRO_RATE_SRC":   "Gyro Source",
+    "MAG_SRC":         "Mag Source",
+    "RATE":            "Gyro Rate",
+    "MAG":             "Magnetic Field",
+    "MTQ":             "MTQ Dipole",
+    "ADCS_TMP":        "ADCS Temp",
+    "GNC_MODE":        "GNC Mode",
+    "GNC_COUNTERS":    "GNC Counters",
+    # EPS
+    "I_BUS":           "Bus Current",
+    "I_BAT":           "Battery Current",
+    "V_BUS":           "Bus Voltage",
+    "V_BAT":           "Battery Voltage",
+    "V_SYS":           "System Voltage",
+    "TS_ADC":          "TS ADC (BQ)",
+    "T_DIE":           "Die Temp",
+    "eps_heartbeat":   "EPS Heartbeat",
+    "eps_mode":        "EPS Mode",
+}
+
+
+def display_label(key: str) -> str:
+    """Map a canonical fragment key to its operator-facing label.
+
+    Falls back to the key itself if no label exists. Use only on the
+    render path (detail blocks); logs and JSONL keep canonical keys.
+    """
+    return _DISPLAY_LABELS.get(key, key)
+
+
 def should_hide_args(cmd: dict | None, mission_data: dict) -> bool:
     """Shared predicate: should the raw typed_args view be suppressed?
 
@@ -244,11 +294,23 @@ def _nvg_sensor_detail(v: dict, unit: str) -> list[dict]:
 
 
 def _bcd_compact(v: dict, unit: str) -> str:
-    return v["display"]
+    # spacecraft.time carries both a formatted string and the raw ms
+    # that produced it. Showing both lets operators spot clock drift
+    # (formatted date is far off but ms is fresh) and simplifies log
+    # correlation.
+    display = v["display"]
+    unix_ms = v.get("unix_ms")
+    if unix_ms is not None and display:
+        return f"{display}  ({unix_ms})"
+    return display
 
 
 def _bcd_detail(v: dict, unit: str) -> list[dict]:
-    return [{"name": "Display", "value": v["display"]}]
+    fields = [{"name": "Display", "value": v["display"]}]
+    unix_ms = v.get("unix_ms")
+    if unix_ms is not None:
+        fields.append({"name": "Unix ms", "value": str(unix_ms)})
+    return fields
 
 
 def _adcs_tmp_compact(v: dict, unit: str) -> str:
@@ -311,7 +373,7 @@ def _bitfield_compact(v: dict, unit: str) -> str:
         parts.append(f"mode={v.get('MODE_NAME', v.get('MODE'))}")
     truthy = [k for k, x in v.items() if x is True]
     if truthy:
-        parts.append(",".join(truthy))
+        parts.append("flags={" + ",".join(truthy) + "}")
     elif any(isinstance(x, bool) for x in v.values()) and not parts:
         parts.append("nominal")
     return "  ".join(parts) if parts else "—"
@@ -377,8 +439,11 @@ def compact_value(value: Any, unit: str = "") -> str:
     if isinstance(value, str):
         return value
     if isinstance(value, list):
+        # .6g preserves denormals (uninitialized-memory tells) that .4f
+        # would silently round to 0.0000, while keeping normal values
+        # short. Integers stay as-is.
         body = ", ".join(
-            f"{v:.4f}" if isinstance(v, float) else str(v)
+            f"{v:.6g}" if isinstance(v, float) else str(v)
             for v in value
         )
         return f"[{body}]{suffix}"

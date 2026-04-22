@@ -134,13 +134,36 @@ class MavericMissionAdapter:
 
         Always set the dict key (even to []) so consumers don't need to
         distinguish "no fragments" from "key missing".
+
+        Derives ``ts_result`` from a ``spacecraft.time`` fragment when the
+        command-level schema path didn't set one (the new binary beacon
+        has no ``epoch_ms`` typed_arg). Keeps the Time block's SAT UTC
+        / SAT Local rows and the text log's ``SAT TIME`` line available
+        for every packet that carries a spacecraft clock.
         """
         import time
+        from datetime import datetime, timezone
         now_ms = int(time.time() * 1000)
         frags: list[TelemetryFragment] = []
         for extract in self.extractors:
             frags.extend(extract(pkt, self.nodes, now_ms))
         pkt.mission_data["fragments"] = [f.to_dict() for f in frags]
+
+        if pkt.mission_data.get("ts_result") is None:
+            for f in frags:
+                if f.domain != "spacecraft" or f.key != "time":
+                    continue
+                unix_ms = f.value.get("unix_ms") if isinstance(f.value, dict) else None
+                if unix_ms is None:
+                    break
+                try:
+                    dt_utc = datetime.fromtimestamp(unix_ms / 1000.0, tz=timezone.utc)
+                    dt_local = dt_utc.astimezone()
+                except (OSError, OverflowError, ValueError):
+                    break
+                pkt.mission_data["ts_result"] = (dt_utc, dt_local, unix_ms)
+                break
+
         return frags
 
     def on_packet_received(self, pkt) -> list[dict] | None:

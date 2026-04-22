@@ -160,20 +160,26 @@ def format_log_lines(pkt, nodes: NodeTable) -> list[str]:
     # instead of falling through to Python's dict repr. Scalar values
     # take the scalar branch of compact_value — same output as the
     # old direct f-string path for ints, floats, strings.
+    def _fragment_line(frag) -> str:
+        # Canonical keys in logs (operator's source of truth). A
+        # trailing "# raw" marker flags display-only fragments so
+        # forensics can tell canonical telemetry from per-packet
+        # scratch values without a catalog lookup.
+        summary = _compact_value(frag["value"], frag.get("unit", ""))
+        suffix = "  # raw" if frag.get("display_only") else ""
+        return f"  {frag['key']:<16}{summary}{suffix}"
+
     for frag in frags:
         if frag["domain"] == "spacecraft":
-            summary = _compact_value(frag["value"], frag.get("unit", ""))
-            lines.append(f"  {frag['key']:<16}{summary}")
+            lines.append(_fragment_line(frag))
     for frag in frags:
         if frag["domain"] == "eps":
-            summary = _compact_value(frag["value"], frag.get("unit", ""))
-            lines.append(f"  {frag['key']:<16}{summary}")
+            lines.append(_fragment_line(frag))
     for frag in frags:
         if frag["domain"] != "gnc":
             continue
         if is_beacon:
-            summary = _compact_value(frag["value"], frag.get("unit", ""))
-            lines.append(f"  {frag['key']:<16}{summary}")
+            lines.append(_fragment_line(frag))
         else:
             lines.extend(_format_gnc_register_lines(
                 frag["key"], frag["value"], frag.get("unit", "")

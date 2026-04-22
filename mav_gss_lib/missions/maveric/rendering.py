@@ -22,7 +22,33 @@ from mav_gss_lib.missions.maveric.display_helpers import (
     unwrap_typed_arg_for_display,
     compact_value as _compact_value,
     detail_fields as _detail_fields,
+    display_label as _display_label,
 )
+
+
+def _frag_block(frags, label):
+    """Build one {kind:'args', label, fields} block from a fragment list,
+    applying friendly display labels."""
+    return {
+        "kind": "args",
+        "label": label,
+        "fields": [
+            {
+                "name": _display_label(f["key"]),
+                "value": _compact_value(f["value"], f.get("unit", "")),
+            }
+            for f in frags
+        ],
+    }
+
+
+def _split_canonical_and_raw(frags, domain):
+    """Partition a fragment list by display_only flag."""
+    canonical = [f for f in frags
+                 if f["domain"] == domain and not f.get("display_only")]
+    raw = [f for f in frags
+           if f["domain"] == domain and f.get("display_only")]
+    return canonical, raw
 
 
 # =============================================================================
@@ -217,60 +243,41 @@ def packet_detail_blocks(pkt, nodes: NodeTable) -> list[dict]:
     # (e.g. spacecraft.time = {unix_ms, display, iso_utc}) extract their
     # display string via shape dispatch. f"{v}" on a dict would fall
     # through to Python's repr.
-    spacecraft_frags = [f for f in frags if f["domain"] == "spacecraft"]
-    if spacecraft_frags:
-        blocks.append({
-            "kind": "args",
-            "label": "SPACECRAFT",
-            "fields": [
-                {
-                    "name": f["key"],
-                    "value": _compact_value(f["value"], f.get("unit", "")),
-                }
-                for f in spacecraft_frags
-            ],
-        })
+    #
+    # Each domain is emitted in two passes: canonical state first, then
+    # a dedicated "(raw)" sub-block for display_only fragments so
+    # operators can tell apart canonical telemetry from wire slots
+    # whose semantics are not yet settled.
+    sc_canon, sc_raw = _split_canonical_and_raw(frags, "spacecraft")
+    if sc_canon:
+        blocks.append(_frag_block(sc_canon, "SPACECRAFT"))
+    if sc_raw:
+        blocks.append(_frag_block(sc_raw, "SPACECRAFT (raw)"))
 
-    eps_frags = [f for f in frags if f["domain"] == "eps"]
-    if eps_frags:
-        blocks.append({
-            "kind": "args",
-            "label": "EPS_HK",
-            "fields": [
-                {
-                    "name": f["key"],
-                    "value": _compact_value(f["value"], f.get("unit", "")),
-                }
-                for f in eps_frags
-            ],
-        })
+    eps_canon, eps_raw = _split_canonical_and_raw(frags, "eps")
+    if eps_canon:
+        blocks.append(_frag_block(eps_canon, "EPS"))
+    if eps_raw:
+        blocks.append(_frag_block(eps_raw, "EPS (raw)"))
 
-    gnc_frags = [f for f in frags if f["domain"] == "gnc"]
-    if gnc_frags:
+    gnc_canon, gnc_raw = _split_canonical_and_raw(frags, "gnc")
+    if gnc_canon:
         if is_beacon:
             # Beacon snapshot: one GNC block with a compact row per register.
-            blocks.append({
-                "kind": "args",
-                "label": "GNC",
-                "fields": [
-                    {
-                        "name": f["key"],
-                        "value": _compact_value(f["value"], f.get("unit", "")),
-                    }
-                    for f in gnc_frags
-                ],
-            })
+            blocks.append(_frag_block(gnc_canon, "GNC"))
         else:
             # RES packet: per-register detail block (existing behavior).
-            for f in gnc_frags:
+            for f in gnc_canon:
                 fields = _detail_fields(f["value"], f.get("unit", ""))
                 if not fields:
                     continue
                 blocks.append({
                     "kind": "args",
-                    "label": f["key"],
+                    "label": _display_label(f["key"]),
                     "fields": fields,
                 })
+    if gnc_raw:
+        blocks.append(_frag_block(gnc_raw, "GNC (raw)"))
 
     return blocks
 
