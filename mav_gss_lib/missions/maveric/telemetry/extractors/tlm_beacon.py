@@ -265,10 +265,15 @@ BEACON_TYPE_MAPPINGS: dict[int, tuple[Mapping, ...]] = {
         Mapping((0,),          "gnc", "ACT_ERR",       to_act_err,       "verified"),
         Mapping((1,),          "gnc", "GNC_MODE",      to_gnc_mode,      "verified"),
         Mapping((2, 3, 4),     "gnc", "GNC_COUNTERS",  to_gnc_counters,  "verified"),
-        # gyro_rate_src — deferred (slot reserved).
-        Mapping((5,),          "gnc", "gyro_rate_src", _to_int,          "deferred"),
-        # mag_src — deferred (slot reserved).
-        Mapping((6,),          "gnc", "mag_src",       _to_int,          "deferred"),
+        # GYRO_RATE_SRC / MAG_SRC: the spacecraft-selected active source
+        # for the rate and magnetic vectors. Raw int canonical value —
+        # the repo has no gyro/mag source enum today, and adding one
+        # here would invent a second naming scheme (see the "do not
+        # invent canonical keys" rule in the Deferred comment block
+        # below). Frontend consumers that need a human label should
+        # add one at render time.
+        Mapping((5,),          "gnc", "GYRO_RATE_SRC", _to_int,          "verified"),
+        Mapping((6,),          "gnc", "MAG_SRC",       _to_int,          "verified"),
         Mapping((7, 8, 9),     "gnc", "RATE",          to_rate_vector,   "verified"),
         Mapping((10, 11, 12),  "gnc", "MAG",           to_mag_vector,    "verified"),
         Mapping((13, 14, 15),  "gnc", "MTQ",           to_mtq_vector,    "verified"),
@@ -303,8 +308,6 @@ BEACON_TYPE_MAPPINGS: dict[int, tuple[Mapping, ...]] = {
 # invent a new canonical key here to fill the slot — that would create
 # a second naming scheme.
 # -----------------------------------------------------------------------
-#   gyro_rate_src   (Beacon 1 tail, position 5)
-#   mag_src         (Beacon 1 tail, position 6)
 #   eps_heartbeat   (shared prefix, position 9)
 #   eps_mode        (Beacon 2 tail, position 7)
 

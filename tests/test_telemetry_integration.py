@@ -205,8 +205,12 @@ class TelemetryIntegrationTests(unittest.TestCase):
         from mav_gss_lib.missions.maveric.telemetry.semantics.gnc_schema import REGISTERS
         catalog_names = {r.name for r in REGISTERS.values()}
         handler_names = {"GNC_MODE", "GNC_COUNTERS"}
+        # Beacon-only canonical source selectors — wire-only, no catalog
+        # entry, no handler emits them. Enumerated so silent additions
+        # break the invariant.
+        beacon_only = {"GYRO_RATE_SRC", "MAG_SRC"}
         heartbeats = {"mtq_heartbeat", "nvg_heartbeat"}  # shared-prefix gnc keys
-        allowed = catalog_names | handler_names | heartbeats
+        allowed = catalog_names | handler_names | beacon_only | heartbeats
 
         msgs = _run(self.adapter, _beacon_pkt(BEACON_1))
         gnc_msg = next(m for m in msgs

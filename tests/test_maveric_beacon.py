@@ -67,8 +67,8 @@ BEACON_1_TAIL = [
     "166",         # unexpected_safe_count
     "3",           # unexpected_detumble_count
     "5",           # sunspin_count
-    "0",           # gyro_rate_src (deferred)
-    "0",           # mag_src (deferred)
+    "2",           # GYRO_RATE_SRC (raw int; no enum in repo)
+    "3",           # MAG_SRC (raw int; no enum in repo)
     "0.01", "0.02", "0.03",   # rate[3]
     "1.0", "2.0", "3.0",      # mag[3]
     "0.1", "0.2", "0.3",      # mtq_dipole[3]
@@ -181,11 +181,21 @@ class TestBeacon1Tail(unittest.TestCase):
         # mtq_stat = 0x60000000 → byte3_raw = 0x60.
         self.assertEqual(act.value["byte3_raw"], 0x60)
 
-    def test_deferred_rows_skip(self):
+    def test_source_selectors_emit_as_canonical_gnc_keys(self):
         pkt = _beacon_pkt(1, BEACON_1_TAIL)
-        keys = {f.key for f in extract(pkt, _nodes(), 0)}
-        self.assertNotIn("gyro_rate_src", keys)
-        self.assertNotIn("mag_src", keys)
+        frags = {f.key: f for f in extract(pkt, _nodes(), 0)
+                 if f.domain == "gnc"}
+
+        self.assertIn("GYRO_RATE_SRC", frags)
+        self.assertIn("MAG_SRC", frags)
+        # Raw int canonical values (no enum mapping in repo).
+        self.assertEqual(frags["GYRO_RATE_SRC"].value, 2)
+        self.assertEqual(frags["MAG_SRC"].value, 3)
+        self.assertEqual(frags["GYRO_RATE_SRC"].unit, "")
+        self.assertEqual(frags["MAG_SRC"].unit, "")
+        # Old lowercase names are NOT emitted — we're using canonical uppercase.
+        self.assertNotIn("gyro_rate_src", frags)
+        self.assertNotIn("mag_src", frags)
 
 
 class TestBeacon2Tail(unittest.TestCase):
@@ -282,7 +292,12 @@ class TestMappingTableCoverage(unittest.TestCase):
         catalog_names = {r.name for r in REGISTERS.values()}
         # Handler-emitted names (not in REGISTERS directly).
         handler_names = {"GNC_MODE", "GNC_COUNTERS"}
-        allowed = catalog_names | handler_names
+        # Beacon-only canonical names — no home in REGISTERS (not
+        # addressable GNC registers), no handler emits them (they're
+        # wire-only source selectors). Listed explicitly so silent
+        # additions still fail the invariant.
+        beacon_only = {"GYRO_RATE_SRC", "MAG_SRC"}
+        allowed = catalog_names | handler_names | beacon_only
         gnc_keys = {m.key for m in BEACON_TYPE_MAPPINGS[1]
                     if m.status != "deferred" and m.domain == "gnc"}
         missing = gnc_keys - allowed - {"mtq_heartbeat", "nvg_heartbeat"}
