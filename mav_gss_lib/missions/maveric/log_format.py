@@ -75,6 +75,15 @@ def build_log_mission_data(pkt) -> dict:
     gnc_registers = md.get("gnc_registers")
     if gnc_registers:
         data["gnc_registers"] = gnc_registers
+
+    # Decoded mission telemetry (currently just eps_hk's 48 HK fields).
+    # Symmetric with the text log path in format_log_lines, which also
+    # renders telemetry["fields"]. Keep the JSONL and text-log sinks
+    # carrying the same decoded payloads so downstream analytics match
+    # what an operator sees in the text log.
+    telemetry = md.get("telemetry")
+    if telemetry:
+        data["telemetry"] = telemetry
     return data
 
 

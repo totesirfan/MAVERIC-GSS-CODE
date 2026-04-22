@@ -472,6 +472,42 @@ class E2ERenderAndLogTests(unittest.TestCase):
 
     # ---------- NVG helper round-trip (uses production decoders end-to-end) ----------
 
+    def test_eps_telemetry_appears_in_both_text_log_and_jsonl(self):
+        """Log-sink symmetry: decoded eps_hk fields must appear in BOTH
+        the text log and the JSONL mission block. GNC has this property
+        (asserted in test_bcd_time and friends); EPS should match it.
+
+        This test locks the intended contract so the two sinks cannot
+        silently drift apart again — previously, format_log_lines
+        rendered telemetry["fields"] but build_log_mission_data only
+        serialized gnc_registers, dropping eps_hk out of JSONL.
+        """
+        fields_list = [
+            {"name": "V_BAT", "value": 7.622, "unit": "V", "raw": 7622},
+            {"name": "I_BAT", "value": 0.587, "unit": "A", "raw": 587},
+            {"name": "T_DIE", "value": 32.5,  "unit": "°C", "raw": 65},
+        ]
+        pkt = make_pkt(
+            {"telemetry": {"cmd_id": "eps_hk", "fields": fields_list}},
+            cmd_id="eps_hk",
+            ptype=2,  # TLM
+        )
+
+        log = self.adapter.format_log_lines(pkt)
+        jlog = self.adapter.build_log_mission_data(pkt)
+
+        joined_log = "\n".join(log)
+        self.assertIn("V_BAT", joined_log)
+        self.assertIn("7.622", joined_log)
+
+        self.assertIn("telemetry", jlog,
+                      "eps_hk decoded fields missing from JSONL mission block")
+        self.assertEqual(jlog["telemetry"]["cmd_id"], "eps_hk")
+        jsonl_fields = {f["name"]: f for f in jlog["telemetry"]["fields"]}
+        self.assertEqual(set(jsonl_fields), {"V_BAT", "I_BAT", "T_DIE"})
+        self.assertEqual(jsonl_fields["V_BAT"]["value"], 7.622)
+        self.assertEqual(jsonl_fields["T_DIE"]["value"], 32.5)
+
     def test_nvg_get_1_production_decoder_round_trip(self):
         """Use the real nvg_get_1 handler (not a hand-built dict) to prove
         the production decoder → display_helpers → UI + log path is intact."""

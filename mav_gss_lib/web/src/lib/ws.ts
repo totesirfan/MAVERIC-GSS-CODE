@@ -20,7 +20,7 @@ export function createSocket(
 
   async function connect() {
     if (closed) return
-    const token = await getAuthToken()
+    const token = await getAuthToken({ forceRefresh: true })
     if (closed) return
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
     const url = new URL(`${proto}//${location.host}${path}`)
