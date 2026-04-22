@@ -1,7 +1,34 @@
-"""EPS HK extractor — stub; Task 7 implements the full decoder call."""
+"""EPS HK extractor — decode eps_hk TLM packets into telemetry fragments.
+
+Calls decode_eps_hk(cmd) directly from the mission's semantic decoder.
+No dependency on mission_data["telemetry"] (that key is removed by
+Task 10a). Each decoded TelemetryField becomes one TelemetryFragment
+carrying engineering-unit value + unit string.
+"""
 from __future__ import annotations
+
+from mav_gss_lib.web_runtime.telemetry import TelemetryFragment
+
+# Import target at Task 7 commit: mav_gss_lib.missions.maveric.telemetry.eps.
+# After Task 7b relocates the decoder, this line is retargeted to
+# mav_gss_lib.missions.maveric.telemetry.semantics.eps.
+from mav_gss_lib.missions.maveric.telemetry.eps import decode_eps_hk
 
 
 def extract(pkt, nodes, now_ms: int):
-    return
-    yield  # make this a generator
+    md = getattr(pkt, "mission_data", None) or {}
+    cmd = md.get("cmd") or {}
+    if cmd.get("cmd_id") != "eps_hk":
+        return
+    if nodes.ptype_name(md.get("ptype")) != "TLM":
+        return
+    try:
+        fields = decode_eps_hk(cmd)
+    except ValueError:
+        # Short/malformed args_raw — log path still sees cmd; canonical
+        # state simply gets no EPS fragments from this packet.
+        return
+    for f in fields:
+        yield TelemetryFragment(
+            "eps", f.name, f.value, now_ms, unit=f.unit,
+        )
