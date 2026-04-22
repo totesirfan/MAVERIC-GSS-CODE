@@ -178,10 +178,15 @@ def save_gss_config(cfg, path=None):
     if path is None:
         path = str(_DEFAULT_GSS_PATH)
     dir_name = os.path.dirname(path) or "."
+    try:
+        prev_mode = os.stat(path).st_mode & 0o777
+    except FileNotFoundError:
+        prev_mode = 0o664
     fd, tmp = tempfile.mkstemp(suffix=".tmp", dir=dir_name)
     try:
         with os.fdopen(fd, "w") as f:
             yaml.dump(cfg, f, default_flow_style=False, sort_keys=False)
+        os.chmod(tmp, prev_mode)
         os.replace(tmp, path)
     except BaseException:
         try:

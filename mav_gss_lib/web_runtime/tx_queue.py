@@ -178,11 +178,16 @@ def save_queue(queue: list, queue_file: Path) -> None:
             pass
         return
     queue_file.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        prev_mode = queue_file.stat().st_mode & 0o777
+    except FileNotFoundError:
+        prev_mode = 0o664
     fd, tmp = tempfile.mkstemp(suffix=".tmp", dir=str(queue_file.parent))
     try:
         with os.fdopen(fd, "w") as handle:
             for item in queue:
                 handle.write(json.dumps(item_to_json(item)) + "\n")
+        os.chmod(tmp, prev_mode)
         os.replace(tmp, str(queue_file))
     except BaseException:
         try:
