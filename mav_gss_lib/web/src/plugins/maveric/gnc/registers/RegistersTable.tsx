@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { CatalogEntry, GncState } from '../types'
-import { ageMs, formatAge, staleLevel, STALE_OPACITY, NO_DATA_OPACITY, type StaleLevel } from '../shared/staleness'
+import { ageMs, formatAge, staleLevel, STALE_OPACITY, NO_DATA_OPACITY, type StaleLevel } from '../../shared/staleness'
 import { colors } from '@/lib/colors'
 import { formatRegisterValue } from './formatValue'
 import { exportRegistersCsv, exportRegistersJson } from './exportTable'

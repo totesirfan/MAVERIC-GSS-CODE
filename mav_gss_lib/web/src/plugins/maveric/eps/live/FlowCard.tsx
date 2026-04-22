@@ -5,10 +5,10 @@ import { FlowBusCore } from './FlowBusCore'
 import { FlowLoadDrops } from './FlowLoadDrops'
 import { FlowLoadRow } from './FlowLoadRow'
 import { FlowBalance } from './FlowBalance'
-import type { ChargeDir, EpsFields, SourceId } from '../types'
+import type { ChargeDir, EpsFieldMap, SourceId } from '../types'
 
 interface Props {
-  fields: EpsFields | null
+  fields: EpsFieldMap
   chargeDir: ChargeDir
   efficiency: number | null
   activeSource: SourceId | null

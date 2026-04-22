@@ -6,7 +6,7 @@ import {
   STALE_OPACITY,
   NO_DATA_OPACITY,
   type StaleLevel,
-} from './staleness'
+} from '../../shared/staleness'
 
 interface FieldDisplayProps {
   label: string

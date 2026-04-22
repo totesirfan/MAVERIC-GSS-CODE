@@ -1,18 +1,17 @@
 import { memo, useEffect, useState } from 'react'
+import {
+  ageMs, formatAge, staleLevel, STALE_OPACITY, NO_DATA_OPACITY,
+} from '../../shared/staleness'
 
 interface Props {
   pktNum: number | null
-  receivedAtMs: number | null
-}
-
-function formatAge(nowMs: number, pastMs: number): string {
-  const delta = Math.max(0, Math.floor((nowMs - pastMs) / 1000))
-  if (delta < 60) return `00:00:${String(delta).padStart(2, '0')} ago`
-  const m = Math.floor(delta / 60)
-  const s = delta % 60
-  if (m < 60) return `00:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')} ago`
-  const h = Math.floor(m / 60)
-  return `${String(h).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}:${String(s).padStart(2, '0')} ago`
+  /** Most recently updated EPS field across all sources. */
+  newestT: number | null
+  /** Oldest updated EPS field across all sources — drives the "fields
+   *  going stale" indicator. Diverges from newestT as soon as one
+   *  source runs faster than another (e.g. beacon every ~90s vs
+   *  eps_hk on-demand). */
+  oldestT: number | null
 }
 
 function formatUtc(ms: number): string {
@@ -22,24 +21,41 @@ function formatUtc(ms: number): string {
     + `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}Z`
 }
 
-function FooterMetaInner({ pktNum, receivedAtMs }: Props) {
+function FooterMetaInner({ pktNum, newestT, oldestT }: Props) {
   const [nowMs, setNowMs] = useState<number>(() => Date.now())
   useEffect(() => {
     const id = window.setInterval(() => setNowMs(Date.now()), 1000)
     return () => window.clearInterval(id)
   }, [])
 
-  const hasSnap = receivedAtMs !== null && Number.isFinite(receivedAtMs)
-  const ageText = hasSnap ? formatAge(nowMs, receivedAtMs!) : '—'
-  const snapText = hasSnap ? formatUtc(receivedAtMs!) : '—'
-  const pktText = pktNum !== null && Number.isFinite(pktNum) ? `eps_hk · #${pktNum}` : 'eps_hk'
+  const newestAge = ageMs(newestT, nowMs)
+  const oldestAge = ageMs(oldestT, nowMs)
+  const hasNewest = newestT !== null && Number.isFinite(newestT)
+  const hasOldest = oldestT !== null && Number.isFinite(oldestT)
+
+  const newestLevel = hasNewest ? staleLevel(newestAge) : 'critical'
+  const oldestLevel = hasOldest ? staleLevel(oldestAge) : 'critical'
+  const newestOpacity = hasNewest ? STALE_OPACITY[newestLevel] : NO_DATA_OPACITY
+  const oldestOpacity = hasOldest ? STALE_OPACITY[oldestLevel] : NO_DATA_OPACITY
+
+  const pktText = pktNum !== null && Number.isFinite(pktNum) ? `eps · #${pktNum}` : 'eps'
+  const snapText = hasNewest ? formatUtc(newestT!) : '—'
+
   return (
     <div className="footer-row" data-component="FooterMeta" aria-live="polite">
       <span><span className="k">pkt</span><span className="v">{pktText}</span></span>
       <span className="sep">|</span>
-      <span><span className="k">last</span><span className="v" data-age="lastRxAt">{ageText}</span></span>
+      <span style={{ opacity: newestOpacity }}>
+        <span className="k">newest</span>
+        <span className="v" data-age="newest">{hasNewest ? formatAge(newestAge) : '—'}</span>
+      </span>
+      <span className="sep">|</span>
+      <span style={{ opacity: oldestOpacity }}>
+        <span className="k">oldest</span>
+        <span className="v" data-age="oldest">{hasOldest ? formatAge(oldestAge) : '—'}</span>
+      </span>
       <span className="right">
-        <span className="k">snapshot</span><span className="v">{snapText}</span>
+        <span className="k">newest @</span><span className="v">{snapText}</span>
       </span>
     </div>
   )

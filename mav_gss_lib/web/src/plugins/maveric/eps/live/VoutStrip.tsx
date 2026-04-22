@@ -1,9 +1,9 @@
 import { memo } from 'react'
 import { VoutCell } from './VoutCell'
-import { FIELD_DEF_BY_NAME, type EpsFields, type EpsFieldName } from '../types'
+import { FIELD_DEF_BY_NAME, type EpsFieldMap, type EpsFieldName } from '../types'
 
 interface Props {
-  fields: EpsFields | null
+  fields: EpsFieldMap
 }
 
 function subsysFor(index: number): string {
@@ -11,14 +11,19 @@ function subsysFor(index: number): string {
   return FIELD_DEF_BY_NAME[name]?.subsystem ?? ''
 }
 
+function pick(fields: EpsFieldMap, k: EpsFieldName): number {
+  const v = fields[k]
+  return typeof v === 'number' ? v : NaN
+}
+
 function VoutStripInner({ fields }: Props) {
   let onCount = 0
   let totalLoadW = 0
   const cells: { idx: number; V: number; I: number; P: number }[] = []
   for (let idx = 1; idx <= 6; idx++) {
-    const V = fields ? fields[`VOUT${idx}` as EpsFieldName] : NaN
-    const I = fields ? fields[`IOUT${idx}` as EpsFieldName] : NaN
-    const P = fields ? fields[`POUT${idx}` as EpsFieldName] : NaN
+    const V = pick(fields, `VOUT${idx}` as EpsFieldName)
+    const I = pick(fields, `IOUT${idx}` as EpsFieldName)
+    const P = pick(fields, `POUT${idx}` as EpsFieldName)
     cells.push({ idx, V, I, P })
     if (Number.isFinite(V) && V > 0.5) onCount += 1
     if (Number.isFinite(P)) totalLoadW += P

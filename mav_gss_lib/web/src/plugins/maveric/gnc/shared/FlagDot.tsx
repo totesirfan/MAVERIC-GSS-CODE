@@ -6,7 +6,7 @@ import {
   STALE_OPACITY,
   NO_DATA_OPACITY,
   type StaleLevel,
-} from './staleness'
+} from '../../shared/staleness'
 
 type Polarity = 'fault' | 'status'
 // fault: true=bad (red), false=nominal (green)

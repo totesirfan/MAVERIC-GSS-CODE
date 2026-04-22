@@ -36,18 +36,15 @@ export type EpsFieldName =
 
 export type EpsFields = { [K in EpsFieldName]: number }
 
-export interface EpsSnapshot {
-  /**
-   * Server-anchored wallclock of the latest sample in this snapshot.
-   * Post-v2 the provider derives this from the maximum `t` across the
-   * `eps` telemetry domain state — all 48 fragments from one eps_hk
-   * packet share the same `t`, so this resolves to the packet's ingest
-   * timestamp. Kept under the `received_at_ms` name so EpsPage and its
-   * memo'd children compile unchanged.
-   */
-  received_at_ms: number
-  fields: EpsFields
-}
+/** Sparse per-field map — any subset of EpsFieldName keys may be present.
+ *
+ * The EPS domain is populated by multiple sources (eps_hk covers all
+ * 48 fields atomically; tlm_beacon covers a 7-field subset). Two
+ * sources → two cadences → different per-field ages. Consumers must
+ * treat each field's freshness independently, not as an atomic
+ * "snapshot age".
+ */
+export type EpsFieldMap = Partial<Record<EpsFieldName, number>>
 
 export type AlarmLevel = 'ok' | 'caution' | 'danger' | 'unknown'
 

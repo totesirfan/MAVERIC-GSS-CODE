@@ -1,6 +1,6 @@
 import styles from './gauge.module.css'
 import { tempPercent, zoneTone, type TempBand } from './zones'
-import { formatAge, ageMs } from './staleness'
+import { formatAge, ageMs } from '../../shared/staleness'
 
 interface RangeTick {
   label: string
