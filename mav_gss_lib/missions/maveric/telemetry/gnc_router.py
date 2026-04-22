@@ -18,7 +18,7 @@ def get_gnc_router(store: "GncRegisterStore"):
     from fastapi import APIRouter, Request
     from fastapi.responses import JSONResponse
 
-    from mav_gss_lib.missions.maveric.telemetry.gnc_registers import REGISTERS
+    from mav_gss_lib.missions.maveric.telemetry.semantics.gnc_schema import REGISTERS
     from mav_gss_lib.web_runtime.state import get_runtime
 
     router = APIRouter(prefix="/api/plugins/gnc", tags=["gnc"])

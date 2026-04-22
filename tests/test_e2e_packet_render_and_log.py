@@ -23,8 +23,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from ops_test_support import _ADAPTER
 from mav_gss_lib.parsing import Packet, build_rx_log_record
-from mav_gss_lib.missions.maveric.telemetry.gnc_registers import decode_register
-from mav_gss_lib.missions.maveric.telemetry.nvg_sensors import (
+from mav_gss_lib.missions.maveric.telemetry.semantics.gnc_schema import decode_register
+from mav_gss_lib.missions.maveric.telemetry.semantics.nvg_sensors import (
     _handle_nvg_get_1, _handle_nvg_heartbeat,
 )
 

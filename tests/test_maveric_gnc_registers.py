@@ -12,11 +12,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from mav_gss_lib.missions.maveric.telemetry.gnc_registers import (
+from mav_gss_lib.missions.maveric.telemetry.semantics.gnc_schema import (
     MODE_NAMES,
-    decode_from_cmd,
     decode_register,
     parse_type,
+)
+from mav_gss_lib.missions.maveric.telemetry.semantics.gnc_handlers import (
+    decode_from_cmd,
 )
 
 

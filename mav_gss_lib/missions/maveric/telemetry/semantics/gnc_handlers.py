@@ -9,12 +9,12 @@ from __future__ import annotations
 
 from typing import Callable
 
-from mav_gss_lib.missions.maveric.telemetry.nvg_sensors import (
+from mav_gss_lib.missions.maveric.telemetry.semantics.nvg_sensors import (
     _handle_nvg_get_1,
     _handle_nvg_heartbeat,
 )
 
-from .schema import decode_register
+from .gnc_schema import decode_register
 
 
 def _handle_mtq_get_1(cmd: dict) -> dict[str, dict] | None:

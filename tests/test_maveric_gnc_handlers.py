@@ -22,14 +22,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from mav_gss_lib.missions.maveric.telemetry.gnc_registers import (
+from mav_gss_lib.missions.maveric.telemetry.semantics.gnc_handlers import (
     COMMAND_HANDLERS,
     _handle_gnc_get_cnts,
     _handle_gnc_get_mode,
     _handle_mtq_get_fast,
     _walk_fast_frame,
 )
-from mav_gss_lib.missions.maveric.telemetry.nvg_sensors import (
+from mav_gss_lib.missions.maveric.telemetry.semantics.nvg_sensors import (
     _handle_nvg_get_1,
     _handle_nvg_heartbeat,
 )

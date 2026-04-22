@@ -15,7 +15,7 @@ from mav_gss_lib.protocols.frame_detect import detect_frame_type, normalize_fram
 from mav_gss_lib.missions.maveric.wire_format import try_parse_command
 from mav_gss_lib.missions.maveric.schema import enrich_cmd_in_place
 from mav_gss_lib.missions.maveric.telemetry import decode_telemetry
-from mav_gss_lib.missions.maveric.telemetry.gnc_registers import decode_from_cmd as _decode_gnc_registers
+from mav_gss_lib.missions.maveric.telemetry.semantics.gnc_handlers import decode_from_cmd as _decode_gnc_registers
 
 
 def detect(meta) -> str:
