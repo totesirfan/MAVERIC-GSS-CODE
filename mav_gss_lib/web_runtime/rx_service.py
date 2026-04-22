@@ -128,6 +128,17 @@ class RxService:
                 if self._should_drop_noise(meta, raw):
                     continue  # gr-satellites noise — behave as if never received
                 pkt = self.pipeline.process(meta, raw)
+                # Fragments must land on pkt.mission_data BEFORE build_rx_log_record
+                # runs — text log, JSONL, and _rendering snapshot all consume them.
+                # Defensive: if extractors raise, still install an empty list so
+                # downstream consumers see a deterministic shape rather than KeyError.
+                attach = getattr(self.runtime.adapter, "attach_fragments", None)
+                if attach is not None:
+                    try:
+                        attach(pkt)
+                    except Exception as exc:
+                        logging.warning("attach_fragments hook failed: %s", exc)
+                        pkt.mission_data["fragments"] = []
                 record = build_rx_log_record(
                     pkt, version, meta, self.runtime.adapter,
                     operator=self.runtime.operator, station=self.runtime.station,

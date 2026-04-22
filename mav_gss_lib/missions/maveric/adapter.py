@@ -17,6 +17,7 @@ from mav_gss_lib.missions.maveric import rendering as _rendering, rx_ops, tx_ops
 from mav_gss_lib.missions.maveric import log_format as _log_format
 from mav_gss_lib.missions.maveric.display_helpers import md as _md_helper, ptype_of as _ptype_of
 from mav_gss_lib.missions.maveric.nodes import NodeTable
+from mav_gss_lib.web_runtime.telemetry import TelemetryFragment
 
 
 # =============================================================================
@@ -29,14 +30,20 @@ class MavericMissionAdapter:
     """Thin boundary around current MAVERIC protocol behavior.
 
     Owns explicit references to all mission state: cmd_defs, nodes,
-    image_assembler, and gnc_store. No module globals.
+    image_assembler. Per-domain telemetry state lives in the platform
+    router at `self.telemetry`, populated by the extractors at
+    `self.extractors` from every parsed packet. No per-domain store
+    attributes, no module globals.
     """
 
     cmd_defs: dict
     nodes: NodeTable
     image_assembler: object = None
-    gnc_store: object = None
-    eps_store: object = None
+    # Attached post-construction by load_mission_adapter (Task 4a);
+    # populated by WebRuntime.__init__ (Task 5). Declared here so the
+    # dataclass advertises the full shape of the adapter surface.
+    telemetry: object = None          # TelemetryRouter
+    extractors: tuple = ()            # tuple[Callable, ...]
 
     def detect_frame_type(self, meta) -> str:
         return rx_ops.detect(meta)
@@ -111,91 +118,74 @@ class MavericMissionAdapter:
         """Convert raw CLI text to a payload dict for build_tx_command."""
         return tx_ops.cmd_line_to_payload(line, self.cmd_defs, self.nodes)
 
-    # -- Plugin hook --
+    # -- Plugin hooks --
+
+    def attach_fragments(self, pkt) -> list[TelemetryFragment]:
+        """Run mission extractors against pkt, attach the serialized fragment
+        list to pkt.mission_data["fragments"], and return the raw list.
+
+        Called by rx_service.broadcast_loop AFTER pipeline.process(meta, raw)
+        and BEFORE build_rx_log_record(pkt, ...). The ordering is mandatory:
+        log formatter, JSONL serializer, and _rendering snapshot all run
+        inside build_rx_log_record + its adapter hooks and need fragments
+        to be on the packet by then. Attaching from on_packet_received (the
+        post-broadcast hook) is too late — those consumers would see no
+        fragments.
+
+        Always set the dict key (even to []) so consumers don't need to
+        distinguish "no fragments" from "key missing".
+        """
+        import time
+        now_ms = int(time.time() * 1000)
+        frags: list[TelemetryFragment] = []
+        for extract in self.extractors:
+            frags.extend(extract(pkt, self.nodes, now_ms))
+        pkt.mission_data["fragments"] = [f.to_dict() for f in frags]
+        return frags
 
     def on_packet_received(self, pkt) -> list[dict] | None:
         """Emit custom WS messages for plugin consumers.
 
-        Two independent paths:
-        1. GNC register updates — any mtq_get_1 RES with decoded registers.
-        2. Imaging progress — img_* and cam_capture_imgs responses fed into
-           the image assembler.
+        Fragments were extracted and attached earlier in the pipeline by
+        rx_service calling self.attach_fragments(pkt). Re-hydrate the
+        dicts into TelemetryFragment and hand them to the router. Running
+        self.extractors again here would be a double-decode.
+
+        Imaging progress messaging is unchanged and lives behind
+        self._image_messages(pkt).
+        """
+        fragments_data = pkt.mission_data.get("fragments") or []
+        frags = [TelemetryFragment(**d) for d in fragments_data]
+        messages: list[dict] = self.telemetry.ingest(frags) if frags else []
+        img = self._image_messages(pkt) if self.image_assembler else None
+        if img:
+            messages.extend(img)
+        return messages or None
+
+    def _image_messages(self, pkt) -> list[dict] | None:
+        """Imaging-plugin message generation, unchanged behavior.
+
+        Returns a list of imaging_progress messages (possibly empty),
+        or None if the packet is not an imaging command at all. Cut
+        verbatim from the previous on_packet_received body.
         """
         md = _md_helper(pkt)
-        cmd = md.get("cmd")
-        if not cmd:
-            return None
-
+        cmd = md.get("cmd") or {}
         cmd_id = cmd.get("cmd_id", "")
-
-        messages: list[dict] = []
-
-        # -- GNC register update path --
-        # Only the satellite's RES carries data tokens. CMD echoes and ACKs
-        # reuse the rx_args slots with empty data, so emitting for them
-        # would overwrite good snapshots with decode_ok=False entries.
-        gnc_registers = md.get("gnc_registers")
-        if gnc_registers and self.nodes.ptype_name(_ptype_of(md)) == "RES":
-            import time
-            now_ms = int(time.time() * 1000)
-            wrapped = {
-                name: {
-                    **snap,
-                    "gs_ts": pkt.gs_ts,
-                    "pkt_num": pkt.pkt_num,
-                    "received_at_ms": now_ms,
-                }
-                for name, snap in gnc_registers.items()
-                if snap.get("decode_ok")
-            }
-            if wrapped:
-                if self.gnc_store is not None:
-                    self.gnc_store.update_many(wrapped)
-                messages.append({
-                    "type": "gnc_register_update",
-                    "registers": wrapped,
-                })
-
-        # -- EPS HK update path --
-        # Only emit on real TLM responses. CMD echoes and ACKs alias
-        # the same args slot but carry no decoded telemetry, so
-        # emitting for them would overwrite a good snapshot with
-        # empty data. Same gating shape as the GNC branch above.
-        telemetry = md.get("telemetry")
-        if telemetry and telemetry.get("cmd_id") == "eps_hk":
-            if self.nodes.ptype_name(_ptype_of(md)) == "TLM":
-                import time
-                now_ms = int(time.time() * 1000)
-                fields_map = {f["name"]: f["value"] for f in telemetry.get("fields", [])}
-                snapshot = {
-                    "received_at_ms": now_ms,
-                    "pkt_num": pkt.pkt_num,
-                    "fields": fields_map,
-                }
-                if self.eps_store is not None:
-                    self.eps_store.update(snapshot)
-                messages.append({
-                    "type": "eps_hk_update",
-                    **snapshot,
-                })
-
-        # -- Imaging path (unchanged) --
-        if not self.image_assembler:
-            return messages or None
         if cmd_id not in ("img_cnt_chunks", "img_get_chunk", "cam_capture_imgs"):
-            return messages or None
+            return None
 
         # Only feed the assembler from the real satellite response — skip
         # uplink echoes (CMD) and ACKs, whose wire args alias rx_args and
         # would poison chunk 0 before the real data arrives.
         expected_ptype = "FILE" if cmd_id == "img_get_chunk" else "RES"
         if self.nodes.ptype_name(_ptype_of(md)) != expected_ptype:
-            return messages or None
+            return None
 
         if cmd.get("schema_match") and cmd.get("typed_args"):
             args_by_name = {ta["name"]: ta.get("value", "") for ta in cmd["typed_args"]}
         else:
-            return messages or None
+            return None
 
         def _progress_msg(fn: str) -> dict:
             received, total = self.image_assembler.progress(fn)
@@ -206,6 +196,8 @@ class MavericMissionAdapter:
                 "total": total,
                 "complete": self.image_assembler.is_complete(fn),
             }
+
+        messages: list[dict] = []
 
         if cmd_id in ("img_cnt_chunks", "cam_capture_imgs"):
             # Four-field paired response: full filename + count, optional
@@ -226,12 +218,12 @@ class MavericMissionAdapter:
                 except (ValueError, TypeError):
                     pass
 
-            return messages or None
+            return messages
 
         # img_get_chunk: unchanged per-chunk blob path (single filename).
         filename = str(args_by_name.get("Filename", ""))
         if not filename:
-            return messages or None
+            return None
 
         chunk_num = args_by_name.get("Chunk Number", "")
         chunk_size = args_by_name.get("Chunk Size", None)
@@ -252,7 +244,7 @@ class MavericMissionAdapter:
         try:
             self.image_assembler.feed_chunk(filename, int(chunk_num), data, chunk_size=chunk_size)
         except (ValueError, TypeError):
-            return messages or None
+            return None
 
         messages.append(_progress_msg(filename))
         return messages
@@ -266,24 +258,4 @@ class MavericMissionAdapter:
     # pattern so consumers see one ordered stream instead of racing
     # a REST response against the live subscription.
     def on_client_connect(self) -> list[dict]:
-        msgs: list[dict] = []
-
-        eps_store = getattr(self, "eps_store", None)
-        if eps_store is not None:
-            snap = eps_store.get()
-            if snap and snap.get("fields"):
-                msgs.append({
-                    "type": "eps_hk_update",
-                    "received_at_ms": snap["received_at_ms"],
-                    "pkt_num": snap["pkt_num"],
-                    "fields": snap["fields"],
-                    "replay": True,
-                })
-
-        gnc_store = getattr(self, "gnc_store", None)
-        if gnc_store is not None:
-            regs = gnc_store.get_all()
-            if regs:
-                msgs.append({"type": "gnc_register_update", "registers": regs, "replay": True})
-
-        return msgs
+        return list(self.telemetry.replay())
