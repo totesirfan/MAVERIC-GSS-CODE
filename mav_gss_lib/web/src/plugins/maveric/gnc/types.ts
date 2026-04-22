@@ -138,12 +138,20 @@ export interface RegisterSnapshot {
 /** Keyed by register name: "STAT", "TIME", "MTQ_USER", etc. */
 export type GncState = Record<string, RegisterSnapshot>
 
-/** One row in the register catalog, served by
+/** One row in the GNC catalog, served by
  *  GET /api/telemetry/gnc/catalog. Metadata only — live values come
- *  from useTelemetry('gnc'). */
+ *  from useTelemetry('gnc').
+ *
+ *  `module` / `register` are null for canonical keys that aren't
+ *  addressable spacecraft registers (handler-emitted GNC_MODE /
+ *  GNC_COUNTERS, beacon-only GYRO_RATE_SRC / MAG_SRC / heartbeats).
+ *  The Registers table filters those out via `module !== null` so
+ *  the register list stays register-only, but the dashboard can
+ *  still use the catalog as a metadata lookup for every canonical
+ *  gnc key. */
 export interface CatalogEntry {
-  module: number
-  register: number
+  module: number | null
+  register: number | null
   name: string
   type: string
   unit: string

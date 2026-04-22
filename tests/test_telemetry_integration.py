@@ -200,23 +200,17 @@ class TelemetryIntegrationTests(unittest.TestCase):
 
     def test_canonical_key_invariant_beacon_gnc_keys_are_subset(self):
         """Beacon decoder must not introduce new names into the gnc
-        domain — every emitted key must already exist in the register
-        catalog or be emitted by the RES handlers."""
-        from mav_gss_lib.missions.maveric.telemetry.semantics.gnc_schema import REGISTERS
-        catalog_names = {r.name for r in REGISTERS.values()}
-        handler_names = {"GNC_MODE", "GNC_COUNTERS"}
-        # Beacon-only canonical source selectors — wire-only, no catalog
-        # entry, no handler emits them. Enumerated so silent additions
-        # break the invariant.
-        beacon_only = {"GYRO_RATE_SRC", "MAG_SRC"}
-        heartbeats = {"mtq_heartbeat", "nvg_heartbeat"}  # shared-prefix gnc keys
-        allowed = catalog_names | handler_names | beacon_only | heartbeats
+        domain — every emitted key must exist in the mission catalog.
+        The catalog is the single source of truth for canonical gnc
+        keys (addressable registers + handler-emitted + beacon-only)."""
+        from mav_gss_lib.missions.maveric.telemetry import TELEMETRY_MANIFEST
+        catalog_names = {e["name"] for e in TELEMETRY_MANIFEST["gnc"]["catalog"]()}
 
         msgs = _run(self.adapter, _beacon_pkt(BEACON_1))
         gnc_msg = next(m for m in msgs
                        if m.get("type") == "telemetry" and m["domain"] == "gnc")
-        unknown = set(gnc_msg["changes"]) - allowed
-        self.assertFalse(unknown, f"beacon invented gnc keys: {unknown}")
+        unknown = set(gnc_msg["changes"]) - catalog_names
+        self.assertFalse(unknown, f"beacon emitted gnc keys not in catalog: {unknown}")
 
 
 if __name__ == "__main__":

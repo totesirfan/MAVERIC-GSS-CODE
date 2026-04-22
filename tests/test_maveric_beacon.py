@@ -287,21 +287,19 @@ class TestMappingTableCoverage(unittest.TestCase):
     exist somewhere authoritative — either in the GNC register catalog,
     in the EPS name list, or in the platform domain (v2-new)."""
 
-    def test_gnc_keys_exist_in_register_catalog_or_handlers(self):
-        from mav_gss_lib.missions.maveric.telemetry.semantics.gnc_schema import REGISTERS
-        catalog_names = {r.name for r in REGISTERS.values()}
-        # Handler-emitted names (not in REGISTERS directly).
-        handler_names = {"GNC_MODE", "GNC_COUNTERS"}
-        # Beacon-only canonical names — no home in REGISTERS (not
-        # addressable GNC registers), no handler emits them (they're
-        # wire-only source selectors). Listed explicitly so silent
-        # additions still fail the invariant.
-        beacon_only = {"GYRO_RATE_SRC", "MAG_SRC"}
-        allowed = catalog_names | handler_names | beacon_only
+    def test_gnc_keys_exist_in_catalog(self):
+        """Every beacon-emitted gnc key must appear in the mission's
+        telemetry catalog. The catalog is the single source of truth for
+        canonical gnc keys + metadata, covering both addressable
+        registers and non-register canonical keys (handler-emitted,
+        beacon-only). An unknown key here = a silent scope expansion
+        that needs a catalog entry first."""
+        from mav_gss_lib.missions.maveric.telemetry import TELEMETRY_MANIFEST
+        catalog_names = {e["name"] for e in TELEMETRY_MANIFEST["gnc"]["catalog"]()}
         gnc_keys = {m.key for m in BEACON_TYPE_MAPPINGS[1]
                     if m.status != "deferred" and m.domain == "gnc"}
-        missing = gnc_keys - allowed - {"mtq_heartbeat", "nvg_heartbeat"}
-        self.assertFalse(missing, f"unknown gnc keys in beacon map: {missing}")
+        missing = gnc_keys - catalog_names
+        self.assertFalse(missing, f"beacon gnc keys missing from catalog: {missing}")
 
     def test_eps_keys_exist_in_eps_hk_names(self):
         from mav_gss_lib.missions.maveric.telemetry.semantics.eps import _EPS_HK_NAMES

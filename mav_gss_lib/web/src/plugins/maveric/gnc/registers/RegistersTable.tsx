@@ -17,10 +17,18 @@ interface RegistersTableProps {
 export function RegistersTable({ catalog, state, nowMs }: RegistersTableProps) {
   const [filter, setFilter] = useState('')
 
+  // Register table lists addressable registers only. Non-register
+  // canonical keys (GNC_MODE, GYRO_RATE_SRC, heartbeats, …) carry
+  // module/register = null and are filtered out here — they're
+  // consumed by dashboard cards, not by the register list.
+  const registersOnly = useMemo(
+    () => catalog.filter((e) => e.module !== null && e.register !== null),
+    [catalog],
+  )
   const filtered = useMemo(() => {
-    if (!filter.trim()) return catalog
+    if (!filter.trim()) return registersOnly
     const q = filter.trim().toLowerCase()
-    return catalog.filter((e) => {
+    return registersOnly.filter((e) => {
       return (
         e.name.toLowerCase().includes(q)          ||
         String(e.module).includes(q)              ||
@@ -29,9 +37,9 @@ export function RegistersTable({ catalog, state, nowMs }: RegistersTableProps) {
         e.notes.toLowerCase().includes(q)
       )
     })
-  }, [catalog, filter])
+  }, [registersOnly, filter])
 
-  if (catalog.length === 0) {
+  if (registersOnly.length === 0) {
     return (
       <div className="h-full flex items-center justify-center text-[11px] font-mono text-[#8A8A8A]">
         No register catalog available.
@@ -52,7 +60,7 @@ export function RegistersTable({ catalog, state, nowMs }: RegistersTableProps) {
           className="flex-1 font-mono text-[11px] bg-transparent border border-[#222] rounded-sm px-2 py-1 text-[#E5E5E5] outline-none focus:border-[#444]"
         />
         <span className="font-mono text-[11px] text-[#555] min-w-[56px] text-right">
-          {filtered.length}/{catalog.length}
+          {filtered.length}/{registersOnly.length}
         </span>
         <button
           type="button"

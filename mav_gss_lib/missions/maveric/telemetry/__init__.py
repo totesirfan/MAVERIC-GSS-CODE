@@ -19,14 +19,52 @@ from __future__ import annotations
 from mav_gss_lib.missions.maveric.telemetry.semantics.gnc_schema import REGISTERS
 
 
+# Canonical `gnc` keys that do NOT correspond to addressable spacecraft
+# registers — RES handler output (GNC_MODE, GNC_COUNTERS) and beacon
+# shared-prefix / tail fields (GYRO_RATE_SRC, MAG_SRC, heartbeats).
+# module and register are null because they have no (module, register)
+# address on the wire.
+#
+# Listed here so the catalog is the single source of truth for "what
+# canonical gnc keys exist + their metadata", matching the platform
+# contract where consumers discover keys through
+# `useTelemetryCatalog('gnc')` rather than through extractor source.
+_GNC_NON_REGISTER_ENTRIES = [
+    {"module": None, "register": None, "name": "GNC_MODE",
+     "type": "gnc_mode", "unit": "",
+     "notes": "Planner mode (Safe/Auto/Manual) from gnc_get_mode RES or tlm_beacon."},
+    {"module": None, "register": None, "name": "GNC_COUNTERS",
+     "type": "gnc_counters", "unit": "",
+     "notes": "Reboot / De-Tumble / Sunspin counters from gnc_get_cnts RES or tlm_beacon."},
+    {"module": None, "register": None, "name": "GYRO_RATE_SRC",
+     "type": "uint8", "unit": "",
+     "notes": "Active gyro-rate source selector, from tlm_beacon. Raw int."},
+    {"module": None, "register": None, "name": "MAG_SRC",
+     "type": "uint8", "unit": "",
+     "notes": "Active magnetometer source selector, from tlm_beacon. Raw int."},
+    {"module": None, "register": None, "name": "mtq_heartbeat",
+     "type": "uint8", "unit": "",
+     "notes": "MTQ subsystem heartbeat byte from tlm_beacon shared prefix."},
+    {"module": None, "register": None, "name": "nvg_heartbeat",
+     "type": "uint8", "unit": "",
+     "notes": "NVG subsystem heartbeat byte from tlm_beacon shared prefix."},
+]
+
+
 def _gnc_catalog():
     """Serve the GNC register catalog at /api/telemetry/gnc/catalog.
 
     The platform does not interpret the shape — it passes the body
     through verbatim. The frontend's GncProvider consumes it as
     `CatalogEntry[]` keyed by register name.
+
+    Includes both addressable spacecraft registers (from REGISTERS)
+    and non-register canonical keys (handler-emitted + beacon-only).
+    Non-register entries carry `module: null, register: null` so
+    consumers that care about the distinction (e.g. the Registers
+    table) can filter by `module !== null`.
     """
-    return [
+    register_entries = [
         {"module": m, "register": r,
          "name": REGISTERS[(m, r)].name,
          "type": REGISTERS[(m, r)].type,
@@ -34,6 +72,7 @@ def _gnc_catalog():
          "notes": REGISTERS[(m, r)].notes}
         for (m, r) in sorted(REGISTERS.keys())
     ]
+    return register_entries + list(_GNC_NON_REGISTER_ENTRIES)
 
 
 TELEMETRY_MANIFEST: dict[str, dict] = {
