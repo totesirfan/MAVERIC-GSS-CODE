@@ -1,17 +1,15 @@
-/** EpsProvider state-machine replay test.
+/** EpsProvider state-machine replay test (v2).
  *
- * Replays `docs/eps-port/fixtures/hook-sequence.json` step-by-step into
- * the provider via a mock `subscribeRxCustom` and asserts the provider's
- * exported state matches the expected snapshot after each step.
- *
- * Also mounts and unmounts the consumer (EpsPage-equivalent) while the
- * provider stays live, and asserts state is unchanged across that
- * remount — the load-bearing property of the root-mounted provider.
+ * Drives v2 {type:"telemetry", domain:"eps", changes:{...}, replay?, cleared?}
+ * messages into the platform TelemetryProvider (via a mock
+ * `subscribeRxCustom`) and asserts EpsProvider's derived state after
+ * each event. Exercises: charge-direction hysteresis, latch fire/ack,
+ * session reset, cleared-snapshot flow, replay-not-incrementing-counter,
+ * prev/current rotation, stale-drop, and unmount/remount survival.
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { act, render, screen } from '@testing-library/react'
 import { createElement, type ReactElement } from 'react'
-import hookSequence from '../../../../../../docs/eps-port/fixtures/hook-sequence.json'
 
 type RxMessage = Record<string, unknown>
 type RxSubscriber = (msg: RxMessage) => void
@@ -19,8 +17,9 @@ type RxSubscriber = (msg: RxMessage) => void
 let mockSubscribers: RxSubscriber[] = []
 let mockSessionGeneration = 0
 
-// Mock the platform hooks the provider depends on. We intercept BEFORE
-// importing the provider so the real module graph wires against mocks.
+// Mock the platform hooks the providers depend on. TelemetryProvider
+// reads /api/telemetry/* — stub that too so the test doesn't hit the
+// network.
 vi.mock('@/hooks/usePluginServices', () => ({
   usePluginRxCustomSubscription: () => (fn: RxSubscriber) => {
     mockSubscribers.push(fn)
@@ -34,165 +33,225 @@ vi.mock('@/state/rx', () => ({
   useRxStatus: () => ({ sessionGeneration: mockSessionGeneration, subscribeCustom: () => () => {} }),
 }))
 
-// Avoid hitting fetch in clearSnapshot()
-globalThis.fetch = vi.fn().mockResolvedValue({ ok: true } as Response) as unknown as typeof fetch
+globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => null } as Response) as unknown as typeof fetch
 
-// Dynamic import AFTER mocks are registered.
-async function loadProvider() {
-  const mod = await import('./EpsProvider')
-  return mod
+// Dynamic imports AFTER mocks are registered.
+async function loadStack() {
+  const telemetry = await import('@/state/TelemetryProvider')
+  const provider = await import('./EpsProvider')
+  return { TelemetryProvider: telemetry.TelemetryProvider, ...provider }
 }
 
-interface StepExpect {
-  current?: { received_at_ms: number; pkt_num: number } | null
-  prev?: { received_at_ms: number; pkt_num: number } | null
-  receivedThisLink?: number
-  linkGeneration?: number
-  chargeDir?: string
-  latched?: Record<string, number>
+function wrapProviders(TelemetryProvider: any, EpsProvider: any, child: ReactElement) {
+  return createElement(TelemetryProvider, null, createElement(EpsProvider, null, child))
 }
 
-interface Step {
-  name: string
-  event: RxMessage & { type: string; field?: string }
-  expect_state_after: StepExpect
+function fireTelemetry(changes: Record<string, { v: unknown; t: number }>, opts: { replay?: boolean; cleared?: boolean } = {}) {
+  act(() => {
+    for (const sub of [...mockSubscribers]) {
+      sub({
+        type: 'telemetry',
+        domain: 'eps',
+        ...(opts.cleared ? { cleared: true } : { changes, ...(opts.replay ? { replay: true } : {}) }),
+      } as RxMessage)
+    }
+  })
 }
 
-const seq = hookSequence as unknown as { initial_state: StepExpect; steps: Step[] }
+function fieldsToChanges(fields: Record<string, number>, t: number) {
+  const out: Record<string, { v: unknown; t: number }> = {}
+  for (const [k, v] of Object.entries(fields)) out[k] = { v, t }
+  return out
+}
 
-/** Consumer that captures the current hook value into a ref each render.
- *  The hook is aliased locally because the single-consumer grep in
- *  verify_eps_port.sh is a text match, not a semantic check, and fires
- *  on any literal invocation outside EpsPage. */
-async function makeConsumer() {
-  const mod = await loadProvider()
-  const epsHook = mod.useEps
-  const captured: { value: unknown } = { value: null }
+async function makeConsumer(useEps: () => unknown) {
+  const captured: { value: any } = { value: null }
   function Consumer(): ReactElement {
-    captured.value = epsHook()
+    captured.value = useEps()
     return createElement('div', { 'data-testid': 'eps-consumer' }, 'ok')
   }
   return { Consumer, captured }
 }
 
-function snapshotState(api: any): StepExpect {
-  return {
-    current: api.current
-      ? { received_at_ms: api.current.received_at_ms, pkt_num: api.current.pkt_num }
-      : null,
-    prev: api.prev
-      ? { received_at_ms: api.prev.received_at_ms, pkt_num: api.prev.pkt_num }
-      : null,
-    receivedThisLink: api.receivedThisLink,
-    linkGeneration: api.linkGeneration,
-    chargeDir: api.chargeDir,
-    latched: api.latched,
-  }
-}
 
-function assertMatches(got: StepExpect, want: StepExpect, name: string): void {
-  if ('current' in want) expect(got.current, `${name}: current`).toEqual(want.current)
-  if ('prev' in want) expect(got.prev, `${name}: prev`).toEqual(want.prev)
-  if ('receivedThisLink' in want) expect(got.receivedThisLink, `${name}: receivedThisLink`).toBe(want.receivedThisLink)
-  if ('linkGeneration' in want) expect(got.linkGeneration, `${name}: linkGeneration`).toBe(want.linkGeneration)
-  if ('chargeDir' in want) expect(got.chargeDir, `${name}: chargeDir`).toBe(want.chargeDir)
-  if ('latched' in want) expect(got.latched, `${name}: latched`).toEqual(want.latched)
-}
-
-describe('EpsProvider — hook sequence replay', () => {
+describe('EpsProvider — v2 telemetry envelope', () => {
   beforeEach(() => {
     mockSubscribers = []
     mockSessionGeneration = 0
   })
 
-  it('initial state matches fixture', async () => {
-    const { EpsProvider } = await loadProvider()
-    const { Consumer, captured } = await makeConsumer()
-    render(createElement(EpsProvider, null, createElement(Consumer)))
+  it('initial state is empty', async () => {
+    const { TelemetryProvider, EpsProvider, useEps } = await loadStack()
+    const { Consumer, captured } = await makeConsumer(useEps)
+    render(wrapProviders(TelemetryProvider, EpsProvider, createElement(Consumer)))
     expect(screen.getByTestId('eps-consumer')).toBeTruthy()
-    assertMatches(snapshotState(captured.value), seq.initial_state, 'initial')
+    expect(captured.value.current).toBeNull()
+    expect(captured.value.prev).toBeNull()
+    expect(captured.value.receivedThisLink).toBe(0)
+    expect(captured.value.chargeDir).toBe('idle')
+    expect(captured.value.latched).toEqual({})
   })
 
-  it('replays every step from hook-sequence.json', async () => {
-    const { EpsProvider } = await loadProvider()
-    const { Consumer, captured } = await makeConsumer()
-    const { rerender, unmount } = render(
-      createElement(EpsProvider, null, createElement(Consumer))
+  it('first update populates current and derives chargeDir', async () => {
+    const { TelemetryProvider, EpsProvider, useEps } = await loadStack()
+    const { Consumer, captured } = await makeConsumer(useEps)
+    render(wrapProviders(TelemetryProvider, EpsProvider, createElement(Consumer)))
+
+    fireTelemetry(fieldsToChanges(
+      { I_BUS: 0.4, I_BAT: 0.15, V_BUS: 7.6, V_BAT: 7.5, T_DIE: 22.0, VBRN1: 0.0, VBRN2: 0.0 },
+      1000,
+    ))
+
+    expect(captured.value.current?.received_at_ms).toBe(1000)
+    expect(captured.value.current?.fields.V_BAT).toBe(7.5)
+    expect(captured.value.prev).toBeNull()
+    // First batch out of empty state is a replay → counter stays 0,
+    // prev stays null. chargeDir derived from the live value.
+    expect(captured.value.receivedThisLink).toBe(0)
+    expect(captured.value.chargeDir).toBe('charge')
+  })
+
+  it('second update rotates prev and increments receivedThisLink', async () => {
+    const { TelemetryProvider, EpsProvider, useEps } = await loadStack()
+    const { Consumer, captured } = await makeConsumer(useEps)
+    render(wrapProviders(TelemetryProvider, EpsProvider, createElement(Consumer)))
+
+    fireTelemetry(fieldsToChanges({ I_BAT: 0.15, V_BAT: 7.5, T_DIE: 22.0 }, 1000))
+    fireTelemetry(fieldsToChanges({ I_BAT: 0.18, V_BAT: 7.52, T_DIE: 22.3 }, 2000))
+
+    expect(captured.value.current?.received_at_ms).toBe(2000)
+    expect(captured.value.prev?.received_at_ms).toBe(1000)
+    expect(captured.value.receivedThisLink).toBe(1)
+  })
+
+  it('stale update is dropped', async () => {
+    const { TelemetryProvider, EpsProvider, useEps } = await loadStack()
+    const { Consumer, captured } = await makeConsumer(useEps)
+    render(wrapProviders(TelemetryProvider, EpsProvider, createElement(Consumer)))
+
+    fireTelemetry(fieldsToChanges({ I_BAT: 0.15, V_BAT: 7.5, T_DIE: 22.0 }, 2000))
+    const before = captured.value
+    // Older ts: TelemetryProvider's LWW drops the entries before they hit
+    // EpsProvider's effect, so there's nothing to see here at the API
+    // surface — received_at_ms stays the same, receivedThisLink unchanged.
+    fireTelemetry(fieldsToChanges({ V_BAT: 7.4 }, 1500))
+    expect(captured.value.current?.received_at_ms).toBe(before.current?.received_at_ms)
+    expect(captured.value.receivedThisLink).toBe(before.receivedThisLink)
+  })
+
+  it('VBRN latch fires once and is cleared by acknowledgeLatch', async () => {
+    const { TelemetryProvider, EpsProvider, useEps } = await loadStack()
+    const { Consumer, captured } = await makeConsumer(useEps)
+    render(wrapProviders(TelemetryProvider, EpsProvider, createElement(Consumer)))
+
+    fireTelemetry(fieldsToChanges({ I_BAT: 0.15, V_BAT: 7.5, T_DIE: 22.0, VBRN1: 0.2 }, 1000))
+    expect(captured.value.latched.VBRN1).toBe(1000)
+
+    // Re-fire at higher ts — already latched, must not rewrite.
+    fireTelemetry(fieldsToChanges({ I_BAT: 0.16, V_BAT: 7.5, T_DIE: 22.0, VBRN1: 0.25 }, 2000))
+    expect(captured.value.latched.VBRN1).toBe(1000)
+
+    // Acknowledge — entry removed; re-fire allowed to re-latch.
+    act(() => { captured.value.acknowledgeLatch('VBRN1') })
+    expect('VBRN1' in captured.value.latched).toBe(false)
+
+    fireTelemetry(fieldsToChanges({ I_BAT: 0.16, V_BAT: 7.5, T_DIE: 22.0, VBRN1: 0.3 }, 3000))
+    expect(captured.value.latched.VBRN1).toBe(3000)
+  })
+
+  it('T_DIE junction latch fires at the 85 °C threshold', async () => {
+    const { TelemetryProvider, EpsProvider, useEps } = await loadStack()
+    const { Consumer, captured } = await makeConsumer(useEps)
+    render(wrapProviders(TelemetryProvider, EpsProvider, createElement(Consumer)))
+
+    fireTelemetry(fieldsToChanges({ I_BAT: 0.15, V_BAT: 7.5, T_DIE: 80.0 }, 1000))
+    expect('T_DIE_junction' in captured.value.latched).toBe(false)
+
+    fireTelemetry(fieldsToChanges({ I_BAT: 0.15, V_BAT: 7.5, T_DIE: 85.0 }, 2000))
+    expect(captured.value.latched.T_DIE_junction).toBe(2000)
+  })
+
+  it('cleared domain resets current/prev/latched/chargeDir', async () => {
+    const { TelemetryProvider, EpsProvider, useEps } = await loadStack()
+    const { Consumer, captured } = await makeConsumer(useEps)
+    render(wrapProviders(TelemetryProvider, EpsProvider, createElement(Consumer)))
+
+    fireTelemetry(fieldsToChanges({ I_BAT: 0.15, V_BAT: 7.5, T_DIE: 22.0, VBRN1: 0.2 }, 1000))
+    fireTelemetry(fieldsToChanges({ I_BAT: 0.18, V_BAT: 7.52, T_DIE: 22.3 }, 2000))
+    expect(captured.value.current).not.toBeNull()
+    expect(Object.keys(captured.value.latched).length).toBe(1)
+
+    fireTelemetry({}, { cleared: true })
+    expect(captured.value.current).toBeNull()
+    expect(captured.value.prev).toBeNull()
+    expect(captured.value.latched).toEqual({})
+    expect(captured.value.chargeDir).toBe('idle')
+  })
+
+  it('replay-on-connect (empty → populated) is treated as replay, not live', async () => {
+    // Production case: a fresh client connects, the adapter's
+    // on_client_connect fires router.replay(), TelemetryProvider applies
+    // it as one batch into an empty eps slice. EpsProvider should NOT
+    // increment receivedThisLink on that first batch — the packet
+    // happened before this session.
+    const { TelemetryProvider, EpsProvider, useEps } = await loadStack()
+    const { Consumer, captured } = await makeConsumer(useEps)
+    render(wrapProviders(TelemetryProvider, EpsProvider, createElement(Consumer)))
+
+    fireTelemetry(fieldsToChanges({ I_BAT: 0.15, V_BAT: 7.5, T_DIE: 22.0 }, 1000), { replay: true })
+    expect(captured.value.current?.received_at_ms).toBe(1000)
+    expect(captured.value.receivedThisLink).toBe(0)
+    expect(captured.value.prev).toBeNull()
+
+    // Subsequent live packet increments the counter normally.
+    fireTelemetry(fieldsToChanges({ I_BAT: 0.18, V_BAT: 7.52, T_DIE: 22.3 }, 2000))
+    expect(captured.value.receivedThisLink).toBe(1)
+    expect(captured.value.prev?.received_at_ms).toBe(1000)
+  })
+
+  it('session reset clears prev and bumps linkGeneration; current persists', async () => {
+    const { TelemetryProvider, EpsProvider, useEps } = await loadStack()
+    const { Consumer, captured } = await makeConsumer(useEps)
+    const { rerender } = render(
+      wrapProviders(TelemetryProvider, EpsProvider, createElement(Consumer)),
     )
 
-    for (const step of seq.steps) {
-      await act(async () => {
-        const ev = step.event
-        if (ev.type === '__test__acknowledgeLatch') {
-          ;(captured.value as any).acknowledgeLatch(ev.field as string)
-        } else if (ev.type === '__test__sessionReset') {
-          mockSessionGeneration += 1
-          rerender(createElement(EpsProvider, null, createElement(Consumer)))
-        } else if (ev.type === '__test__unmountAndRemountPage') {
-          // Unmount the consumer but keep the provider alive — actually we
-          // can't selectively unmount a child in RTL without a wrapper, so
-          // emulate by unmount+re-render with same provider instance. The
-          // key invariant: if we DO unmount the whole tree, provider state
-          // would be lost. Instead, rerender without the consumer and then
-          // rerender with it back — this preserves the provider state in
-          // the top-level React tree because the root element (the
-          // provider) stays mounted.
-          rerender(createElement(EpsProvider, null, createElement('div')))
-          rerender(createElement(EpsProvider, null, createElement(Consumer)))
-        } else {
-          // Broadcast the event to every current subscriber.
-          for (const sub of [...mockSubscribers]) sub(ev as RxMessage)
-        }
-      })
-      assertMatches(snapshotState(captured.value), step.expect_state_after, step.name)
+    fireTelemetry(fieldsToChanges({ I_BAT: 0.15, V_BAT: 7.5, T_DIE: 22.0 }, 1000))
+    fireTelemetry(fieldsToChanges({ I_BAT: 0.18, V_BAT: 7.52, T_DIE: 22.3 }, 2000))
+    expect(captured.value.prev).not.toBeNull()
+
+    mockSessionGeneration += 1
+    act(() => {
+      rerender(wrapProviders(TelemetryProvider, EpsProvider, createElement(Consumer)))
+    })
+    expect(captured.value.current?.received_at_ms).toBe(2000)  // persists
+    expect(captured.value.prev).toBeNull()
+    expect(captured.value.receivedThisLink).toBe(0)
+    expect(captured.value.linkGeneration).toBe(1)
+    expect(captured.value.chargeDir).toBe('idle')
+  })
+
+  it('provider state survives consumer unmount/remount (root-mount invariant)', async () => {
+    const { TelemetryProvider, EpsProvider, useEps } = await loadStack()
+    const { Consumer, captured } = await makeConsumer(useEps)
+    const { rerender } = render(
+      wrapProviders(TelemetryProvider, EpsProvider, createElement(Consumer)),
+    )
+
+    fireTelemetry(fieldsToChanges({ I_BAT: 0.15, V_BAT: 7.5, T_DIE: 22.0 }, 1000))
+    fireTelemetry(fieldsToChanges({ I_BAT: 0.18, V_BAT: 7.52, T_DIE: 22.3 }, 2000))
+    const before = {
+      current_t: captured.value.current?.received_at_ms,
+      prev_t:    captured.value.prev?.received_at_ms,
+      received:  captured.value.receivedThisLink,
     }
 
-    unmount()
-  })
+    // Swap the consumer for a placeholder, then remount the real consumer.
+    rerender(wrapProviders(TelemetryProvider, EpsProvider, createElement('div')))
+    rerender(wrapProviders(TelemetryProvider, EpsProvider, createElement(Consumer)))
 
-  it('provider state survives EpsPage unmount-remount (load-bearing invariant)', async () => {
-    const { EpsProvider } = await loadProvider()
-    const { Consumer, captured } = await makeConsumer()
-    const { rerender } = render(
-      createElement(EpsProvider, null, createElement(Consumer))
-    )
-
-    // Drive two updates to populate state.
-    await act(async () => {
-      for (const sub of [...mockSubscribers]) {
-        sub({
-          type: 'eps_hk_update',
-          received_at_ms: 1000,
-          pkt_num: 1,
-          fields: { I_BUS: 0.5, I_BAT: 0.15, V_BUS: 7.5, V_BAT: 7.4, T_DIE: 25.0 },
-        } as RxMessage)
-      }
-    })
-    await act(async () => {
-      for (const sub of [...mockSubscribers]) {
-        sub({
-          type: 'eps_hk_update',
-          received_at_ms: 2000,
-          pkt_num: 2,
-          fields: { I_BUS: 0.6, I_BAT: 0.2, V_BUS: 7.6, V_BAT: 7.45, T_DIE: 25.5 },
-        } as RxMessage)
-      }
-    })
-
-    const before = snapshotState(captured.value)
-    expect(before.current?.pkt_num).toBe(2)
-    expect(before.prev?.pkt_num).toBe(1)
-    expect(before.receivedThisLink).toBe(2)
-
-    // Unmount consumer, then remount — provider stays in the same render
-    // tree, so its internal state (current/prev/receivedThisLink) must
-    // survive.
-    rerender(createElement(EpsProvider, null, createElement('div')))
-    rerender(createElement(EpsProvider, null, createElement(Consumer)))
-
-    const after = snapshotState(captured.value)
-    expect(after.current?.pkt_num).toBe(2)
-    expect(after.prev?.pkt_num).toBe(1)
-    expect(after.receivedThisLink).toBe(2)
+    expect(captured.value.current?.received_at_ms).toBe(before.current_t)
+    expect(captured.value.prev?.received_at_ms).toBe(before.prev_t)
+    expect(captured.value.receivedThisLink).toBe(before.received)
   })
 })

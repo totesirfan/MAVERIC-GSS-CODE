@@ -37,17 +37,16 @@ export type EpsFieldName =
 export type EpsFields = { [K in EpsFieldName]: number }
 
 export interface EpsSnapshot {
+  /**
+   * Server-anchored wallclock of the latest sample in this snapshot.
+   * Post-v2 the provider derives this from the maximum `t` across the
+   * `eps` telemetry domain state — all 48 fragments from one eps_hk
+   * packet share the same `t`, so this resolves to the packet's ingest
+   * timestamp. Kept under the `received_at_ms` name so EpsPage and its
+   * memo'd children compile unchanged.
+   */
   received_at_ms: number
-  pkt_num: number
   fields: EpsFields
-}
-
-export interface EpsHkUpdateMsg {
-  type: 'eps_hk_update'
-  received_at_ms: number
-  pkt_num: number
-  fields: EpsFields
-  replay?: boolean
 }
 
 export type AlarmLevel = 'ok' | 'caution' | 'danger' | 'unknown'

@@ -143,7 +143,7 @@ export default function EpsPage() {
               onAcknowledge={acknowledgeLatch}
             />
             <FooterMeta
-              pktNum={current?.pkt_num ?? null}
+              pktNum={null}
               receivedAtMs={current?.received_at_ms ?? null}
             />
           </div>
