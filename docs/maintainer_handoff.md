@@ -15,11 +15,12 @@ MAV_WEB.py
              ├─ load_gss_config()         reads mav_gss_lib/gss.yml + defaults
              ├─ load_mission_adapter(cfg)
              │   ├─ load_mission_metadata() reads mission.yml or mission.example.yml → merges into cfg
-             │   ├─ init_mission(cfg)     populates node tables, loads commands.yml, builds ImageAssembler
+             │   ├─ init_mission(cfg)     populates node tables, loads commands.yml, builds ImageAssembler, declares telemetry domains/extractors
              │   └─ MavericMissionAdapter() instantiated with cmd_defs + nodes + image_assembler
+             ├─ TelemetryRouter          registers mission domains under <log_dir>/.telemetry/
              ├─ CSPConfig + AX25Config    from merged config
              └─ RxService + TxService     with adapter reference
-     ├─ app.include_router(api, rx, tx, session_ws, preflight_ws)
+     ├─ app.include_router(api, rx, tx, session_ws, preflight_ws, telemetry)
      └─ get_plugin_routers(adapter, config_accessor)  → auto-mount mission plugin routers
  └─ uvicorn.run(127.0.0.1:8080)
      └─ FastAPI lifespan startup
@@ -90,6 +91,7 @@ web_runtime/
     session_ws.py    /ws/session WebSocket session management
     preflight_ws.py  /ws/preflight + run_preflight_and_broadcast + _broadcast primitive
     update_ws.py     Updater WS plumbing — schedule_update_check, _build_updates_event, _handle_apply_update
+    telemetry/       Platform telemetry router/state: /api/telemetry/{domain}/catalog and snapshot clear
     security.py      CORS/CSP middleware
 ```
 
@@ -110,18 +112,18 @@ The mission package `__init__.py` must expose:
 
 - `ADAPTER_API_VERSION = 1` — only `1` is accepted by `validate_adapter` (see `SUPPORTED_API_VERSIONS` in `mission_adapter.py`)
 - `ADAPTER_CLASS` — a class satisfying the `MissionAdapter` Protocol
-- `init_mission(cfg)` — called by `load_mission_adapter` after metadata merge; returns a dict that may include `cmd_defs`, `cmd_warn`, `nodes`, `image_assembler`, `gnc_store`
+- `init_mission(cfg)` — called by `load_mission_adapter` after metadata merge; returns a dict that may include `cmd_defs`, `cmd_warn`, `cmd_path`, `nodes`, `image_assembler`, `telemetry_manifest`, `telemetry_extractors`
 
 At startup, `load_mission_adapter` in `mission_adapter.py` resolves the mission module by convention, merges `mission.yml` / `mission.example.yml` into `cfg`, calls `init_mission`, constructs the adapter with the returned resources, then calls `validate_adapter` to check for the full method set. Adding or renaming a method on the Protocol requires updating both the Protocol declaration and the explicit `missing` list in `validate_adapter` — the `missing` list exists because `@runtime_checkable` Protocol checks do not produce useful diagnostics on failure.
 
-The full `MissionAdapter` method surface (kept in sync with `mission_adapter.py`):
+The full required `MissionAdapter` method surface (kept in sync with `mission_adapter.py`):
 
 - RX path: `detect_frame_type`, `normalize_frame`, `parse_packet`, `duplicate_fingerprint`, `is_uplink_echo`
 - TX path: `cmd_line_to_payload`, `build_tx_command`, `tx_queue_columns`
 - Rendering slots: `packet_list_columns`, `packet_list_row`, `packet_detail_blocks`, `protocol_blocks`, `integrity_blocks`
 - Logging: `build_log_mission_data`, `format_log_lines`, `is_unknown_packet`
 - Resolution: `gs_node` property, `node_name`, `ptype_name`, `resolve_node`, `resolve_ptype`
-- Optional hook: `on_packet_received(pkt)` — if present, `RxService` calls it after each parsed packet
+- Optional hooks: `attach_fragments(pkt)` before logging/rendering, `on_packet_received(pkt)` after packet broadcast, and `on_client_connect()` during `/ws/rx` connection replay
 
 The mission owns all command parsing, validation, and encoding inside `build_tx_command`. The platform owns only generic queue admission (MTU/framing checks). See `tests/echo_mission.py` for a minimal mission that satisfies the full protocol and is used by the adapter-boundary tests.
 
@@ -221,7 +223,7 @@ mav_gss_lib/
       display_helpers.py              Shared helpers between rendering.py and log_format.py
       log_format.py                   Log record formatting
       imaging.py                      Image chunk reassembler + /api/plugins/imaging router
-      telemetry/                      Telemetry decoders (eps.py, types.py, nvg_sensors.py, gnc_router.py, gnc_registers/)
+      telemetry/                      Telemetry manifest, extractors/, and semantics/ decoders
       commands.yml                    Command schema (gitignored)
       commands.example.yml            Public-safe schema template
       mission.yml                     Local mission metadata (gitignored)
@@ -261,7 +263,7 @@ mav_gss_lib/
           imaging/                       Imaging panels (preview, progress, queue, etc.)
           gnc/                           GNC dashboard page + register tables
     dist/                             Production build (committed, see below)
-scripts/                            Operator / dev helper scripts (preflight.py, preview_eps_hk.py)
+scripts/                            Operator / dev helper scripts (preflight.py)
 tests/                              Test suite
 docs/                               Documentation
 ```
@@ -280,7 +282,7 @@ These paths are generated, local-only, or security-sensitive. Don't read or modi
 | `mav_gss_lib/missions/maveric/mission.yml` | Local mission overrides (not tracked). |
 | `mav_gss_lib/missions/maveric/commands.yml` | Command schema — gitignored for security. |
 | `.pending_queue.jsonl` | Persisted TX queue state. |
-| `<log_dir>/.gnc_snapshot.json` | Persisted GNC register-snapshot sidecar (one latest value per register). Path hard-wired under `general.log_dir` by `missions/maveric/__init__.py`. Gitignored. |
+| `<log_dir>/.telemetry/` | Persisted per-domain telemetry snapshots (`eps.json`, `gnc.json`, `spacecraft.json`). Gitignored. Legacy flat files such as `.gnc_snapshot.json` are removed during startup migration. |
 
 ## Sensitive surfaces
 

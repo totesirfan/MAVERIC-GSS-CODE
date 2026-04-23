@@ -6,7 +6,7 @@
 
 **Full-duplex-capable ground station for the MAVERIC CubeSat, built at USC SERC.**
 
-[![Version](https://img.shields.io/badge/version-5.5.7-00c9a7)](mav_gss_lib/web/package.json)
+[![Version](https://img.shields.io/badge/version-5.10.0-00c9a7)](mav_gss_lib/web/package.json)
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](requirements.txt)
 [![GNU Radio](https://img.shields.io/badge/GNU%20Radio-3.10%2B-b71c1c)](https://www.gnuradio.org/)
 [![React](https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=white)](mav_gss_lib/web/package.json)
@@ -58,7 +58,7 @@ The platform is mission-agnostic. Transport, queue, logging, protocol toolkit, a
 - **Drag-to-reorder command queue** with delay and note items, JSONL import/export, guard confirmation, and persistent recovery after restart.
 - **Live session logs** — dual JSONL and human-readable text, per-session files under `logs/json/` and `logs/text/`.
 - **Session replay** — browse and re-play any past session in the Log Viewer.
-- **GNC dashboard** — attitude, navigation, and control telemetry with staleness tracking for pass-cadence updates.
+- **Telemetry dashboards** — EPS, GNC, and spacecraft-state telemetry routed through the platform telemetry store with per-domain catalogs and staleness tracking.
 - **Imaging plugin** — chunked downlink reassembly, thumbnail previews, and delete.
 - **Plugin system** — mission packages can register their own FastAPI routers and React plugin pages.
 - **NASA HFDS-compliant console** — minimum 11 px text, ≥3:1 contrast, color redundancy via icon and text, 3/4/5 Hz alarm flash rates.
@@ -181,6 +181,7 @@ Web runtime (`mav_gss_lib/web_runtime/`):
 | `session_ws.py`       | `/ws/session` WebSocket.                                              |
 | `preflight_ws.py`     | `/ws/preflight` WebSocket and preflight broadcast loop.               |
 | `update_ws.py`        | Update-check scheduling and WebSocket.                                |
+| `telemetry/`          | Platform telemetry router/state for mission-declared domains.         |
 | `security.py`         | CORS / CSP headers / API-token check.                                 |
 | `api/`                | REST routers: `config.py`, `schema.py`, `logs.py`, `queue_io.py`, `session.py`. |
 | `_atomics.py`         | `AtomicStatus` primitive.                                             |
@@ -256,7 +257,7 @@ mav_gss_lib/
             display_helpers.py      Rendering helpers
             log_format.py           Mission-specific log record fields
             imaging.py              Image chunk reassembly + /api/plugins/imaging router
-            telemetry/              Telemetry decoders, GNC register store, GNC router
+            telemetry/              Telemetry manifest, extractors, semantic decoders
             mission.example.yml     Tracked public-safe mission metadata
             commands.example.yml    Tracked public-safe command schema
     web/                            React + Vite frontend
@@ -269,7 +270,6 @@ tests/                              unittest suite
 docs/                               Architecture + maintainer docs + images
 scripts/
     preflight.py                    Standalone preflight runner
-    preview_eps_hk.py               EPS telemetry preview helper
 ```
 
 ## Configuration
@@ -282,7 +282,7 @@ Three config inputs drive the runtime:
 
 Version is single-sourced from `mav_gss_lib/web/package.json` via `config.py::_read_version()`. `gss.yml` cannot pin a version — the `/api/config` save path strips any client-supplied `general.version`.
 
-Also gitignored: `logs/`, `images/`, `generated_commands/`, `.pending_queue.jsonl`, `.gnc_snapshot.json`, `node_modules/`.
+Also gitignored: `logs/`, `images/`, `generated_commands/`, `.pending_queue.jsonl`, legacy telemetry snapshots such as `.gnc_snapshot.json`, and `node_modules/`. Current telemetry snapshots live under `<log_dir>/.telemetry/`.
 
 ## Mission contract
 
@@ -290,7 +290,7 @@ A mission is a Python package at `mav_gss_lib/missions/<name>/` exporting:
 
 - `ADAPTER_API_VERSION = 1`
 - `ADAPTER_CLASS` — a class satisfying the `MissionAdapter` Protocol in `mav_gss_lib/mission_adapter.py`
-- `init_mission(cfg) -> dict` — one-time setup hook called after metadata merge; returns a dict that seeds the adapter (for example `cmd_defs`, `nodes`, `image_assembler`, `gnc_store`)
+- `init_mission(cfg) -> dict` — one-time setup hook called after metadata merge; returns a dict that seeds the adapter and platform telemetry registration (for example `cmd_defs`, `nodes`, `image_assembler`, `telemetry_manifest`, `telemetry_extractors`)
 - `get_plugin_routers(adapter, config_accessor)` — optional; returns FastAPI routers auto-mounted by `web_runtime/app.py`
 
 Set `general.mission` in `gss.yml` to select the active package. The default is `maveric`. A minimal starter lives at `mav_gss_lib/missions/template/`. See `docs/adding-a-mission.md` and `docs/plugin-system.md` for the full contract.
@@ -336,6 +336,7 @@ MAVERIC_FULL_GR=1 python3 tests/test_ops_golay_path.py
 | [`docs/adding-a-mission.md`](docs/adding-a-mission.md) | Mission author | Step-by-step guide for a new mission package. |
 | [`docs/plugin-system.md`](docs/plugin-system.md) | Mission author | Plugin pages and FastAPI routers beyond core RX/TX. |
 | [`docs/mission-help-contract.md`](docs/mission-help-contract.md) | Architect | Proposal for mission-provided command-entry help. |
+| [`docs/telemetry-known-smells.md`](docs/telemetry-known-smells.md) | Maintainer | Known telemetry architecture tradeoffs and invariants. |
 
 ## About MAVERIC
 

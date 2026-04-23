@@ -11,7 +11,7 @@ To add a mission: create a package under `mav_gss_lib/missions/<name>/`, impleme
 - TX pipeline: queue persistence, send loop, guard confirmations, delay scheduling
 - Generic column-driven UI for RX packets, TX queue, TX history, log viewer
 - Session logging (JSONL + formatted text)
-- Reusable protocol toolkit: AX.25, CSP, CRC, Golay, KISS (use what you need)
+- Reusable protocol toolkit: AX.25, CSP, CRC, Golay, and KISS helpers (use what you need)
 - Raw CLI text input — platform passes the string to the mission, mission interprets it
 
 ## What Your Mission Provides
@@ -51,11 +51,12 @@ def init_mission(cfg: dict) -> dict:
     return {"cmd_defs": {}, "cmd_warn": None}
 ```
 
-The loader (`mav_gss_lib/mission_adapter.py::load_mission_adapter`) also
-forwards optional keys `nodes`, `image_assembler`, `gnc_store`, and
-`cmd_path` from this return dict to the adapter constructor when present —
-use these for mission-owned resources that the adapter or plugin routers
-need at runtime. See [`../mav_gss_lib/missions/maveric/__init__.py`](../mav_gss_lib/missions/maveric/__init__.py)
+The loader (`mav_gss_lib/mission_adapter.py::load_mission_adapter`) forwards
+optional constructor resources `nodes` and `image_assembler` when present.
+It also attaches platform-facing telemetry resources from
+`telemetry_manifest` and `telemetry_extractors` after construction; the
+`WebRuntime` registers the domains and gives the adapter access to the
+`TelemetryRouter`. See [`../mav_gss_lib/missions/maveric/__init__.py`](../mav_gss_lib/missions/maveric/__init__.py)
 for a worked example.
 
 ### `mission.example.yml`

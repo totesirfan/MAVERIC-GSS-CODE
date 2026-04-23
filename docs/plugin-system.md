@@ -10,6 +10,7 @@ Plugins are distinct from the core adapter contract:
 
 - **Adapter methods** (parse, render, build_tx) — required, called per-packet, run on every mission
 - **TX Builder** — optional inline component, mounts inside the TX panel
+- **Mission providers** — optional root-level React providers discovered from `providers.ts`, used for shared plugin state such as telemetry domains
 - **Plugins** — optional standalone pages, navigated to separately
 
 ## Architecture
@@ -60,10 +61,14 @@ Route state is driven by `useState` initialized from `?page=`, updated via `hist
 ```
 mav_gss_lib/web/src/plugins/
   registry.ts                    ← platform: discovers builders + page plugins
+  missionRuntime.tsx             ← platform: discovers mission providers
   maveric/
     TxBuilder.tsx                ← inline TX builder (unchanged behavior)
     plugins.ts                   ← page plugin manifest for MAVERIC
+    providers.ts                 ← root-level mission providers
     ImagingPage.tsx              ← imaging plugin page component
+    eps/EpsPage.tsx              ← EPS telemetry plugin page
+    gnc/GNCPage.tsx              ← GNC telemetry plugin page
 ```
 
 ### Plugin Registry (`registry.ts`)
@@ -72,6 +77,13 @@ The registry serves two roles:
 
 1. **TX Builder discovery** — same `getMissionBuilder(missionId)` API as before, using `import.meta.glob('./**/TxBuilder.tsx')` for convention-based discovery
 2. **Page plugin discovery** — `getPluginPages(missionId)` loads page manifests from `import.meta.glob('./**/plugins.ts')`
+
+### Mission Provider Discovery (`missionRuntime.tsx`)
+
+Mission packages may also export `providers.ts` in their frontend plugin
+directory. The platform composes these providers once at the app root inside
+`TelemetryProvider`, so plugin state can stay warm even when a plugin page is
+not visible. MAVERIC uses this for `EpsProvider` and `GncProvider`.
 
 ### Plugin Discovery and Config Loading
 
@@ -180,13 +192,20 @@ if get_routers:
 
 This keeps `app.py` stable as plugins are added or removed. The mission package owns the list, and the adapter owns plugin state (assemblers, aggregators, etc.).
 
-### Packet Hook (`on_packet_received`)
+### Packet Hooks
 
 Plugins that need to observe RX packets (imaging, telemetry aggregators, etc.) hook in through the mission adapter, not by editing `RxService`.
 
-The `MissionAdapter` protocol gets one new optional method:
+The adapter can expose optional hooks:
+
+- `attach_fragments(pkt)` runs after parsing and before log/render serialization. Use it when downstream sinks must see derived per-packet data.
+- `on_packet_received(pkt)` runs after the normal packet broadcast. Use it to emit extra WebSocket messages.
+- `on_client_connect()` runs when a new `/ws/rx` client connects, after packet backlog replay. Use it to replay current plugin state.
 
 ```python
+def attach_fragments(self, pkt) -> list:
+    """Attach mission-derived telemetry fragments before logs/rendering."""
+
 def on_packet_received(self, pkt) -> list[dict] | None:
     """Called for every parsed RX packet. Return optional extra WS messages.
 
@@ -197,20 +216,37 @@ def on_packet_received(self, pkt) -> list[dict] | None:
     Returns None or a list of dicts to broadcast as additional WS messages.
     Each dict must have a 'type' key (e.g., 'imaging_progress').
     """
+
+def on_client_connect(self) -> list[dict]:
+    """Return synthetic replay messages for a fresh RX WebSocket client."""
 ```
 
-**Platform side** — one generic hook call in `broadcast_loop()`, never changes again:
+**Platform side** — generic hook calls in `broadcast_loop()` and `/ws/rx`, never tied to a specific plugin:
 
 ```python
+# In RxService.broadcast_loop(), before log/render serialization:
+attach = getattr(self.runtime.adapter, "attach_fragments", None)
+if attach:
+    attach(pkt)
+
 # In RxService.broadcast_loop(), after normal packet broadcast:
 if hasattr(self.runtime.adapter, 'on_packet_received'):
     extra_msgs = self.runtime.adapter.on_packet_received(pkt)
     if extra_msgs:
         for msg in extra_msgs:
             await self._broadcast_json(msg)
+
+# In ws_rx(), after packet backlog replay:
+connect_hook = getattr(runtime.adapter, "on_client_connect", None)
+if connect_hook:
+    for msg in connect_hook() or []:
+        await websocket.send_text(json.dumps(msg))
 ```
 
-**Mission side** — the MAVERIC adapter owns `ImageAssembler` (plus `gnc_store`) and dispatches. The adapter is a dataclass whose plugin state is pre-built by `init_mission(cfg)` and passed in by the shared mission loader, so the constructor does not take raw paths:
+**Mission side** — the MAVERIC adapter owns `ImageAssembler` and dispatches.
+Telemetry state is platform-owned by `TelemetryRouter`; the adapter receives
+`telemetry_manifest` and `telemetry_extractors` from `init_mission(cfg)`, then
+`WebRuntime` registers the domains and attaches the router to the adapter.
 
 ```python
 # In MavericMissionAdapter (illustrative — see adapter.py for the full version)
@@ -219,7 +255,8 @@ class MavericMissionAdapter:
     cmd_defs: dict
     nodes: NodeTable
     image_assembler: object = None   # built by init_mission()
-    gnc_store: object = None         # built by init_mission()
+    telemetry: object = None         # attached by WebRuntime
+    extractors: tuple = ()           # attached by WebRuntime
 
     def on_packet_received(self, pkt):
         md = getattr(pkt, 'mission_data', {}) or {}
@@ -243,7 +280,12 @@ class MavericMissionAdapter:
                  "complete": self.image_assembler.is_complete(filename)}]
 ```
 
-`init_mission(cfg)` resolves `general.image_dir` and constructs the `ImageAssembler`, then the shared loader injects it into the adapter alongside `cmd_defs`, `nodes`, and `gnc_store`. Plugins therefore never instantiate their own state — the adapter holds one live instance per plugin resource.
+`init_mission(cfg)` resolves `general.image_dir`, constructs the
+`ImageAssembler`, and returns `TELEMETRY_MANIFEST` plus extractor callables.
+The shared loader injects mission constructor resources such as `cmd_defs`,
+`nodes`, and `image_assembler`; `WebRuntime` then registers telemetry domains
+and attaches `telemetry` / `extractors` to the adapter. Plugins therefore do
+not instantiate backend state themselves.
 
 This keeps `RxService` clean — it calls one hook, never knows about imaging. Future plugins (telemetry dashboards, file transfer trackers) hook in the same way via `on_packet_received` without any platform code changes.
 
@@ -270,9 +312,22 @@ The imaging router exposes `paired_status()` which groups image pairs (full + th
 
 ### WebSocket Integration
 
-Plugins reuse the existing `/ws/rx` and `/ws/tx` WebSocket endpoints. A plugin page connects to the same sockets and filters for relevant messages. The adapter's `on_packet_received` hook injects plugin-specific message types (e.g., `imaging_progress`) into the existing RX broadcast — no separate WebSocket endpoint needed.
+Plugins reuse the existing `/ws/rx` and `/ws/tx` WebSocket endpoints. A plugin
+page connects to the same sockets and filters for relevant messages. The
+adapter's `attach_fragments(pkt)` hook runs before logging/rendering so
+telemetry fragments are present for every sink, and `on_packet_received(pkt)`
+injects plugin-specific message types (for example `telemetry` and
+`imaging_progress`) into the existing RX broadcast — no separate WebSocket
+endpoint needed. On a fresh `/ws/rx` connection, `on_client_connect()` replays
+the current telemetry snapshots as synthetic `telemetry` messages.
 
-**Tradeoff:** Every `/ws/rx` connection currently receives column metadata plus the in-memory packet backlog (capped at 500 packets), and every `/ws/tx` connection receives the queue/history snapshot. A plugin page that only needs imaging progress still pays this startup cost. This is acceptable for v1 — the backlog is small and bounded, and imaging needs RX packet data anyway. If plugins with narrower data needs are added later, subscription scoping (e.g., a `?subscribe=imaging` query param) can be added to the existing WebSocket endpoints without a protocol change.
+**Tradeoff:** Every `/ws/rx` connection currently receives column metadata, the
+in-memory packet backlog (capped at 500 packets), and telemetry replay frames;
+every `/ws/tx` connection receives the queue/history snapshot. A plugin page
+that only needs one domain still pays this startup cost. This is acceptable for
+v1 because the backlog and snapshots are bounded. If narrower consumers are
+added later, subscription scoping can be added to the existing WebSocket
+endpoints without a protocol change.
 
 ## Navigation
 
@@ -326,12 +381,26 @@ The RX broadcast includes `imaging_progress` messages (injected by the adapter's
 
 The assembler is owned by the MAVERIC adapter and fed via `on_packet_received` when `img_cnt_chunks` or `img_get_chunk` responses are parsed.
 
-## GNC Plugin
+## Telemetry Plugins
 
-MAVERIC also ships a second plugin — the GNC register dashboard — mounted through the same `get_plugin_routers(adapter, config_accessor)` mechanism. It serves as a second reference implementation for the plugin contract:
+MAVERIC ships EPS and GNC telemetry plugin pages backed by the platform
+telemetry router rather than mission-specific REST routers:
 
-- **Backend router** — `mav_gss_lib/missions/maveric/telemetry/gnc_router.py` exposes the router under prefix `/api/plugins/gnc` with `GET /snapshot`, `DELETE /snapshot` (broadcasts `gnc_snapshot_cleared` on `/ws/rx`), and `GET /catalog`.
-- **Adapter state** — the adapter carries a `gnc_store` (`GncRegisterStore`) built by `init_mission()` at `<log_dir>/.gnc_snapshot.json`. `on_packet_received` decodes `mtq_get_1` RES packets and pushes snapshots to the store, emitting `gnc_register_update` WS messages on `/ws/rx`.
-- **Frontend page** — `mav_gss_lib/web/src/plugins/maveric/gnc/GNCPage.tsx`, registered in `mav_gss_lib/web/src/plugins/maveric/plugins.ts` with `id: 'gnc'`, `keepAlive: true` so hook state survives tab switches.
+- **Backend state** — `mav_gss_lib/web_runtime/telemetry/router.py` registers
+  mission-declared domains from `TELEMETRY_MANIFEST`. Current MAVERIC domains
+  are `eps`, `gnc`, and `spacecraft`; snapshots persist under
+  `<log_dir>/.telemetry/<domain>.json`.
+- **Backend API** — `GET /api/telemetry/{domain}/catalog` serves mission-owned
+  catalog metadata, and `DELETE /api/telemetry/{domain}/snapshot` clears a
+  domain and broadcasts `{type: "telemetry", domain, cleared: true}` on
+  `/ws/rx`.
+- **WebSocket data** — telemetry extractors emit `TelemetryFragment` objects;
+  the router broadcasts `{type: "telemetry", domain, changes, replay?}`.
+- **Frontend pages** — MAVERIC registers `gnc` and `eps` in
+  `mav_gss_lib/web/src/plugins/maveric/plugins.ts`. `providers.ts` mounts
+  `GncProvider` and `EpsProvider` at the app root so each page reads stable
+  provider state instead of owning its own WebSocket.
 
-The GNC plugin is discovered and mounted identically to imaging — no platform changes were needed to add it.
+The imaging plugin remains a mission-specific REST plugin because it owns file
+assembly and preview endpoints. EPS/GNC use the shared telemetry API because
+their backend needs are latest-value state, catalogs, clear, and replay.

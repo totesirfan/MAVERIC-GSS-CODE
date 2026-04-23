@@ -5,6 +5,8 @@ pipeline as it stands today. None are bugs. Each is a place where a future
 change would naturally improve the code, or where a refactor was deliberately
 scoped out. Keep this file current as items are fixed or new ones appear.
 
+Re-verified against the tracked code on 2026-04-23.
+
 ---
 
 ## 1. `_format_gnc_register_lines` has its own shape dispatch
@@ -146,9 +148,10 @@ accumulates canonical keys of its own (it shouldn't).
 - **Zero hardcoded domain names (`"eps"`, `"gnc"`, `"spacecraft"`, `"maveric"`)
   in `mav_gss_lib/web_runtime/`.** Domains are mission-declared.
 - **Catalog is the single source of truth for canonical key vocabulary** per
-  domain that has one. Invariant tests (`test_maveric_beacon.py`,
-  `test_telemetry_integration.py`) enforce that no extractor emits a key
-  absent from the catalog.
+  domain that has one. Current telemetry tests (`test_telemetry_api.py`,
+  `test_telemetry_router.py`, `test_telemetry_state.py`, and
+  `test_telemetry_wiring.py`) cover router behavior, persistence, replay, and
+  wiring. Add extractor-vocabulary tests if new domains or mappings are added.
 - **One decode path per packet:** mission extractors → `TelemetryFragment` →
   `pkt.mission_data["fragments"]`. No second decoder, no parallel
   `mission_data` keys.

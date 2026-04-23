@@ -79,10 +79,13 @@ class MyMissionAdapter:
         self.image_assembler = image_assembler
 ```
 
-The shared mission loader (`mav_gss_lib/mission_adapter.py`) forwards any
-optional keys from the `init_mission` return dict to the adapter constructor
-as kwargs when present. See `mav_gss_lib/missions/maveric/__init__.py` for a
-full example that wires up node resolution and the imaging plugin state.
+The shared mission loader (`mav_gss_lib/mission_adapter.py`) forwards
+constructor resources it understands, currently `nodes` and
+`image_assembler`, when present. It also attaches telemetry resources from
+`telemetry_manifest` and `telemetry_extractors` for the platform
+`TelemetryRouter`. See `mav_gss_lib/missions/maveric/__init__.py` for a full
+example that wires up node resolution, imaging plugin state, and telemetry
+domains.
 
 For plugins that need backend routes, also expose
 `get_plugin_routers(adapter, config_accessor)` from `__init__.py` — see

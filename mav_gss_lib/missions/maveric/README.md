@@ -17,10 +17,11 @@ loads it by convention at startup when `general.mission: maveric` is set in `gss
 - **Node/ptype tables** — ID↔name resolution and gs_node resolution (`nodes.py` + definitions in `mission.example.yml`)
 - **Command schema** — schema loading, validation, resolution (`schema.py`, `commands.yml`)
 - **Imaging plugin** — `ImageAssembler` chunk reassembly and FastAPI plugin router (`imaging.py`)
-- **Telemetry decoders** — per-command decoders for structured telemetry (EPS housekeeping
-  in `eps.py`, NaviGuider sensors in `nvg_sensors.py`, GNC registers in `gnc_registers/`)
-  with shared dataclasses/enums in `types.py`, a `GncRegisterStore` persisted across
-  sessions, and the `gnc_router` exposing `/api/plugins/gnc/*` (`telemetry/`)
+- **Telemetry decoders** — extractors convert MAVERIC packets into platform
+  `TelemetryFragment` objects, with semantic decoders under
+  `telemetry/semantics/`. The platform telemetry router persists latest-value
+  state per domain (`eps`, `gnc`, `spacecraft`) and serves catalogs at
+  `/api/telemetry/{domain}/catalog`.
 - **Frontend plugin surface** — MAVERIC command picker, imaging page, GNC page, and
   plugin page registration (`mav_gss_lib/web/src/plugins/maveric/TxBuilder.tsx`,
   `ImagingPage.tsx`, `gnc/`, `plugins.ts`)
@@ -42,7 +43,7 @@ loads it by convention at startup when `general.mission: maveric` is set in `gss
 | `display_helpers.py` | Yes | Shared helpers used by both `rendering.py` and `log_format.py` — packet mission-data access, typed-arg unwrappers, register-shape predicates |
 | `log_format.py` | Yes | Mission-specific log record formatting |
 | `imaging.py` | Yes | `ImageAssembler` + `get_imaging_router()` plugin REST endpoints |
-| `telemetry/` | Yes | Telemetry decoders package — EPS (`eps.py`), NaviGuider sensors (`nvg_sensors.py`), GNC registers (`gnc_registers/`), shared types/enums (`types.py`), and `gnc_router.py` exposing `/api/plugins/gnc/*` |
+| `telemetry/` | Yes | Telemetry package — `extractors/` produces `TelemetryFragment`s, `semantics/` contains EPS/GNC/NaviGuider decoders, and `__init__.py` declares `TELEMETRY_MANIFEST` catalogs |
 | `mission.example.yml` | Yes | Public-safe mission metadata (nodes, ptypes, AX.25/CSP defaults) |
 | `commands.example.yml` | Yes | Annotated command schema example — safe structure, redacted content |
 | `mission.yml` | No | Local private mission metadata override (gitignored) |

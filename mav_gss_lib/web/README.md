@@ -12,7 +12,7 @@ It is not a standalone app. It is the frontend for the FastAPI runtime under `ma
 - Log browser and replay controls
 - Preflight/updater bootstrap screens
 - Shared layout, keyboard shortcuts, and operator feedback components
-- Mission-scoped plugin pages (e.g. imaging viewer)
+- Mission-scoped plugin pages (imaging, GNC, EPS)
 
 ## Tech stack
 
@@ -82,6 +82,8 @@ src/
     RxProvider.tsx       RX WebSocket provider
     rxContexts.ts        RX context objects
     rx.ts                RX hooks and selectors
+    TelemetryProvider.tsx Platform telemetry-domain provider and catalog cache
+    telemetry.ts         Telemetry message/domain types
   hooks/                 Pure hooks (no providers)
     useRxSocket.ts       RX socket hook
     useTxSocket.ts       TX socket hook
@@ -106,11 +108,14 @@ src/
     cmdkFilter.ts        Filter predicate for the Ctrl+K command palette
   plugins/
     registry.ts          Convention-based plugin discovery via import.meta.glob
+    missionRuntime.tsx   Mission provider discovery and composition
     maveric/
       TxBuilder.tsx      MAVERIC command picker (mission TX builder)
       plugins.ts         Plugin page manifest
+      providers.ts       Mission provider manifest
       ImagingPage.tsx    Imaging downlink viewer
       imaging/           Imaging subcomponents
+      eps/               EPS dashboard widgets and provider
       gnc/               GNC dashboard widgets (attitude/nav/control)
 
 dist/                    Production build (committed)
@@ -125,7 +130,9 @@ Providers are deliberately placed under `src/state/` rather than `src/hooks/`. `
 1. `SessionProvider` — session identity, rename/new-session state
 2. `TxProvider` — TX WebSocket, queue, guard/send/history
 3. `RxProvider` — RX WebSocket, packets, status, display toggles
-4. `AppShell` — renders `GlobalHeader`, `TabViewport`, and lazy-loaded modals (`ConfigSidebar`, `LogViewer`, `HelpModal`, `CommandPalette`)
+4. `TelemetryProvider` — platform telemetry-domain state and catalog cache
+5. `MissionProviders` — mission-declared providers from `plugins/<mission>/providers.ts`
+6. `AppShell` — renders `GlobalHeader`, `TabViewport`, and lazy-loaded modals (`ConfigSidebar`, `LogViewer`, `HelpModal`, `CommandPalette`)
 
 Pop-out windows (`?panel=tx` / `?panel=rx`) are rendered outside the provider tree; they bootstrap their own config via `usePopOutBootstrap` and open their own sockets via `useTxSocket` / `useRxSocket`.
 
@@ -136,7 +143,7 @@ Verified in `src/App.tsx`:
 | URL | Renders |
 |---|---|
 | `/` | `AppShell` with `MainDashboard` — RX/TX split pane, tabs, shell modals |
-| `/?page=<plugin-id>` | Mission plugin page in the active tab (e.g. `?page=imaging`, `?page=gnc`) |
+| `/?page=<plugin-id>` | Mission plugin page in the active tab (e.g. `?page=imaging`, `?page=gnc`, `?page=eps`) |
 | `/?panel=tx` | Pop-out TX panel only (no header, no providers) |
 | `/?panel=rx` | Pop-out RX panel only (no header, no providers) |
 
@@ -172,6 +179,8 @@ HTTP endpoints (see `mav_gss_lib/web_runtime/api/`):
 | `GET /api/session` | Current session info |
 | `POST /api/session/new` | Start a new session |
 | `PATCH /api/session` | Rename the current session tag |
+| `GET /api/telemetry/{domain}/catalog` | Mission-owned telemetry catalog for a registered domain |
+| `DELETE /api/telemetry/{domain}/snapshot` | Clear latest-value state for a registered telemetry domain |
 | `GET /api/import-files` | List importable queue files |
 | `GET /api/import/{filename}/preview` | Preview a queue import |
 | `POST /api/import/{filename}` | Apply a queue import |
@@ -183,6 +192,7 @@ Boundaries:
 - Backend packet shaping belongs in `mav_gss_lib/web_runtime/rx_service.py` and `tx_service.py`
 - React components render the normalized packet, queue, and config models they receive — they do not decode wire formats
 - Mission-scoped UI (TX builders, plugin pages) lives under `src/plugins/<mission>/` and is discovered by `src/plugins/registry.ts` via `import.meta.glob`
+- Mission-scoped providers live in `src/plugins/<mission>/providers.ts` and are composed by `MissionProviders`
 
 If adapting this repository for another mission requires widespread React changes just to support a different packet format, the backend mission boundary is probably leaking.
 
@@ -192,4 +202,4 @@ If adapting this repository for another mission requires widespread React change
 - Treat protocol-detail sections as optional UI blocks, not universal assumptions
 - Prefer extending the normalized packet/queue shape over teaching React components new mission parsing rules
 - Follow NASA HFDS color/contrast guidance — see `CLAUDE.md` for the semantic color tokens and minimums
-- For mission-specific TX builders or plugin pages, place them under `src/plugins/<mission>/`; `registry.ts` discovers them automatically
+- For mission-specific TX builders or plugin pages, place them under `src/plugins/<mission>/`; `registry.ts` discovers them automatically. For shared plugin state, add providers to `src/plugins/<mission>/providers.ts`.
