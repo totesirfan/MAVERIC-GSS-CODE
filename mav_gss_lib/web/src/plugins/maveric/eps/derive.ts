@@ -176,3 +176,19 @@ export function alarmState(
 
   return out
 }
+
+/**
+ * Format a current in amps as `NN mA` (below 1 A) or `X.XX A` (at or above 1 A).
+ * Negative values render with U+2212 to match the codebase convention.
+ */
+export function formatCurrent(a: number | null | undefined): string {
+  if (!isFiniteNumber(a)) return '—'
+  const abs = Math.abs(a)
+  if (abs < 1.0) {
+    const mA = Math.round(a * 1000)
+    if (mA < 0) return `−${-mA} mA`
+    return `${mA} mA`
+  }
+  if (a < 0) return `−${Math.abs(a).toFixed(2)} A`
+  return `${a.toFixed(2)} A`
+}
