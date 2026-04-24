@@ -122,3 +122,15 @@ async def export_queue(body: dict[str, Any], request: Request) -> dict[str, Any]
     ]
     filepath.write_text("\n".join(lines) + "\n")
     return {"ok": True, "filename": name, "count": len(items)}
+
+
+@router.post("/api/tx/clear-sent", response_model=None)
+async def clear_tx_sent(request: Request) -> dict[str, Any] | JSONResponse:
+    """Unconditional clear of in-memory TX history. Forward-compat: gated
+    on open verifier CheckWindows when command-verification ships."""
+    runtime = get_runtime(request)
+    denied = require_api_token(request)
+    if denied:
+        return denied
+    cleared = await runtime.tx.clear_sent()
+    return {"ok": True, "cleared": cleared}

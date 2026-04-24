@@ -415,6 +415,23 @@ class TxService:
         finally:
             await self._finalize_send(ctx.sent)
 
+    async def clear_sent(self) -> int:
+        """Drop all in-memory TX history and broadcast the empty list.
+
+        Returns the count of cleared entries.
+
+        Today this is unconditional. When command-verification ships,
+        callers should reject with a structured error if any sent entry
+        still has an open CheckWindow; that logic lives above this layer.
+        """
+        n = len(self.history)
+        self.history.clear()
+        await self.broadcast({
+            "type": "history",
+            "items": self.history[-self.runtime.max_history:],
+        })
+        return n
+
 
 _ItemHandler = Callable[[TxService, dict, _SendContext], Awaitable[_RunResult]]
 _ITEM_DISPATCH: dict[str, _ItemHandler] = {
