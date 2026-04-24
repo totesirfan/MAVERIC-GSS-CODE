@@ -86,7 +86,10 @@ class EchoCommandOps(CommandOps):
         return {}
 
     def tx_columns(self) -> list[ColumnDef]:
-        return [ColumnDef("cmd", "command", flex=True)]
+        return [
+            ColumnDef("cmd", "command", flex=True),
+            ColumnDef("verifiers", "verify", width="w-[60px]", align="right", hide_if_all=[""]),
+        ]
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,7 +103,10 @@ class EchoUiOps:
         ]
 
     def tx_columns(self) -> list[ColumnDef]:
-        return [ColumnDef("cmd", "command", flex=True)]
+        return [
+            ColumnDef("cmd", "command", flex=True),
+            ColumnDef("verifiers", "verify", width="w-[60px]", align="right", hide_if_all=[""]),
+        ]
 
     def render_packet(self, packet: PacketEnvelope) -> PacketRendering:
         hex_value = packet.mission_payload.get("hex", "") if isinstance(packet.mission_payload, dict) else ""

@@ -86,7 +86,13 @@ class BalloonUiOps:
         ]
 
     def tx_columns(self) -> list[ColumnDef]:
-        return []
+        # Balloon has no CommandOps today, so /api/tx-columns returns
+        # [] for this mission regardless. The verifier stub is
+        # forward-compat — if Balloon grows a CommandOps later, the
+        # slot is already declared here.
+        return [
+            ColumnDef("verifiers", "verify", width="w-[60px]", align="right", hide_if_all=[""]),
+        ]
 
     def render_packet(self, packet: PacketEnvelope) -> PacketRendering:
         payload = packet.mission_payload if isinstance(packet.mission_payload, dict) else {}
