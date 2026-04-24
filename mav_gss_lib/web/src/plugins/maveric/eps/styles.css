@@ -112,9 +112,15 @@
 .eps-page .pane { display: none; }
 .eps-page .pane.active { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 8px; }
 .eps-page #pane-live.active { overflow: hidden; }
+/* Intrinsic sections — subtabs, cadence captions, hero row, power balance
+   sit at natural height. output-row absorbs vertical slack so the page
+   fills the viewport on any display size. */
 .eps-page #pane-live > .status-strip,
-.eps-page #pane-live > .hero-row { flex: 0 0 auto; }
-.eps-page #pane-live > .hero-row       { min-height: 0; }
+.eps-page #pane-live > .cadence,
+.eps-page #pane-live > .hero-row,
+.eps-page #pane-live > [data-component="PowerBalance"] { flex: 0 0 auto; }
+.eps-page #pane-live > .hero-row { min-height: 0; }
+.eps-page #pane-live > .output-row { flex: 1 1 auto; min-height: 0; }
 .eps-page #pane-live .card { display: flex; flex-direction: column; }
 .eps-page #pane-fields.active > .card {
   flex: 1; min-height: 0; overflow: hidden;
@@ -329,102 +335,6 @@
   color: var(--text-disabled); margin-top: 2px;
 }
 
-.eps-page .rails-card { flex: 0 0 auto; }
-.eps-page .rails-body {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  grid-auto-rows: 1fr;
-  align-content: stretch;
-  gap: 6px; padding: 8px 10px;
-  flex: 1 1 auto;
-}
-.eps-page .rails-body .vout-cell .dev {
-  font-variant-numeric: tabular-nums;
-  color: var(--state-info);
-}
-.eps-page .rails-body .vout-cell.caution .dev { color: var(--state-warning); }
-.eps-page .rails-body .vout-cell.danger  .dev { color: var(--state-danger); }
-.eps-page .rail + .rail { border-top: 1px solid var(--border-subtle); }
-.eps-page .rail-tag {
-  flex: 0 0 auto;
-  font-size: 14px; font-weight: 600;
-  color: var(--state-info); letter-spacing: 0.04em;
-  min-width: 36px;
-}
-.eps-page .rail-nums { display: flex; gap: 16px; font-size: 12px; flex: 0 0 auto; }
-.eps-page .rail-nums .kv { display: inline-flex; align-items: baseline; gap: 4px; }
-.eps-page .rail-nums .k {
-  color: var(--text-muted); font-size: 11px; letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-.eps-page .rail-nums .v {
-  color: var(--text-primary); font-variant-numeric: tabular-nums;
-}
-.eps-page .rail-nums .u { color: var(--text-disabled); font-size: 11px; margin-left: 2px; }
-.eps-page .rail-dev {
-  font-size: 11px; color: var(--text-disabled); letter-spacing: 0.04em;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.eps-page .rail-sep  { flex: 0 0 auto; color: var(--border-strong); font-size: 11px; }
-.eps-page .rail-note {
-  font-family: 'JetBrains Mono', monospace; font-size: 11px;
-  color: var(--text-disabled); letter-spacing: 0.04em;
-}
-
-/* ── VOUT cells ──────────────────────────────────────────── */
-.eps-page .vout-strip {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 6px; padding: 8px 10px;
-  flex: 1 1 auto; grid-auto-rows: 1fr; align-content: stretch;
-}
-.eps-page .vout-cell {
-  display: flex; flex-direction: column; gap: 2px;
-  padding: 5px 8px; min-height: 62px;
-  border: 1px solid var(--border-subtle); border-radius: 3px;
-  background: #0a0a0a;
-  overflow: hidden;
-}
-.eps-page .vout-cell.on    { border-color: rgba(60, 201, 142, 0.4); background: rgba(60, 201, 142, 0.05); }
-.eps-page .vout-cell.alarm { border-color: rgba(255, 56, 56, 0.4); background: rgba(255, 56, 56, 0.05); }
-.eps-page .vout-cell .top {
-  display: flex; align-items: baseline; justify-content: space-between; gap: 6px;
-}
-.eps-page .vout-cell .name {
-  font-family: 'Inter', sans-serif; font-size: 11px; font-weight: 600;
-  color: var(--text-secondary); letter-spacing: 0.02em;
-}
-.eps-page .vout-cell.on .name { color: var(--text-primary); }
-.eps-page .vout-cell .badge {
-  font-family: 'JetBrains Mono', monospace; font-size: 11px;
-  padding: 1px 5px; border: 1px solid var(--border-strong); border-radius: 1px;
-  color: var(--text-disabled); letter-spacing: 0.08em;
-}
-.eps-page .vout-cell.on .badge { color: var(--state-success); border-color: rgba(60, 201, 142, 0.4); }
-.eps-page .vout-cell .meta {
-  display: flex; align-items: center; gap: 6px;
-  font-family: 'JetBrains Mono', monospace; font-size: 11px;
-  color: var(--text-disabled); letter-spacing: 0.06em;
-}
-.eps-page .vout-cell .rail-tag {
-  padding: 0 4px; border: 1px solid var(--border-subtle); border-radius: 1px;
-  color: var(--state-info);
-}
-.eps-page .vout-cell .big {
-  font-family: 'JetBrains Mono', monospace; font-size: 16px; font-weight: 500;
-  color: var(--text-primary); font-variant-numeric: tabular-nums; margin-top: auto;
-}
-.eps-page .vout-cell.off .big { color: var(--text-disabled); }
-.eps-page .vout-cell .big .u { font-size: 11px; color: var(--text-disabled); margin-left: 3px; }
-.eps-page .vout-cell .ip {
-  display: flex; justify-content: space-between;
-  font-family: 'JetBrains Mono', monospace; font-size: 11px;
-  color: var(--text-muted);
-}
-.eps-page .vout-cell.off .ip { color: var(--text-disabled); }
-.eps-page .vout-cell .meta span,
-.eps-page .vout-cell .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
 /* ── Δ-since-previous + ETA rows ─────────────────────────── */
 .eps-page .delta-row {
   display: flex; align-items: baseline; gap: 8px;
@@ -530,12 +440,8 @@
   .eps-page .vout-strip { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-height: 920px) {
-  .eps-page .peak-note,
-  .eps-page .rail-note { display: none; }
   .eps-page .vout-cell  { min-height: 62px; padding: 4px 8px; gap: 2px; }
   .eps-page .vout-strip { padding: 6px 10px; gap: 4px; }
-  .eps-page .rail       { padding: 6px 12px; }
-  .eps-page .rail-dev   { display: none; }
 }
 @media (max-height: 760px) {
   .eps-page .delta-row { display: none; }
