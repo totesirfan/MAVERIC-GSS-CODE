@@ -1,12 +1,17 @@
 """
 mav_gss_lib.protocols -- Reusable CubeSat Protocol-Family Support
 
-Protocol-family primitives shared across missions:
-    crc          -- CRC-16 XMODEM, CRC-32C Castagnoli
-    csp          -- CSP v1 header, KISS framing, CSPConfig
-    ax25         -- AX.25 encoder, AX25Config
-    golay        -- ASM+Golay encoder (AX100 Mode 5)
-    frame_detect -- Frame type detection and normalization
+Wire-format primitives consumed only by missions (see
+``tests/test_mission_owned_framing.py`` for the guardrail that the server
+does not import these directly):
+    crc   -- CRC-16 XMODEM, CRC-32C Castagnoli
+    csp   -- CSP v1 header, KISS framing, CSPConfig
+    ax25  -- AX.25 encoder, AX25Config
+    golay -- ASM+Golay encoder (AX100 Mode 5)
+
+Transport-metadata framing heuristics live on the platform side at
+``mav_gss_lib.platform.rx.frame_detect`` (they don't decode wire bytes, they
+inspect gr-satellites metadata strings).
 """
 
 from mav_gss_lib.protocols.crc import crc16, crc32c, verify_csp_crc32
@@ -20,4 +25,3 @@ from mav_gss_lib.protocols.ax25 import (
 from mav_gss_lib.protocols.golay import (
     ASM, PREAMBLE, build_asm_golay_frame, ccsds_scrambler_sequence, golay_encode, rs_encode,
 )
-from mav_gss_lib.protocols.frame_detect import detect_frame_type, normalize_frame

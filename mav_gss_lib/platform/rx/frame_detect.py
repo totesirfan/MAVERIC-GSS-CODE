@@ -1,8 +1,12 @@
-"""
-mav_gss_lib.protocols.frame_detect -- Frame Type Detection & Normalization
+"""Frame-type detection from gr-satellites transport metadata.
 
-RX-direction utilities: detect outer framing type from gr-satellites
-metadata and strip it to expose the inner CSP+payload.
+RX-direction utilities that look only at the PDU metadata (tx_info string)
+and raw bytes — no mission-specific wire-format knowledge lives here. Both
+the server (for pre-pipeline noise drops) and the active mission (for its
+``PacketOps.normalize`` step) consume these helpers, so the module lives on
+the platform side of the boundary.
+
+Author:  Irfan Annuar - USC ISI SERC
 """
 
 

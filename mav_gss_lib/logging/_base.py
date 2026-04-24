@@ -10,6 +10,7 @@ Author:  Irfan Annuar - USC ISI SERC
 """
 
 import json
+import logging as _logging
 import os
 import queue
 import re
@@ -18,6 +19,8 @@ import threading
 from datetime import datetime
 
 from mav_gss_lib.constants import DEFAULT_MISSION_NAME
+
+_log = _logging.getLogger(__name__)
 
 TS_FULL = "%Y-%m-%d %H:%M:%S %Z"   # Full timestamp with timezone
 TS_FULL_MS = "%Y-%m-%d %H:%M:%S.{ms:03d} %Z"  # With milliseconds for per-entry stamps
@@ -78,7 +81,10 @@ class _BaseLog:
     """Shared JSONL + text log infrastructure.
 
     All file I/O runs on a dedicated background thread so that callers
-    (typically the Textual event loop) never block on disk flushes.
+    (the FastAPI lifespan + RX/TX async broadcast loops) never block on
+    disk flushes. Once :meth:`close` has been called, subsequent
+    ``write_jsonl`` / ``_write_entry`` calls become silent no-ops — the
+    writer thread is gone, so queuing would otherwise lose the record.
     """
 
     _SENTINEL = None  # poison pill to stop the writer thread
@@ -96,6 +102,7 @@ class _BaseLog:
         self._operator = operator
         self._host = host
         self._q_lock = threading.Lock()
+        self._closed = False
         self.session_id = ""
         os.makedirs(os.path.join(log_dir, "text"), exist_ok=True)
         os.makedirs(os.path.join(log_dir, "json"), exist_ok=True)
@@ -223,13 +230,21 @@ class _BaseLog:
         return lines
 
     def write_jsonl(self, record):
-        """Queue one pre-built envelope dict for the writer thread to persist."""
+        """Queue one pre-built envelope dict for the writer thread to persist.
+
+        Becomes a no-op after :meth:`close` — queuing would silently lose the
+        record because the writer thread has already exited.
+        """
         with self._q_lock:
+            if self._closed:
+                return
             self._q.put(("jsonl", json.dumps(record) + "\n"))
 
     def _write_entry(self, lines):
         """Write a complete log entry (list of lines + trailing blank)."""
         with self._q_lock:
+            if self._closed:
+                return
             self._q.put(("text", "\n".join(lines) + "\n\n"))
 
     def _open_files(self, tag=""):
@@ -253,6 +268,8 @@ class _BaseLog:
 
     def prepare_new_session(self, tag=""):
         """Open new log files WITHOUT closing old ones (prepare phase)."""
+        if self._closed:
+            raise RuntimeError("cannot start new session on a closed log")
         tag      = re.sub(r'[^\w\-.]', '_', tag.strip()).strip('_') if tag else ""
         station  = re.sub(r'[^\w\-.]', '_', self._station.strip()).strip('_') if self._station else ""
         operator = re.sub(r'[^\w\-.]', '_', self._operator.strip()).strip('_') if self._operator else ""
@@ -295,14 +312,31 @@ class _BaseLog:
 
     def commit_new_session(self, prepared):
         """Swap to new file handles from *prepared* dict (commit phase)."""
+        if self._closed:
+            for key in ("text_f", "jsonl_f"):
+                try:
+                    prepared[key].close()
+                except Exception:
+                    pass
+            raise RuntimeError("cannot commit new session on a closed log")
         old_jsonl = self.jsonl_path
         old_text = self.text_path
         with self._q_lock:
             self._q.put(self._SENTINEL)
         self._writer.join(timeout=5.0)
         if self._writer.is_alive():
-            prepared["text_f"].close()
-            prepared["jsonl_f"].close()
+            for key in ("text_f", "jsonl_f"):
+                try:
+                    prepared[key].close()
+                except Exception:
+                    pass
+            for key in ("text_path", "jsonl_path"):
+                path = prepared.get(key)
+                try:
+                    if path and os.path.isfile(path):
+                        os.remove(path)
+                except OSError:
+                    pass
             raise RuntimeError("old writer thread did not stop within timeout — commit aborted")
         self._text_f.close()
         self._jsonl_f.close()
@@ -368,13 +402,25 @@ class _BaseLog:
         """Stop the writer thread and close both file handles.
 
         Drains queued items, flushes, then unlinks an empty pair so sessions
-        that never received a packet don't litter the log directory.
+        that never received a packet don't litter the log directory. After
+        close returns, further :meth:`write_jsonl` / :meth:`_write_entry`
+        calls are silent no-ops, guaranteed by the ``_closed`` flag set
+        under the queue lock alongside the sentinel enqueue.
         """
-        self._q.put(self._SENTINEL)
+        with self._q_lock:
+            if self._closed:
+                return
+            self._closed = True
+            self._q.put(self._SENTINEL)
         self._writer.join(timeout=5.0)
-        if not self._writer.is_alive():
-            self._jsonl_f.close()
-            self._text_f.close()
+        if self._writer.is_alive():
+            _log.warning(
+                "log writer thread did not stop within 5s — file handles for %s may leak",
+                self.jsonl_path,
+            )
+            return
+        self._jsonl_f.close()
+        self._text_f.close()
         try:
             if os.path.isfile(self.jsonl_path) and os.path.getsize(self.jsonl_path) == 0:
                 os.remove(self.jsonl_path)

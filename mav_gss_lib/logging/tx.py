@@ -12,7 +12,8 @@ from ._base import _BaseLog
 class TXLog(_BaseLog):
     """TX session log — JSONL (tx_command events) + text.
 
-    The JSONL record is built by ``mav_gss_lib.platform.tx_log_record`` and
+    The JSONL record is built by ``mav_gss_lib.platform.tx.logging.tx_log_record``
+    (also re-exported from ``mav_gss_lib.platform`` for convenience) and
     handed in pre-assembled; this writer just persists it and formats the
     human-readable text entry around the same inputs.
     """
@@ -26,7 +27,8 @@ class TXLog(_BaseLog):
     def write_mission_command(self, record, *, raw_cmd, wire, log_text=None):
         """Write one mission-built TX command entry.
 
-        *record* is the pre-built envelope from ``platform.tx_log_record``.
+        *record* is the pre-built envelope from
+        ``mav_gss_lib.platform.tx.logging.tx_log_record``.
         *raw_cmd* and *wire* are the inner command bytes and the full wire
         frame — both are re-needed here for the text-log hex blocks.
         *log_text* is the mission framer's banner lines (from

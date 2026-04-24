@@ -49,7 +49,10 @@ def _parse_ts_ms(raw: str | int | None) -> int:
 
     Accepts ISO 8601 ("2026-04-21T15:52:21+00:00") and the legacy
     space-separated form with a TZ abbrev ("2026-04-21 15:52:21 PDT").
-    Falls back to 0 on unparseable input so migration does not abort."""
+    Falls back to 0 on unparseable input so migration does not abort —
+    the caller stamps ``ts_iso(0)`` (``1970-01-01T00:00:00.000+00:00``)
+    so the unified envelope's non-empty-``ts_iso`` contract still holds
+    and SQL ingest flags the row rather than rejecting the batch."""
     if isinstance(raw, int):
         return raw
     if not raw:
@@ -116,7 +119,7 @@ def _migrate_rx(entry: dict, *, session_id: str, mission_id: str) -> list[dict]:
     envelope_common = {
         "session_id": session_id,
         "ts_ms": ts_ms,
-        "ts_iso": _ts_iso(ts_ms) if ts_ms else "",
+        "ts_iso": _ts_iso(ts_ms),
         "seq": entry.get("pkt", 0),
         "v": entry.get("v", ""),
         "mission_id": mission_id or entry.get("mission", ""),
@@ -154,7 +157,7 @@ def _migrate_rx(entry: dict, *, session_id: str, mission_id: str) -> list[dict]:
         out.append({
             "event_id": _new_event_id(),
             "event_kind": "telemetry",
-            **{**envelope_common, "ts_ms": frag_ts, "ts_iso": _ts_iso(frag_ts) if frag_ts else ""},
+            **{**envelope_common, "ts_ms": frag_ts, "ts_iso": _ts_iso(frag_ts)},
             "rx_event_id": event_id,
             "domain": frag.get("domain", ""),
             "key": frag.get("key", ""),
@@ -188,7 +191,7 @@ def _migrate_tx(entry: dict, *, session_id: str, mission_id: str) -> dict:
         "event_kind": "tx_command",
         "session_id": session_id,
         "ts_ms": ts_ms,
-        "ts_iso": _ts_iso(ts_ms) if ts_ms else "",
+        "ts_iso": _ts_iso(ts_ms),
         "seq": entry.get("n", 0),
         "v": entry.get("v", ""),
         "mission_id": mission_id,
@@ -220,11 +223,13 @@ def migrate_entry(entry: dict, *, session_id: str, mission_id: str) -> Iterable[
     return []
 
 
-def migrate_file(src: Path, dst: Path, *, mission_id: str) -> tuple[int, int]:
+def migrate_file(src: Path, dst: Path, *, mission_id: str) -> tuple[int, int, int]:
+    """Migrate one legacy jsonl file. Returns (in_count, out_count, skipped)."""
     session_id = src.stem
     out_lines: list[str] = []
     in_count = 0
     out_count = 0
+    skipped = 0
     with open(src) as handle:
         for raw_line in handle:
             line = raw_line.strip()
@@ -233,6 +238,7 @@ def migrate_file(src: Path, dst: Path, *, mission_id: str) -> tuple[int, int]:
             try:
                 entry = json.loads(line)
             except json.JSONDecodeError:
+                skipped += 1
                 continue
             in_count += 1
             for new in migrate_entry(entry, session_id=session_id, mission_id=mission_id):
@@ -240,7 +246,7 @@ def migrate_file(src: Path, dst: Path, *, mission_id: str) -> tuple[int, int]:
                 out_count += 1
     dst.parent.mkdir(parents=True, exist_ok=True)
     dst.write_text("\n".join(out_lines) + ("\n" if out_lines else ""))
-    return in_count, out_count
+    return in_count, out_count, skipped
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -262,14 +268,20 @@ def main(argv: list[str] | None = None) -> int:
 
     total_in = 0
     total_out = 0
+    total_skipped = 0
     for src in sorted(src_dir.glob("*.jsonl")):
         dst = dst_dir / src.name
-        in_count, out_count = migrate_file(src, dst, mission_id=args.mission_id)
+        in_count, out_count, skipped = migrate_file(src, dst, mission_id=args.mission_id)
         total_in += in_count
         total_out += out_count
-        print(f"{src.name}: {in_count} -> {out_count}")
+        total_skipped += skipped
+        skip_note = f"  [{skipped} malformed lines skipped]" if skipped else ""
+        print(f"{src.name}: {in_count} -> {out_count}{skip_note}")
 
     print(f"\ntotal: {total_in} legacy records -> {total_out} unified events")
+    if total_skipped:
+        print(f"warning: {total_skipped} malformed lines were skipped "
+              f"(unparseable JSON) — review source files before swapping")
     print(f"output: {dst_dir}")
     print("review, then swap: mv json json.v1 && mv json.v2 json")
     return 0

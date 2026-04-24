@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from mav_gss_lib.protocols.frame_detect import is_noise_frame
+from mav_gss_lib.platform.rx.frame_detect import is_noise_frame
 
 
 class TestIsNoiseFrame(unittest.TestCase):

@@ -25,8 +25,8 @@ class TestBackendHasNoFramingImports(unittest.TestCase):
     """Guardrail — the platform must not import MAVERIC protocol primitives."""
 
     BANNED_PATTERN = re.compile(
-        r"from\s+mav_gss_lib\.protocols\.(?:ax25|csp|golay)\s+import|"
-        r"import\s+mav_gss_lib\.protocols\.(?:ax25|csp|golay)"
+        r"from\s+mav_gss_lib\.protocols(?:\.\w+)?\s+import|"
+        r"import\s+mav_gss_lib\.protocols(?:\.\w+)?"
     )
 
     def test_server_does_not_import_protocol_framing(self):

@@ -25,7 +25,7 @@ from mav_gss_lib.platform.rx.logging import (
     rx_log_text,
     rx_telemetry_records,
 )
-from mav_gss_lib.protocols.frame_detect import detect_frame_type, is_noise_frame
+from mav_gss_lib.platform.rx.frame_detect import detect_frame_type, is_noise_frame
 from mav_gss_lib.transport import SUB_STATUS, init_zmq_sub, poll_monitor, receive_pdu, zmq_cleanup
 
 from .._broadcast import broadcast_safe
@@ -133,6 +133,11 @@ class RxService:
                 except Empty:
                     break
                 if item_gen < self.runtime.session.session_generation:
+                    # Packet arrived against a prior session generation —
+                    # drop the record entirely (broadcast AND log). This is
+                    # by design: a new-session swap is an operator-driven
+                    # context change, and carrying stale packets forward
+                    # would mix them with the new session's data stream.
                     continue
                 if self._should_drop_noise(meta, raw):
                     continue  # gr-satellites noise — behave as if never received
