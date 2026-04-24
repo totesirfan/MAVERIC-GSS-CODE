@@ -14,7 +14,7 @@ export interface RxPacket {
   _rendering?: RenderingData
 }
 
-// ---- Rendering Slots (architecture spec §4) ----
+// ---- Rendering Slots ----
 
 export interface ColumnDef {
   id: string
@@ -22,7 +22,6 @@ export interface ColumnDef {
   width?: string
   align?: 'left' | 'right'
   flex?: boolean
-  badge?: boolean
   toggle?: string
 }
 
@@ -35,10 +34,12 @@ export interface RenderingMeta {
   opacity?: number
 }
 
-/** Column values keyed by column ID, plus optional presentation metadata. */
-export interface RenderingRow {
-  values: Record<string, string | number | RenderingFlag[]>
-  _meta?: RenderingMeta
+export interface RenderCell {
+  value: string | number | boolean | null | RenderingFlag[]
+  tone?: string | null
+  badge?: boolean
+  tooltip?: string | null
+  monospace?: boolean
 }
 
 export interface BlockField {
@@ -62,7 +63,8 @@ export interface IntegrityBlock {
 }
 
 export interface RenderingData {
-  row: RenderingRow
+  row: Record<string, RenderCell>
+  meta?: RenderingMeta
   detail_blocks: DetailBlock[]
   protocol_blocks: DetailBlock[]
   integrity_blocks: IntegrityBlock[]
@@ -79,7 +81,7 @@ export interface RxStatus {
 export interface CmdDisplay {
   title: string
   subtitle?: string
-  row: Record<string, string | number>
+  row: Record<string, RenderCell>
   detail_blocks: DetailBlock[]
 }
 
@@ -89,7 +91,6 @@ export interface TxColumnDef {
   width?: string
   align?: 'left' | 'right'
   flex?: boolean
-  badge?: boolean
   hide_if_all?: string[]
 }
 
@@ -147,7 +148,7 @@ export interface GuardConfirm {
 }
 
 export interface TxCapabilities {
-  raw_send: boolean
+  mission_commands: boolean
 }
 
 export interface MissionBuilderProps {
@@ -156,26 +157,10 @@ export interface MissionBuilderProps {
 }
 
 // ---- Config ----
+// Native split shape returned by GET /api/config and accepted by PUT /api/config.
+// Matches the backend WebRuntime primary state: {platform_cfg, mission_id, mission_cfg}.
 
-export interface GssConfig {
-  nodes: Record<number, string>
-  ptypes: Record<number, string>
-  node_descriptions?: Record<string, string>
-  ax25: {
-    src_call: string
-    src_ssid: number
-    dest_call: string
-    dest_ssid: number
-  }
-  csp: {
-    priority: number
-    source: number
-    destination: number
-    dest_port: number
-    src_port: number
-    flags: number
-    csp_crc: boolean
-  }
+export interface PlatformConfig {
   tx: {
     zmq_addr: string
     frequency: string
@@ -187,18 +172,51 @@ export interface GssConfig {
     tx_blackout_ms?: number
   }
   general: {
-    mission?: string
-    mission_name?: string
-    rx_title?: string
-    tx_title?: string
     version: string
     build_sha?: string
     log_dir: string
-    gs_node: string
+    generated_commands_dir?: string
   }
+  stations?: Record<string, string>
 }
 
-// ---- Logs ----
+export interface Maveric_Ax25Config {
+  src_call: string
+  src_ssid: number
+  dest_call: string
+  dest_ssid: number
+}
+
+export interface MavericCspConfig {
+  priority: number
+  source: number
+  destination: number
+  dest_port: number
+  src_port: number
+  flags: number
+  csp_crc: boolean
+}
+
+export interface MavericMissionConfig {
+  mission_name?: string
+  rx_title?: string
+  tx_title?: string
+  gs_node?: string
+  nodes?: Record<string, string>
+  ptypes?: Record<string, string>
+  node_descriptions?: Record<string, string>
+  ax25: Maveric_Ax25Config
+  csp: MavericCspConfig
+  imaging?: Record<string, unknown>
+}
+
+export interface GssConfig {
+  platform: PlatformConfig
+  mission: {
+    id: string
+    config: MavericMissionConfig
+  }
+}
 
 // ---- Preflight ----
 

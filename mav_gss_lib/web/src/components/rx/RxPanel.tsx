@@ -12,6 +12,7 @@ import { PacketDetail } from './PacketDetail'
 import { BlackoutPill } from './BlackoutPill'
 import { ReplayPanel } from '@/components/logs/ReplayPanel'
 import { colors } from '@/lib/colors'
+import { renderingText } from '@/lib/rendering'
 import {
   ContextMenuRoot, ContextMenuTrigger, ContextMenuContent,
   ContextMenuItem,
@@ -24,7 +25,7 @@ function f(label: string, value: string): string {
 
 /** Extract command label from _rendering (live row or replay detail_blocks). */
 function extractCmd(p: RxPacket): string {
-  const rowCmd = p._rendering?.row?.values?.cmd
+  const rowCmd = renderingText(p._rendering, 'cmd')
   if (rowCmd) return String(rowCmd).split(' ')[0] || '???'
   // Fallback: search command blocks
   for (const block of p._rendering?.detail_blocks ?? []) {
@@ -38,7 +39,7 @@ function extractCmd(p: RxPacket): string {
 
 /** Extract "cmd args" string from _rendering for clipboard. */
 function extractCmdArgs(p: RxPacket): string {
-  const rowCmd = p._rendering?.row?.values?.cmd
+  const rowCmd = renderingText(p._rendering, 'cmd')
   if (rowCmd) return String(rowCmd).trim()
   // Fallback: build from command blocks only (not routing)
   const parts: string[] = []
@@ -222,8 +223,7 @@ export function RxPanel({ config, packets, status, packetStats, columns, replayM
 
   const selectedPacket = selectedNum !== null ? filtered.find(p => p.num === selectedNum) ?? null : null
   const isLive = autoScroll && selectedNum === lastNum
-  const missionName = config?.general?.mission_name ?? 'Mission'
-  const nodeDescriptions = config?.node_descriptions
+  const missionName = config?.mission.config.mission_name ?? 'Mission'
 
   return (
     <div className="flex flex-col h-full gap-3 relative">
@@ -244,7 +244,7 @@ export function RxPanel({ config, packets, status, packetStats, columns, replayM
           }}
         >
           <div className="flex items-center gap-2">
-            <span className="text-xs font-bold tracking-wide uppercase" style={{ color: colors.value }}>{config?.general?.rx_title ?? 'RX Downlink'}</span>
+            <span className="text-xs font-bold tracking-wide uppercase" style={{ color: colors.value }}>{config?.mission.config.rx_title ?? 'RX Downlink'}</span>
             <StatusDot status={replayMode ? 'REPLAY' : status.zmq} />
             {replayMode ? (
               <span className="text-[11px] font-medium" style={{ color: colors.warning }}>REPLAY</span>
@@ -263,7 +263,7 @@ export function RxPanel({ config, packets, status, packetStats, columns, replayM
             )}
             <BlackoutPill
               until={blackoutUntil ?? null}
-              configuredMs={config?.rx?.tx_blackout_ms ?? 0}
+              configuredMs={config?.platform.rx.tx_blackout_ms ?? 0}
             />
             {!replayMode && packets.length > 0 && (
               <span className="text-[11px] font-mono tabular-nums flex items-center gap-2 ml-auto mr-2" style={{ color: colors.textMuted }}>
@@ -310,7 +310,6 @@ export function RxPanel({ config, packets, status, packetStats, columns, replayM
         <PacketList
           packets={filtered}
           columns={columns}
-          nodeDescriptions={nodeDescriptions}
           showFrame={showFrame}
           showEcho={showEcho}
           flashPacketNum={lastNum}
@@ -382,7 +381,7 @@ export function RxPanel({ config, packets, status, packetStats, columns, replayM
                       exit={{ opacity: 0 }}
                       transition={{ duration: 0.1, ease: 'easeOut' }}
                     >
-                      <PacketDetail packet={selectedPacket} nodeDescriptions={nodeDescriptions} showHex={showHex} showWrapper={showWrapper} showFrame={showFrame} />
+                      <PacketDetail packet={selectedPacket} showHex={showHex} showWrapper={showWrapper} showFrame={showFrame} />
                     </motion.div>
                   </AnimatePresence>
                 </div>

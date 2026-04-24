@@ -1,69 +1,61 @@
-"""Verify PUT /api/config strips derived junk and preserves operator overrides."""
+"""PUT /api/config applies native split updates through the spec boundaries."""
 import copy
 import os
 import sys
 import tempfile
+import threading
 import unittest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from mav_gss_lib.web_runtime.api.config import _strip_persisted_junk  # noqa: E402
+from mav_gss_lib.platform import MissionConfigSpec  # noqa: E402
+from mav_gss_lib.platform.config_boundary import (  # noqa: E402
+    apply_platform_config_update as _apply_platform_update,
+)
 
 
-class TestStripPersistedJunk(unittest.TestCase):
-    def test_strips_strictly_mission_owned_top_level(self):
-        update = {
-            "nodes": {"1": "LPPM"},
-            "ptypes": {"1": "CMD"},
-            "node_descriptions": {"LPPM": "Lower PPM"},
-            "ax25": {"src_call": "WM2XBB"},
-            "csp": {"priority": 2},
-        }
-        cleaned = _strip_persisted_junk(copy.deepcopy(update))
-        self.assertNotIn("nodes", cleaned)
-        self.assertNotIn("ptypes", cleaned)
-        self.assertNotIn("node_descriptions", cleaned)
-        self.assertEqual(cleaned["ax25"], {"src_call": "WM2XBB"})
-        self.assertEqual(cleaned["csp"], {"priority": 2})
+class TestApplyPlatformUpdate(unittest.TestCase):
+    def test_whitelists_general_keys(self):
+        platform_cfg = {"general": {"log_dir": "logs", "version": "0.0.0"}}
+        _apply_platform_update(platform_cfg, {"general": {
+            "log_dir": "new_logs",
+            "version": "SENTINEL",
+            "generated_commands_dir": "queue_out",
+        }})
+        self.assertEqual(platform_cfg["general"]["log_dir"], "new_logs")
+        self.assertEqual(platform_cfg["general"]["generated_commands_dir"], "queue_out")
+        # Version must stay as-was — not a whitelisted platform key.
+        self.assertEqual(platform_cfg["general"]["version"], "0.0.0")
 
-    def test_strips_runtime_derived_and_platform_general_keys(self):
-        update = {
-            "general": {
-                "mission": "maveric",
-                "log_dir": "logs",
-                "version": "5.0.0",
-                "mission_name": "MAVERIC",
-                "gs_node": "GS",
-                "command_defs": "commands.yml",
-                "command_defs_resolved": "/abs/path/commands.yml",
-                "command_defs_warning": "",
-                "rx_title": "RX DOWNLINK",
-                "tx_title": "TX UPLINK",
-                "splash_subtitle": "Mission Ground Station",
-            },
-        }
-        cleaned = _strip_persisted_junk(copy.deepcopy(update))
-        self.assertEqual(
-            cleaned["general"],
-            {"mission": "maveric", "log_dir": "logs"},
-        )
-        self.assertNotIn("version", cleaned["general"])
+    def test_merges_tx_rx_sections(self):
+        platform_cfg = {"tx": {"zmq_addr": "tcp://old", "delay_ms": 500}, "rx": {"zmq_addr": "tcp://old-rx"}}
+        _apply_platform_update(platform_cfg, {
+            "tx": {"zmq_addr": "tcp://new", "uplink_mode": "ASM+Golay"},
+            "rx": {"tx_blackout_ms": 750},
+        })
+        self.assertEqual(platform_cfg["tx"]["zmq_addr"], "tcp://new")
+        self.assertEqual(platform_cfg["tx"]["delay_ms"], 500)
+        self.assertEqual(platform_cfg["tx"]["uplink_mode"], "ASM+Golay")
+        self.assertEqual(platform_cfg["rx"]["zmq_addr"], "tcp://old-rx")
+        self.assertEqual(platform_cfg["rx"]["tx_blackout_ms"], 750)
 
-    def test_preserves_operator_keys(self):
-        update = {
-            "tx": {"zmq_addr": "tcp://127.0.0.1:52002", "frequency": "437.6 MHz", "uplink_mode": "ASM+Golay"},
-            "rx": {"zmq_addr": "tcp://127.0.0.1:52001"},
-            "ax25": {"src_call": "WM2XBB", "src_ssid": 97},
-            "csp": {"priority": 2, "destination": 8},
-            "general": {"mission": "maveric", "log_dir": "logs"},
-        }
-        cleaned = _strip_persisted_junk(copy.deepcopy(update))
-        self.assertEqual(cleaned, update)
+    def test_drops_non_editable_sections(self):
+        """Sections outside editable_sections never land on platform_cfg."""
+        platform_cfg = {"tx": {}, "rx": {}}
+        _apply_platform_update(platform_cfg, {
+            "tx": {"delay_ms": 10},
+            "stations": {"h1": "Pad"},
+            "nodes": {"1": "LEAK"},
+            "ax25": {"src_call": "LEAK"},
+        })
+        self.assertEqual(platform_cfg["tx"]["delay_ms"], 10)
+        self.assertNotIn("stations", platform_cfg)
+        self.assertNotIn("nodes", platform_cfg)
+        self.assertNotIn("ax25", platform_cfg)
 
 
 class _FakeService:
     def __init__(self):
-        import threading
         self.sending = {"active": False}
         self.status = ("ok",)
         self.log = None
@@ -72,21 +64,27 @@ class _FakeService:
     def restart_receiver(self): pass
 
 
+class _FakeMission:
+    def __init__(self, spec: MissionConfigSpec):
+        self.config = spec
+
+
 class _FakeRuntime:
-    def __init__(self, cfg):
-        import threading
-        self.cfg = cfg
+    """Minimal split-state runtime compatible with /api/config PUT."""
+
+    def __init__(self, platform_cfg, mission_id, mission_cfg, spec):
+        self.platform_cfg = platform_cfg
+        self.mission_id = mission_id
+        self.mission_cfg = mission_cfg
         self.cfg_lock = threading.RLock()
         self.session_token = "test-token"
         self.tx = _FakeService()
         self.rx = _FakeService()
-        self.csp = None
-        self.ax25 = None
+        self.mission = _FakeMission(spec)
 
 
 class TestConfigEndpointRoundTrip(unittest.TestCase):
-    """Hit the real FastAPI route so we catch regressions in auth gating,
-    request handling, save_gss_config() behavior, and the strip helper."""
+    """End-to-end: the real PUT handler accepts native-shape updates."""
 
     def _build_app(self, runtime):
         from fastapi import FastAPI
@@ -96,7 +94,25 @@ class TestConfigEndpointRoundTrip(unittest.TestCase):
         app.include_router(router)
         return app
 
-    def test_put_persists_overrides_and_strips_junk(self):
+    def _mavericish_spec(self):
+        return MissionConfigSpec(
+            editable_paths={"ax25.*", "csp.*", "imaging.thumb_prefix"},
+            protected_paths={
+                "nodes",
+                "ptypes",
+                "node_descriptions",
+                "gs_node",
+                "mission_name",
+                "command_defs",
+                "command_defs_resolved",
+                "command_defs_warning",
+                "rx_title",
+                "tx_title",
+                "splash_subtitle",
+            },
+        )
+
+    def test_put_applies_native_platform_and_mission_updates(self):
         import yaml
         from unittest.mock import patch
         from fastapi.testclient import TestClient
@@ -104,55 +120,60 @@ class TestConfigEndpointRoundTrip(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             gss_path = os.path.join(tmp, "gss.yml")
-            with open(gss_path, "w") as f:
-                yaml.safe_dump(
-                    {
-                        "tx": {"zmq_addr": "tcp://127.0.0.1:52002", "delay_ms": 500, "frequency": "437.25 MHz"},
-                        "rx": {"zmq_addr": "tcp://127.0.0.1:52001"},
-                        "general": {"mission": "maveric", "log_dir": "logs"},
-                        "ax25": {"src_call": "WM2XBB", "src_ssid": 97},
-                        "csp": {"priority": 2, "destination": 8},
-                    },
-                    f,
-                )
 
-            runtime = _FakeRuntime(cfg={
+            platform_cfg = {
+                "general": {
+                    "log_dir": "logs",
+                    "generated_commands_dir": "generated_commands",
+                    "version": "5.0.0",
+                },
                 "tx": {"zmq_addr": "tcp://127.0.0.1:52002", "delay_ms": 500, "frequency": "437.25 MHz"},
                 "rx": {"zmq_addr": "tcp://127.0.0.1:52001"},
-                "general": {"mission": "maveric", "log_dir": "logs"},
-                "ax25": {"src_call": "WM2XBB", "src_ssid": 97},
-                "csp": {"priority": 2, "destination": 8},
+                "stations": {},
+            }
+            mission_cfg = {
+                "mission_name": "MAVERIC",
                 "nodes": {"1": "LPPM"},
                 "ptypes": {"1": "CMD"},
-            })
+                "gs_node": "GS",
+                "ax25": {"src_call": "WM2XBB", "src_ssid": 97},
+                "csp": {"priority": 2, "destination": 8},
+            }
+            runtime = _FakeRuntime(
+                platform_cfg=platform_cfg,
+                mission_id="maveric",
+                mission_cfg=copy.deepcopy(mission_cfg),
+                spec=self._mavericish_spec(),
+            )
 
             app = self._build_app(runtime)
             client = TestClient(app)
 
             update = {
-                "ax25": {"src_call": "WM2XBC", "src_ssid": 98},
-                "csp": {"priority": 3},
-                # Sentinel values: if stripping fails, these would appear
-                # in runtime.cfg and/or gss.yml.
-                "nodes": {"99": "SENTINEL_NODE"},
-                "ptypes": {"99": "SENTINEL_PTYPE"},
-                "node_descriptions": {"SENTINEL_NODE": "should not persist"},
-                "general": {
-                    "mission": "maveric",
-                    "version": "0.0.1-sentinel",
-                    "command_defs_resolved": "/abs/commands.yml",
-                    "command_defs_warning": "",
-                    "mission_name": "SENTINEL_MISSION_NAME",
-                    "gs_node": "SENTINEL_GS",
-                    "rx_title": "SENTINEL_RX_TITLE",
-                    "tx_title": "SENTINEL_TX_TITLE",
-                    "splash_subtitle": "SENTINEL_SUBTITLE",
+                "platform": {
+                    "tx": {"delay_ms": 600},
+                    # These must be dropped by apply_platform_config_update:
+                    "stations": {"h1": "LEAK"},
+                    "general": {
+                        "log_dir": "logs",
+                        "version": "0.0.1-sentinel",
+                    },
+                },
+                "mission": {
+                    "config": {
+                        "ax25": {"src_call": "WM2XBC", "src_ssid": 98},
+                        "csp": {"priority": 3},
+                        # Mission-protected top-level keys — spec MUST reject:
+                        "nodes": {"99": "SENTINEL_NODE"},
+                        "ptypes": {"99": "SENTINEL_PTYPE"},
+                        "mission_name": "SENTINEL_MISSION_NAME",
+                        "gs_node": "SENTINEL_GS",
+                        "rx_title": "SENTINEL_RX_TITLE",
+                    },
                 },
             }
 
-            with patch.object(_cfg_mod, "_DEFAULT_GSS_PATH", gss_path), \
-                 patch("mav_gss_lib.web_runtime.api.config.apply_csp", lambda *_a, **_k: None), \
-                 patch("mav_gss_lib.web_runtime.api.config.apply_ax25", lambda *_a, **_k: None):
+            with patch.object(_cfg_mod, "_DEFAULT_GSS_PATH", gss_path):
                 resp = client.put(
                     "/api/config",
                     json=update,
@@ -165,58 +186,51 @@ class TestConfigEndpointRoundTrip(unittest.TestCase):
             with open(gss_path) as f:
                 persisted = yaml.safe_load(f)
 
-            # Operator overrides survived
-            self.assertEqual(persisted["ax25"]["src_call"], "WM2XBC")
-            self.assertEqual(persisted["ax25"]["src_ssid"], 98)
-            self.assertEqual(persisted["csp"]["priority"], 3)
-            self.assertEqual(persisted["csp"]["destination"], 8)
-            self.assertEqual(persisted["tx"]["frequency"], "437.25 MHz")
-            self.assertEqual(persisted["general"]["mission"], "maveric")
-            self.assertEqual(persisted["general"]["log_dir"], "logs")
+            # Persisted in native {platform, mission} shape.
+            self.assertEqual(persisted["mission"]["id"], "maveric")
+            self.assertEqual(persisted["platform"]["tx"]["frequency"], "437.25 MHz")
+            self.assertEqual(persisted["platform"]["tx"]["delay_ms"], 600)
+            self.assertEqual(persisted["mission"]["config"]["ax25"]["src_call"], "WM2XBC")
+            self.assertEqual(persisted["mission"]["config"]["ax25"]["src_ssid"], 98)
+            self.assertEqual(persisted["mission"]["config"]["csp"]["priority"], 3)
+            self.assertEqual(persisted["mission"]["config"]["csp"]["destination"], 8)
 
-            # Mission-owned top-level keys stripped
-            self.assertNotIn("nodes", persisted)
-            self.assertNotIn("ptypes", persisted)
-            self.assertNotIn("node_descriptions", persisted)
+            # Protected mission-identity keys (nodes, ptypes, mission_name,
+            # gs_node, rx_title) are seeded from mission code at build time
+            # and must NOT appear on disk — otherwise a stale snapshot could
+            # silently override code defaults.
+            persisted_mission = persisted["mission"]["config"]
+            self.assertNotIn("nodes", persisted_mission)
+            self.assertNotIn("ptypes", persisted_mission)
+            self.assertNotIn("mission_name", persisted_mission)
+            self.assertNotIn("gs_node", persisted_mission)
+            self.assertNotIn("rx_title", persisted_mission)
 
-            # Runtime-derived, mission-only, and platform-derived general keys stripped
-            for key in (
-                "command_defs_resolved",
-                "command_defs_warning",
-                "mission_name",
-                "gs_node",
-                "rx_title",
-                "tx_title",
-                "splash_subtitle",
-                "version",
-            ):
-                self.assertNotIn(key, persisted.get("general", {}))
+            # Platform spec rejected stations + version smuggled in updates.
+            self.assertNotIn("stations", persisted["platform"])
+            self.assertNotIn("version", persisted["platform"].get("general", {}))
 
-            # In-memory runtime state must also be clean — client payload
-            # must not pollute runtime.cfg with mission-owned or platform-
-            # derived keys. Original runtime nodes/ptypes should be intact.
-            self.assertEqual(runtime.cfg["nodes"], {"1": "LPPM"})
-            self.assertEqual(runtime.cfg["ptypes"], {"1": "CMD"})
-            self.assertNotIn("99", runtime.cfg.get("nodes", {}))
-            self.assertNotIn("node_descriptions", runtime.cfg)
-            for key in (
-                "mission_name",
-                "gs_node",
-                "command_defs_resolved",
-                "command_defs_warning",
-                "rx_title",
-                "tx_title",
-                "splash_subtitle",
-                "version",
-            ):
-                self.assertNotIn(key, runtime.cfg.get("general", {}))
+            # In-memory primary split state still reflects protections —
+            # the protected keys stay live in memory (seeded at build time)
+            # even though they don't persist.
+            self.assertEqual(runtime.mission_cfg["nodes"], {"1": "LPPM"})
+            self.assertEqual(runtime.mission_cfg["ax25"]["src_call"], "WM2XBC")
+            self.assertEqual(runtime.mission_cfg["mission_name"], "MAVERIC")
+            self.assertNotIn("99", runtime.mission_cfg["nodes"])
+            # Platform version still sourced from platform defaults (not clobbered).
+            self.assertEqual(runtime.platform_cfg["general"]["version"], "5.0.0")
 
     def test_put_rejects_missing_token(self):
         from fastapi.testclient import TestClient
-        runtime = _FakeRuntime(cfg={"general": {"mission": "maveric"}, "rx": {}, "tx": {}})
+        runtime = _FakeRuntime(
+            platform_cfg={"general": {"log_dir": "logs"}, "tx": {}, "rx": {}},
+            mission_id="maveric",
+            mission_cfg={},
+            spec=self._mavericish_spec(),
+        )
         app = self._build_app(runtime)
         client = TestClient(app)
-        resp = client.put("/api/config", json={"tx": {"delay_ms": 600}})
+        resp = client.put("/api/config", json={"platform": {"tx": {"delay_ms": 600}}})
         self.assertEqual(resp.status_code, 403)
 
 

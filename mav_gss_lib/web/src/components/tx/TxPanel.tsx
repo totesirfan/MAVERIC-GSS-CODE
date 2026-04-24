@@ -64,7 +64,7 @@ export function TxPanel({
   }, [])
   const mainCliRef = useRef<HTMLTextAreaElement>(null)
 
-  const missionId = config?.general?.mission ?? ''
+  const missionId = config?.mission.id ?? ''
   /* eslint-disable react-hooks/static-components */
   const MissionBuilder = useMemo(() => getMissionBuilder(missionId), [missionId])
   const hasCommandBuilder = MissionBuilder !== null
@@ -79,7 +79,7 @@ export function TxPanel({
 
   const sending = sendProgress !== null
   const modeColor = uplinkMode.toLowerCase().includes('golay') ? colors.frameGolay : colors.frameAx25
-  const missionName = config?.general?.mission_name ?? 'Mission'
+  const missionName = config?.mission.config.mission_name ?? 'Mission'
 
   return (
     <div className="flex flex-col h-full gap-3">
@@ -88,7 +88,7 @@ export function TxPanel({
         {/* Panel header */}
         <div className="flex items-center justify-between px-3 py-1.5 border-b shrink-0" style={{ borderColor: colors.borderSubtle }}>
           <div className="flex items-center gap-2">
-            <span className="text-xs font-bold tracking-wide uppercase" style={{ color: colors.value }}>{config?.general?.tx_title ?? 'TX Uplink'}</span>
+            <span className="text-xs font-bold tracking-wide uppercase" style={{ color: colors.value }}>{config?.mission.config.tx_title ?? 'TX Uplink'}</span>
             <StatusDot status={connected ? 'LIVE' : 'DOWN'} />
             <span className="text-[11px] font-medium" style={{ color: modeColor }}>{uplinkMode || '--'}</span>
             {sending && (

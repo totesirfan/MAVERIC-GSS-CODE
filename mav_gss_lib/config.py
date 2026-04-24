@@ -1,10 +1,13 @@
 """
 mav_gss_lib.config -- Shared Configuration Loader
 
-Reads gss.yml from the mav_gss_lib package directory and returns a dict with
-platform-level settings. Mission-specific defaults are provided by
-the active mission package's mission.yml via the mission loader.
-Falls back to hardcoded defaults if the file is missing.
+Reads gss.yml from the mav_gss_lib package directory and returns split
+runtime state `(platform_cfg, mission_id, mission_cfg)`. Operator files may
+be stored either in the legacy flat shape or the native v2
+`{platform, mission}` shape; both are accepted. Mission-specific defaults
+are seeded by the active mission's own `build(ctx)` at MissionSpec load time
+(see e.g. `missions/maveric/defaults.py`). Falls back to hardcoded platform
+defaults if the file is missing.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -16,6 +19,12 @@ import tempfile
 from pathlib import Path
 
 import yaml
+
+from mav_gss_lib.constants import (
+    DEFAULT_MISSION,
+    DEFAULT_RX_ZMQ_ADDR,
+    DEFAULT_TX_ZMQ_ADDR,
+)
 
 # Resolve library/project directories relative to this file, not CWD
 _LIB_DIR = Path(__file__).resolve().parent
@@ -56,12 +65,6 @@ def _read_build_sha() -> str:
     return "unknown"
 
 
-from mav_gss_lib.constants import (
-    DEFAULT_MISSION,
-    DEFAULT_RX_ZMQ_ADDR,
-    DEFAULT_TX_ZMQ_ADDR,
-)
-
 _DEFAULTS = {
     "tx": {
         "zmq_addr":  DEFAULT_TX_ZMQ_ADDR,
@@ -81,6 +84,19 @@ _DEFAULTS = {
     "stations": {},
 }
 
+_PLATFORM_GENERAL_KEYS = {"log_dir", "generated_commands_dir"}
+_MISSION_TOP_KEYS = {"nodes", "ptypes", "node_descriptions", "ax25", "csp", "imaging", "image_dir"}
+_MISSION_GENERAL_KEYS = {
+    "mission_name",
+    "gs_node",
+    "command_defs",
+    "command_defs_resolved",
+    "command_defs_warning",
+    "rx_title",
+    "tx_title",
+    "splash_subtitle",
+}
+
 
 def deep_merge(base, override):
     """Merge *override* into *base*, returning a new dict.
@@ -98,30 +114,130 @@ def deep_merge(base, override):
     return merged
 
 
-def deep_merge_inplace(base: dict, override: dict) -> None:
-    """Mutate *base* in place, merging *override* into it.
+def _is_native_operator_config(cfg: dict) -> bool:
+    return isinstance(cfg.get("platform"), dict) or isinstance(cfg.get("mission"), dict)
 
-    Deep-copies nested dict/list values from *override* to prevent aliasing
-    into the caller's override structure.
+
+def _canonical_operator_config(raw: dict, *, default_mission: str = DEFAULT_MISSION) -> dict:
+    """Return the native `{platform, mission}` operator config shape.
+
+    Native files pass through; legacy flat files are accepted and converted
+    so existing on-disk operator configs keep loading.
     """
-    for k, v in override.items():
-        if k in base and isinstance(base[k], dict) and isinstance(v, dict):
-            deep_merge_inplace(base[k], v)
-        else:
-            base[k] = copy.deepcopy(v) if isinstance(v, (dict, list)) else v
+    if _is_native_operator_config(raw):
+        native = copy.deepcopy(raw)
+        native.setdefault("platform", {})
+        native.setdefault("mission", {})
+        mission = native["mission"]
+        if not isinstance(mission, dict):
+            mission = {}
+            native["mission"] = mission
+        mission.setdefault("id", default_mission)
+        mission.setdefault("config", {})
+        return native
+
+    raw = copy.deepcopy(raw)
+    general = raw.get("general", {}) if isinstance(raw.get("general"), dict) else {}
+    platform: dict = {}
+    for key in ("tx", "rx", "stations"):
+        value = raw.get(key)
+        if isinstance(value, dict) and value:
+            platform[key] = copy.deepcopy(value)
+    platform_general = {
+        key: copy.deepcopy(value)
+        for key, value in general.items()
+        if key in _PLATFORM_GENERAL_KEYS
+    }
+    if platform_general:
+        platform["general"] = platform_general
+
+    mission_config: dict = {}
+    for key in _MISSION_TOP_KEYS:
+        value = raw.get(key)
+        if key == "image_dir":
+            if value:
+                mission_config[key] = value
+            continue
+        if isinstance(value, dict) and value:
+            mission_config[key] = copy.deepcopy(value)
+    for key in _MISSION_GENERAL_KEYS:
+        if key in general:
+            mission_config[key] = copy.deepcopy(general[key])
+
+    return {
+        "platform": platform,
+        "mission": {
+            "id": str(general.get("mission", default_mission)),
+            "config": mission_config,
+        },
+    }
 
 
-def load_gss_config(path=None):
-    """Load config from YAML, falling back to defaults for missing keys."""
+def load_split_config(path=None):
+    """Load operator config as native split state.
+
+    Returns (platform_cfg, mission_id, mission_cfg) derived from the operator
+    file and the platform defaults. Accepts both native `{platform, mission}`
+    and legacy flat files on disk.
+    """
     if path is None:
         path = str(_DEFAULT_GSS_PATH)
-    user = {}
+    raw = {}
     if os.path.isfile(path):
         with open(path, "r") as f:
-            raw = yaml.safe_load(f)
-        if isinstance(raw, dict):
-            user = raw
-    return deep_merge(_DEFAULTS, user)
+            loaded = yaml.safe_load(f)
+        if isinstance(loaded, dict):
+            raw = loaded
+    native = _canonical_operator_config(raw)
+
+    platform_defaults = copy.deepcopy(_DEFAULTS)
+    platform_defaults.pop("general", None)
+    platform_cfg = deep_merge(platform_defaults, native.get("platform", {}))
+    platform_general = platform_cfg.setdefault("general", {})
+    defaults_general = copy.deepcopy(_DEFAULTS["general"])
+    operator_general = native.get("platform", {}).get("general", {})
+    if isinstance(operator_general, dict):
+        defaults_general.update(operator_general)
+    platform_general.update(defaults_general)
+    platform_general.pop("mission", None)
+
+    mission_section = native.get("mission", {})
+    if not isinstance(mission_section, dict):
+        mission_section = {}
+    mission_id = str(mission_section.get("id") or _DEFAULTS["general"]["mission"])
+    mission_cfg = copy.deepcopy(mission_section.get("config", {}))
+    if not isinstance(mission_cfg, dict):
+        mission_cfg = {}
+    return platform_cfg, mission_id, mission_cfg
+
+
+def split_to_persistable(platform_cfg: dict, mission_id: str, mission_cfg: dict) -> dict:
+    """Convert runtime split state back into on-disk native operator shape.
+
+    Filters platform.general down to the keys the operator is allowed to
+    persist (strips runtime-derived version/build_sha/mission and any
+    stray mission-general snapshots left in platform_cfg).
+    """
+    persistable_platform = copy.deepcopy(platform_cfg)
+    general = persistable_platform.get("general")
+    if isinstance(general, dict):
+        persistable_platform["general"] = {
+            key: value
+            for key, value in general.items()
+            if key in _PLATFORM_GENERAL_KEYS
+        }
+        if not persistable_platform["general"]:
+            persistable_platform.pop("general", None)
+    stations = persistable_platform.get("stations")
+    if isinstance(stations, dict) and not stations:
+        persistable_platform.pop("stations", None)
+    return {
+        "platform": persistable_platform,
+        "mission": {
+            "id": mission_id,
+            "config": copy.deepcopy(mission_cfg),
+        },
+    }
 
 
 def resolve_project_path(path_value, *, base_dir=None):
@@ -149,27 +265,11 @@ def get_generated_commands_dir(cfg):
 
 
 def get_operator_config_path() -> Path:
-    """Return the on-disk path for the operator gss.yml (used by /api/selfcheck).
-    The _DEFAULT_GSS_PATH module constant stays private."""
+    """Return the on-disk path for the operator gss.yml (used by /api/selfcheck)."""
     return _DEFAULT_GSS_PATH
 
 
-def load_operator_config_raw() -> dict:
-    """Read the operator gss.yml as-is (no defaults merge). Returns {} if absent."""
-    p = Path(_DEFAULT_GSS_PATH) if not isinstance(_DEFAULT_GSS_PATH, Path) else _DEFAULT_GSS_PATH
-    if not p.is_file():
-        return {}
-    with open(p) as f:
-        return yaml.safe_load(f) or {}
-
-
-def save_operator_config_raw(merged: dict) -> None:
-    """Atomic write *merged* to the operator gss.yml. Caller MUST have stripped
-    any keys that should not persist (mission-owned, platform-derived, etc.)."""
-    save_gss_config(merged)
-
-
-def save_gss_config(cfg, path=None):
+def save_operator_config(cfg: dict, path=None) -> None:
     """Atomically write current config back to YAML.
 
     Writes to a temp file first, then renames — prevents truncated files
@@ -196,45 +296,3 @@ def save_gss_config(cfg, path=None):
         raise
 
 
-# -- Bidirectional config mapping ---------------------------------------------
-#
-# Each entry maps:  (cfg_section, cfg_key) <-> (object_attr)
-# apply_*() reads cfg -> object.
-
-_AX25_MAP = [
-    ("src_call",  "src_call"),
-    ("src_ssid",  "src_ssid",  int),
-    ("dest_call", "dest_call"),
-    ("dest_ssid", "dest_ssid", int),
-]
-
-_CSP_MAP = [
-    ("priority",    "prio",    int),
-    ("source",      "src",     int),
-    ("destination", "dest",    int),
-    ("dest_port",   "dport",   int),
-    ("src_port",    "sport",   int),
-    ("flags",       "flags",   int),
-    ("csp_crc",     "csp_crc", bool),
-]
-
-
-def _apply_map(cfg_section, obj, mapping):
-    """Apply config dict values to an object using a mapping list."""
-    for cfg_key, attr, *rest in mapping:
-        val = cfg_section[cfg_key]
-        setattr(obj, attr, rest[0](val) if rest else val)
-
-
-def apply_ax25(cfg, ax25):
-    """Apply config dict values to an AX25Config object."""
-    section = cfg.get("ax25")
-    if section:
-        _apply_map(section, ax25, _AX25_MAP)
-
-
-def apply_csp(cfg, csp):
-    """Apply config dict values to a CSPConfig object."""
-    section = cfg.get("csp")
-    if section:
-        _apply_map(section, csp, _CSP_MAP)

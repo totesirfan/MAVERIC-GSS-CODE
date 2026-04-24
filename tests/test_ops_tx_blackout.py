@@ -48,8 +48,8 @@ class TestTxArmsBlackout(unittest.TestCase):
     def setUp(self):
         self.runtime = create_runtime()
         self.tmp = tempfile.TemporaryDirectory()
-        self.runtime.cfg.setdefault("general", {})["log_dir"] = self.tmp.name
-        self.runtime.cfg.setdefault("tx", {})["delay_ms"] = 0
+        self.runtime.platform_cfg.setdefault("general", {})["log_dir"] = self.tmp.name
+        self.runtime.platform_cfg.setdefault("tx", {})["delay_ms"] = 0
         self.runtime.tx.queue.clear()
         self.runtime.tx.history.clear()
         self.runtime.tx.zmq_sock = object()
@@ -85,7 +85,7 @@ class TestTxArmsBlackout(unittest.TestCase):
         )
 
     def test_arms_deadline_when_configured(self):
-        self.runtime.cfg["rx"]["tx_blackout_ms"] = 750
+        self.runtime.platform_cfg["rx"]["tx_blackout_ms"] = 750
         self._queue_ping()
         before = time.time()
         asyncio.run(self.runtime.tx.run_send())
@@ -99,7 +99,7 @@ class TestTxArmsBlackout(unittest.TestCase):
         )
 
     def test_disabled_leaves_deadline_zero(self):
-        self.runtime.cfg["rx"]["tx_blackout_ms"] = 0
+        self.runtime.platform_cfg["rx"]["tx_blackout_ms"] = 0
         self._queue_ping()
         asyncio.run(self.runtime.tx.run_send())
         self.assertEqual(self.runtime.tx_blackout_until, 0.0)
@@ -111,7 +111,7 @@ class TestTxArmsBlackout(unittest.TestCase):
     def test_disabling_clears_stale_deadline_and_broadcasts_clear(self):
         # Prior batch armed a far-future deadline.
         self.runtime.tx_blackout_until = time.time() + 10.0
-        self.runtime.cfg["rx"]["tx_blackout_ms"] = 0
+        self.runtime.platform_cfg["rx"]["tx_blackout_ms"] = 0
         self._queue_ping()
         asyncio.run(self.runtime.tx.run_send())
         self.assertEqual(self.runtime.tx_blackout_until, 0.0)
@@ -123,7 +123,7 @@ class TestTxArmsBlackout(unittest.TestCase):
     def test_disabled_without_prior_window_does_not_broadcast(self):
         # Feature disabled, no prior deadline — no clear event should fire.
         self.runtime.tx_blackout_until = 0.0
-        self.runtime.cfg["rx"]["tx_blackout_ms"] = 0
+        self.runtime.platform_cfg["rx"]["tx_blackout_ms"] = 0
         self._queue_ping()
         asyncio.run(self.runtime.tx.run_send())
         self.assertFalse(

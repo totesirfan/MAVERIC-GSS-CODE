@@ -77,7 +77,7 @@ class TestBroadcastLoopSuppressesNoise(unittest.TestCase):
       - No packet broadcasts to /ws/rx clients
       - No traffic_status broadcast to /ws/session clients
       - self.last_rx_at stays 0
-      - Adapter on_packet_received hook not invoked
+      - Mission packet event sources are not invoked
     """
 
     def setUp(self):
@@ -105,18 +105,21 @@ class TestBroadcastLoopSuppressesNoise(unittest.TestCase):
         self._orig_broadcast_safe = rx_mod.broadcast_safe
         rx_mod.broadcast_safe = _capture_broadcast
 
-        # Spy on the adapter plugin hook if present.
+        # Spy on mission packet event sources if present.
         self.hook_calls: list = []
-        original_hook = getattr(self.runtime.adapter, "on_packet_received", None)
+        self._orig_event_sources = list(self.runtime.mission.events.sources)
 
-        def _spy(pkt):
-            self.hook_calls.append(pkt)
-            return None
+        class _SpySource:
+            def on_packet(_source, pkt):
+                self.hook_calls.append(pkt)
+                return []
 
-        self.runtime.adapter.on_packet_received = _spy
-        self._orig_hook = original_hook
+            def on_client_connect(_source):
+                return []
 
-        # Spy on the SessionLog so we can assert write_jsonl / write_packet
+        self.runtime.mission.events.sources[:] = [_SpySource()]
+
+        # Spy on the SessionLog so we can assert write_jsonl / write_packet_v2
         # are not called for filtered noise. Using a real truthy object (not
         # None) is required — the live broadcast_loop guards writes with
         # `if self.log:`, so a None value would silently pass the suppression
@@ -129,8 +132,8 @@ class TestBroadcastLoopSuppressesNoise(unittest.TestCase):
             def write_jsonl(self, record) -> None:
                 self.jsonl_calls.append(record)
 
-            def write_packet(self, pkt, adapter=None) -> None:
-                self.packet_calls.append((pkt, adapter))
+            def write_packet_v2(self, pkt, text_lines=None) -> None:
+                self.packet_calls.append((pkt, text_lines))
 
         self.spy_log = _SpyLog()
         self.rx.log = self.spy_log
@@ -138,13 +141,7 @@ class TestBroadcastLoopSuppressesNoise(unittest.TestCase):
     def tearDown(self):
         import mav_gss_lib.web_runtime.rx_service as rx_mod
         rx_mod.broadcast_safe = self._orig_broadcast_safe
-        if self._orig_hook is None:
-            try:
-                delattr(self.runtime.adapter, "on_packet_received")
-            except AttributeError:
-                pass
-        else:
-            self.runtime.adapter.on_packet_received = self._orig_hook
+        self.runtime.mission.events.sources[:] = self._orig_event_sources
 
     def _run_loop_until_drained(self):
         """Run broadcast_loop once: drain the queue then exit via broadcast_stop."""

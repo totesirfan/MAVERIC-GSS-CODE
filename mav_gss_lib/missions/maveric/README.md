@@ -1,78 +1,123 @@
 # MAVERIC Mission Package
 
-This directory contains the MAVERIC-specific mission implementation. It is one
-pluggable mission package within the broader ground station platform. The platform
-loads it by convention at startup when `general.mission: maveric` is set in `gss.yml`.
+The MAVERIC mission implementation — one pluggable mission package within the
+broader ground station platform. The platform loads it by convention at startup
+when mission id `maveric` is active and calls `mission.py::build(ctx)` to obtain
+a `MissionSpec`.
+
+## Layout
+
+Organized into five domain subpackages plus shared top-level modules. Every
+subpackage `__init__.py` is self-documenting — open it for the intra-package
+overview.
+
+```
+maveric/
+├── __init__.py
+├── mission.py             MissionSpec builder (build(ctx) entry point)
+├── defaults.py            Seed constants + seed_mission_cfg
+├── config_access.py       mission_cfg read helpers
+├── nodes.py               NodeTable + init_nodes
+├── preflight.py           Mission preflight-check factory
+├── wire_format.py         CommandFrame encode/decode     — SHARED (RX + TX)
+├── schema.py              commands.yml load/validate     — SHARED (RX + TX)
+├── commands.yml           Operational schema (gitignored)
+├── commands.example.yml   Public-safe schema template
+│
+├── rx/                    RX pipeline — boundary: MavericPacketOps
+│   ├── ops.py             normalize → parse → classify
+│   ├── parser.py          frame detect + CSP/AX.25/Golay strip + command decode
+│   └── packet.py          MavericRxPacket (mission-local RX view)
+│
+├── commands/              TX pipeline — boundary: MavericCommandOps
+│   ├── ops.py             parse_input → validate → encode → frame → render
+│   ├── parser.py          raw CLI grammar (cmd_line_to_payload)
+│   ├── builder.py         routing + arg validate + inner-frame encode
+│   └── framing.py         MavericFramer (CSP + AX.25 / ASM+Golay)
+│
+├── ui/                    Presentation — boundary: MavericUiOps
+│   ├── ops.py             UiOps implementation
+│   ├── rendering.py       row / detail_blocks / protocol_blocks / integrity_blocks
+│   ├── formatters.py      atom-level helpers (ptype, hex, timestamps)
+│   └── log_format.py      JSONL mission-data + text log lines
+│
+├── telemetry/             Fragments + catalogs — boundary: build_telemetry_ops
+│   ├── __init__.py        TELEMETRY_MANIFEST + per-domain catalog builders
+│   ├── ops.py             MavericTelemetryExtractor
+│   ├── extractors/        per-packet fragment producers (tlm_beacon, eps_hk, gnc_res)
+│   └── semantics/         canonical shapes (eps, gnc_schema, gnc_handlers, ...)
+│
+└── imaging/               Imaging plugin
+    ├── assembler.py       ImageAssembler (chunk reassembly, restart recovery)
+    ├── router.py          /api/plugins/imaging FastAPI router
+    └── events.py          MavericImagingEvents (EventOps source)
+```
 
 ## What this package owns
 
-- **Packet parsing** — MAVERIC command wire format decoding, CSP v1 header extraction,
-  CRC-16 and CRC-32C integrity checks (`adapter.py` → `rx_ops.py`, `wire_format.py`)
-- **Command building** — TX command construction from operator input, argument validation,
-  AX.25/CSP routing field assembly (`adapter.py` → `tx_ops.py`, `cmd_parser.py`)
-- **Operator rendering** — structured data (column values, detail blocks, protocol blocks)
-  for the platform's generic UI containers (`rendering.py`)
-- **Log formatting** — mission-specific log record shaping for JSONL + text output (`log_format.py`)
-- **Wire format** — `CommandFrame` encode/decode, schema-based argument parsing (`wire_format.py`)
-- **Node/ptype tables** — ID↔name resolution and gs_node resolution (`nodes.py` + definitions in `mission.example.yml`)
-- **Command schema** — schema loading, validation, resolution (`schema.py`, `commands.yml`)
-- **Imaging plugin** — `ImageAssembler` chunk reassembly and FastAPI plugin router (`imaging.py`)
-- **Telemetry decoders** — extractors convert MAVERIC packets into platform
-  `TelemetryFragment` objects, with semantic decoders under
-  `telemetry/semantics/`. The platform telemetry router persists latest-value
-  state per domain (`eps`, `gnc`, `spacecraft`) and serves catalogs at
-  `/api/telemetry/{domain}/catalog`.
-- **Frontend plugin surface** — MAVERIC command picker, imaging page, GNC page, and
-  plugin page registration (`mav_gss_lib/web/src/plugins/maveric/TxBuilder.tsx`,
-  `ImagingPage.tsx`, `gnc/`, `plugins.ts`)
-- **Mission metadata** — node names, ptypes, AX.25/CSP defaults (`mission.example.yml`)
+- **Packet parsing** (`rx/`) — command wire decode, CSP v1 header extraction,
+  CRC-16 and CRC-32C integrity checks, frame detection, duplicate
+  fingerprinting.
+- **Command building** (`commands/`) — CLI parse, argument validation,
+  routing resolution, inner frame encoding, and outer uplink framing
+  (CSP + AX.25 or ASM+Golay). `frame()` returns wire bytes plus structured
+  `log_fields` / `log_text` for the platform TX log.
+- **Operator rendering** (`ui/`) — `Cell` / `DetailBlock` / `IntegrityBlock`
+  / `PacketRendering` values for the platform's generic UI containers.
+- **Log formatting** (`ui/log_format.py`) — mission-specific JSONL mission-data
+  shape and human-readable text log lines.
+- **Telemetry decoders** (`telemetry/`) — per-packet `TelemetryFragment`s
+  for `eps`, `gnc`, and `spacecraft` domains, backed by semantic decoders
+  (`semantics/`). The platform telemetry router persists latest-value state
+  per domain and serves catalogs at `/api/telemetry/{domain}/catalog`.
+- **Imaging plugin** (`imaging/`) — chunk reassembly, REST endpoints, and the
+  packet event source that drives the assembler from inbound imaging commands.
+- **Node / ptype tables** (`nodes.py` + seed data in `defaults.py`).
+- **Command schema** (`schema.py`, `wire_format.py`, `commands.yml`).
+- **Mission identity + defaults** (`defaults.py`) — mission name, nodes,
+  ptypes, GS node, UI titles, placeholder AX.25/CSP/imaging, mission-declared
+  TX defaults. Seeded into `mission_cfg` / `platform_cfg.tx` by
+  `mission.py::build(ctx)`; operator values in `gss.yml` win.
+- **Mission config access** (`config_access.py`) — read helpers with
+  legacy-flat-config fallback.
+- **Frontend plugin surface** — TX builder + imaging page + GNC page under
+  `mav_gss_lib/web/src/plugins/maveric/`.
 
-## Files
+## MAVERIC-specific behavior (not platform-level)
 
-| File | Tracked | Purpose |
-|------|---------|---------|
-| `__init__.py` | Yes | Package entry: `ADAPTER_API_VERSION`, `ADAPTER_CLASS`, `init_mission`, `get_plugin_routers` |
-| `adapter.py` | Yes | `MavericMissionAdapter` — implements the `MissionAdapter` protocol, delegates to sub-modules |
-| `nodes.py` | Yes | `NodeTable` dataclass + `init_nodes()` — node/ptype ID↔name resolution |
-| `wire_format.py` | Yes | `CommandFrame` encode/decode, argument type parsing |
-| `schema.py` | Yes | `load_command_defs()` — reads and validates `commands.yml` |
-| `cmd_parser.py` | Yes | TX command-line parser (`cmd_line_to_payload`) |
-| `rx_ops.py` | Yes | RX parsing operations — frame decode, CSP/CRC extraction |
-| `tx_ops.py` | Yes | TX building operations — encode, routing resolution, validation |
-| `rendering.py` | Yes | RX display rendering — row, detail_blocks, protocol_blocks, integrity_blocks |
-| `display_helpers.py` | Yes | Shared helpers used by both `rendering.py` and `log_format.py` — packet mission-data access, typed-arg unwrappers, register-shape predicates |
-| `log_format.py` | Yes | Mission-specific log record formatting |
-| `imaging.py` | Yes | `ImageAssembler` + `get_imaging_router()` plugin REST endpoints |
-| `telemetry/` | Yes | Telemetry package — `extractors/` produces `TelemetryFragment`s, `semantics/` contains EPS/GNC/NaviGuider decoders, and `__init__.py` declares `TELEMETRY_MANIFEST` catalogs |
-| `mission.example.yml` | Yes | Public-safe mission metadata (nodes, ptypes, AX.25/CSP defaults) |
-| `commands.example.yml` | Yes | Annotated command schema example — safe structure, redacted content |
-| `mission.yml` | No | Local private mission metadata override (gitignored) |
-| `commands.yml` | No | Operational command schema (gitignored for security) |
-
-## MAVERIC-specific behavior
-
-The following behaviors are specific to MAVERIC and should not be mistaken
-for platform-level behavior:
-
-- **AX.25 + CSP v1 framing** — MAVERIC uses AX.25 outer framing and CSP v1 headers.
+- **AX.25 + CSP v1 + Command Wire Format** — MAVERIC's three-layer framing.
   Other missions may use different or no protocol wrappers.
-- **CRC-16 per command + CRC-32C over CSP** — dual integrity check scheme is
+- **CRC-16 per command + CRC-32C over CSP** — dual integrity scheme is
   MAVERIC's wire format, not a platform requirement.
-- **Node/ptype integer IDs** — MAVERIC maps integer IDs (LPPM=1, EPS=2, etc.) to
+- **Node / ptype integer IDs** — MAVERIC maps integers (LPPM=1, EPS=2, …) to
   names. The platform has no opinion on how missions resolve nodes.
-- **`GS_NODE` constant** — MAVERIC's ground station node ID. Platform only knows
-  about it via `adapter.gs_node`.
-- **Golay and AX.25 uplink modes** — MAVERIC supports Mode 5 (ASM+Golay) and
-  Mode 6 (AX.25). Uplink mode selection is in `gss.yml`, applied by the platform
-  protocol framing — but the modes themselves are MAVERIC radio hardware parameters.
-- **Satellite time decoding** — MAVERIC commands embed `epoch_ms` timestamps
-  decoded from the wire format. Other missions may not have embedded timestamps.
+- **Uplink modes — Mode 5 (ASM+Golay) and Mode 6 (AX.25)** — MAVERIC radio
+  parameters. The platform surfaces `tx.uplink_mode` but the modes themselves
+  are mission-specific.
+- **Satellite time decoding** — MAVERIC commands embed `epoch_ms` timestamps.
+  Other missions may not.
+
+## Config shape
+
+At runtime MAVERIC's `mission_cfg` carries these keys under `mission.config`
+in the native v2 split shape:
+
+| Key | Source | Operator-editable? |
+|-----|--------|---------------------|
+| `mission_name`, `nodes`, `ptypes`, `node_descriptions`, `gs_node`, `command_defs`, `rx_title`, `tx_title`, `splash_subtitle` | `defaults.py`, seeded by `build(ctx)` | No — `MissionConfigSpec.protected_paths` |
+| `ax25.*`, `csp.*`, `imaging.thumb_prefix` | `defaults.py` placeholders overlaid by `gss.yml:mission.config.*` | Yes — `MissionConfigSpec.editable_paths` |
+
+Mission-declared TX defaults (`tx.frequency`, `tx.uplink_mode`) are seeded on
+`platform_cfg["tx"]` at build time and can be overridden in `gss.yml`.
+
+Mission code reads through `config_access.py` helpers; reaching through ad hoc
+`general.*` fields is not supported.
 
 ## Warning: do not copy as-is
 
-The MAVERIC adapter is tailored to MAVERIC's specific wire format, node topology,
-and command schema. Do not copy `adapter.py` wholesale for a new mission —
-start from `mav_gss_lib/missions/template/adapter.py` instead, which contains
-stub implementations and docstrings explaining each method's contract.
-
-See `docs/adding-a-mission.md` for the full mission authoring guide.
+The MAVERIC MissionSpec implementation is tailored to MAVERIC's wire format,
+node topology, and command schema. New missions should implement their own
+MissionSpec using `mav_gss_lib.platform` contracts and may omit commands,
+telemetry, events, or HTTP extensions if they do not need them. See
+`mav_gss_lib/missions/echo_v2/` and `mav_gss_lib/missions/balloon_v2/` for
+minimal reference implementations.

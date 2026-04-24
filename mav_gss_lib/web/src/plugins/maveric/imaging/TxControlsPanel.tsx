@@ -5,8 +5,6 @@ import {
   Download,
   Power,
   PowerOff,
-  Image,
-  ImageMinus,
   Monitor,
   Eraser,
   Trash2,
@@ -16,7 +14,7 @@ import { Button } from '@/components/ui/button';
 import { GssInput } from '@/components/ui/gss-input';
 import { showToast } from '@/components/shared/StatusToast';
 import { colors } from '@/lib/colors';
-import { withJpg, DEFAULT_CHUNK_SIZE } from './helpers';
+import { withJpg } from './helpers';
 import { FilenameInput } from './FilenameInput';
 import type { PairedFile, ImagingTab } from './types';
 
@@ -24,12 +22,16 @@ interface TxControlsPanelProps {
   nodes: string[];
   destNode: string;
   onDestNodeChange: (n: string) => void;
-  targetArg: string;
-  onTargetChange: (t: string) => void;
   /** Currently-selected paired file (drives auto-fill per active preview tab) */
   selected: PairedFile | null;
   /** Which side the Preview is currently showing — auto-fill source */
   previewTab: ImagingTab;
+  /** Thumbnail-filename prefix from mission config (`imaging.thumb_prefix`).
+   *  A typed/resolved filename starting with this prefix stages with
+   *  Destination=2 (thumb); otherwise Destination=1 (full). Presented
+   *  inline inside each FilenameInput so the derived destination is
+   *  visible — no silent thumb/full mismatch. */
+  thumbPrefix: string;
   /** Stage a command into the main TX queue */
   queueCommand: (cmd: {
     cmd_id: string;
@@ -45,14 +47,21 @@ interface TxControlsPanelProps {
 
 type TabName = 'download' | 'camera' | 'lcd';
 
+/** Infer the Destination arg ('1' full / '2' thumb) from a filename.
+ *  Empty prefix means "no thumbnail convention" — everything routes to
+ *  the full-image destination. */
+function destFromFilename(fn: string, thumbPrefix: string): string {
+  if (thumbPrefix && fn.startsWith(thumbPrefix)) return '2';
+  return '1';
+}
+
 export function TxControlsPanel({
   nodes,
   destNode,
   onDestNodeChange,
-  targetArg,
-  onTargetChange,
   selected,
   previewTab,
+  thumbPrefix,
   queueCommand,
   schema,
   txConnected,
@@ -61,7 +70,6 @@ export function TxControlsPanel({
 
   // ── Download tab form state + auto-fill ─────────────────────────
   const [cntFn, setCntFn] = useState('');
-  const [cntSize, setCntSize] = useState(DEFAULT_CHUNK_SIZE);
   const [getFn, setGetFn] = useState('');
   const [getStart, setGetStart] = useState('');
   const [getCount, setGetCount] = useState('');
@@ -92,21 +100,35 @@ export function TxControlsPanel({
     autoRef.current.getFn = suggestedFilename;
   }, [suggestedFilename]);
 
+  // Smart resume autofill — when a file has a known total and partial
+  // chunks already received, default Start/Count to "download the rest"
+  // instead of "download everything again". For in-order arrivals this
+  // is exact; for sparse gaps, operator clicks individual red dots in
+  // Progress to cherry-pick.
+  const suggestedReceived = effectiveLeaf?.received ?? 0;
   useEffect(() => {
     if (!suggestedFilename || suggestedTotal == null || suggestedTotal <= 0) return;
+    const remaining = suggestedTotal - suggestedReceived;
+    const startNum = remaining > 0 && suggestedReceived > 0 ? suggestedReceived : 0;
+    const countNum = remaining > 0 ? remaining : suggestedTotal;
+    const startStr = String(startNum);
+    const countStr = String(countNum);
     const lastStart = autoRef.current.start;
     const lastCount = autoRef.current.count;
-    setGetStart(prev => (prev === '' || prev === lastStart ? '0' : prev));
-    setGetCount(prev => (prev === '' || prev === lastCount ? String(suggestedTotal) : prev));
-    autoRef.current.start = '0';
-    autoRef.current.count = String(suggestedTotal);
-  }, [suggestedFilename, suggestedTotal]);
+    setGetStart(prev => (prev === '' || prev === lastStart ? startStr : prev));
+    setGetCount(prev => (prev === '' || prev === lastCount ? countStr : prev));
+    autoRef.current.start = startStr;
+    autoRef.current.count = countStr;
+  }, [suggestedFilename, suggestedTotal, suggestedReceived]);
 
-  // Camera tab
+  // Camera tab — all args required per commands.yml cam_capture schema
   const [capFn, setCapFn] = useState('');
   const [capQty, setCapQty] = useState('1');
+  const [capDelay, setCapDelay] = useState('');
   const [capFocus, setCapFocus] = useState('');
   const [capExposure, setCapExposure] = useState('');
+  const [capK, setCapK] = useState('');
+  const [capQuality, setCapQuality] = useState('');
 
   // Delete (moved into Download tab)
   const [delFn, setDelFn] = useState('');
@@ -176,32 +198,6 @@ export function TxControlsPanel({
             );
           })}
         </div>
-        <div className="w-px h-4 bg-[#222]" />
-        <div className="flex items-center gap-1">
-          {(['1', '2'] as const).map(t => {
-            const active = targetArg === t;
-            const label = t === '1' ? '1 · full' : '2 · thumb';
-            const Icon = t === '1' ? Image : ImageMinus;
-            const title = t === '1' ? 'target 1 — full-size images' : 'target 2 — thumbnails';
-            return (
-              <button
-                key={t}
-                onClick={() => onTargetChange(t)}
-                className="inline-flex items-center gap-1 px-2 rounded-sm border font-mono text-[11px] color-transition btn-feedback"
-                style={{
-                  height: 20,
-                  color: active ? colors.label : colors.dim,
-                  borderColor: active ? colors.label : colors.borderSubtle,
-                  backgroundColor: active ? `${colors.label}18` : 'transparent',
-                }}
-                title={title}
-              >
-                <Icon className="size-2.5" />
-                {label}
-              </button>
-            );
-          })}
-        </div>
       </div>
 
       {/* Tabs */}
@@ -225,22 +221,21 @@ export function TxControlsPanel({
               Count Chunks <span className="font-mono normal-case ml-1" style={{ color: colors.sep }}>img_cnt_chunks</span>
             </div>
             <div className="flex items-end gap-2">
-              <FilenameInput className="flex-1" value={cntFn} onChange={setCntFn} />
-              <GssInput
-                className="w-[70px] font-mono"
-                placeholder="chunk size"
-                value={cntSize}
-                onChange={e => setCntSize(e.target.value)}
+              <FilenameInput
+                className="flex-1"
+                value={cntFn}
+                onChange={setCntFn}
+                thumbPrefix={thumbPrefix}
               />
               <Button
                 size="sm"
-                onClick={() =>
+                onClick={() => {
+                  const fn = withJpg(cntFn.trim());
                   stage('img_cnt_chunks', {
-                    Filename: withJpg(cntFn.trim()),
-                    Destination: targetArg,
-                    'Chunk Size': cntSize.trim() || DEFAULT_CHUNK_SIZE,
-                  })
-                }
+                    Filename: fn,
+                    Destination: destFromFilename(fn, thumbPrefix),
+                  });
+                }}
                 style={{ backgroundColor: colors.active, color: colors.bgApp }}
               >
                 Stage
@@ -250,10 +245,15 @@ export function TxControlsPanel({
 
           <div>
             <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: colors.dim }}>
-              Get Chunk <span className="font-mono normal-case ml-1" style={{ color: colors.sep }}>img_get_chunk · contiguous range</span>
+              Get Chunks <span className="font-mono normal-case ml-1" style={{ color: colors.sep }}>img_get_chunks · contiguous range</span>
             </div>
             <div className="flex items-end gap-2">
-              <FilenameInput className="flex-1" value={getFn} onChange={setGetFn} />
+              <FilenameInput
+                className="flex-1"
+                value={getFn}
+                onChange={setGetFn}
+                thumbPrefix={thumbPrefix}
+              />
               <GssInput
                 className="w-[52px] font-mono"
                 placeholder="start"
@@ -268,17 +268,15 @@ export function TxControlsPanel({
               />
               <Button
                 size="sm"
-                disabled={!suggestedTotal}
-                title={!suggestedTotal ? 'Run img_cnt_chunks or cam_capture_imgs first' : undefined}
-                onClick={() =>
-                  stage('img_get_chunk', {
-                    Filename: withJpg(getFn.trim()),
+                onClick={() => {
+                  const fn = withJpg(getFn.trim());
+                  stage('img_get_chunks', {
+                    Filename: fn,
                     'Start Chunk': getStart.trim(),
                     'Num Chunks': getCount.trim(),
-                    Destination: targetArg,
-                    'Chunk Size': DEFAULT_CHUNK_SIZE,
-                  })
-                }
+                    Destination: destFromFilename(fn, thumbPrefix),
+                  });
+                }}
                 style={{ backgroundColor: colors.active, color: colors.bgApp }}
               >
                 Stage
@@ -291,7 +289,12 @@ export function TxControlsPanel({
               <Trash2 className="size-3 inline mr-1" />img_delete
             </div>
             <div className="flex items-end gap-2">
-              <FilenameInput className="flex-1" value={delFn} onChange={setDelFn} />
+              <FilenameInput
+                className="flex-1"
+                value={delFn}
+                onChange={setDelFn}
+                thumbPrefix={thumbPrefix}
+              />
               <Button
                 size="sm"
                 onClick={() => {
@@ -300,7 +303,7 @@ export function TxControlsPanel({
                     showToast('Filename required', 'error', 'tx');
                     return;
                   }
-                  stage('img_delete', { Filename: withJpg(fn), Dest: targetArg });
+                  stage('img_delete', { Filename: withJpg(fn) });
                 }}
                 style={{ backgroundColor: colors.danger, color: colors.bgApp }}
               >
@@ -313,45 +316,87 @@ export function TxControlsPanel({
         {/* Camera */}
         <TabsContent value="camera" className="flex-1 overflow-y-auto p-3 space-y-3 mt-0">
           <div>
-            <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: colors.dim }}>
-              cam_capture_imgs
+            <div className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: colors.dim }}>
+              cam_capture
             </div>
-            <div className="flex items-end gap-2 flex-wrap">
-              <FilenameInput className="flex-1 min-w-[140px]" value={capFn} onChange={setCapFn} />
-              <GssInput
-                className="w-[56px] font-mono"
-                placeholder="qty"
-                value={capQty}
-                onChange={e => setCapQty(e.target.value)}
-              />
-              <GssInput
-                className="w-[60px] font-mono"
-                placeholder="focus"
-                value={capFocus}
-                onChange={e => setCapFocus(e.target.value)}
-              />
-              <GssInput
-                className="w-[72px] font-mono"
-                placeholder="exposure"
-                value={capExposure}
-                onChange={e => setCapExposure(e.target.value)}
-              />
+
+            {/* Row 1 — target file + capture timing */}
+            <div className="flex items-end gap-2 mb-2">
+              <LabeledField label="Filename" className="flex-1 min-w-[140px]">
+                <FilenameInput value={capFn} onChange={setCapFn} thumbPrefix={thumbPrefix} />
+              </LabeledField>
+              <LabeledField label="Qty" width={56}>
+                <GssInput
+                  className="w-[56px] font-mono"
+                  value={capQty}
+                  onChange={e => setCapQty(e.target.value)}
+                />
+              </LabeledField>
+              <LabeledField label="Delay (s)" width={72}>
+                <GssInput
+                  className="w-[72px] font-mono"
+                  value={capDelay}
+                  onChange={e => setCapDelay(e.target.value)}
+                />
+              </LabeledField>
+            </div>
+
+            {/* Row 2 — image settings + stage */}
+            <div className="flex items-end gap-2">
+              <LabeledField label="Focus" width={64}>
+                <GssInput
+                  className="w-[64px] font-mono"
+                  value={capFocus}
+                  onChange={e => setCapFocus(e.target.value)}
+                />
+              </LabeledField>
+              <LabeledField label="Exposure Time" width={80}>
+                <GssInput
+                  className="w-[80px] font-mono"
+                  value={capExposure}
+                  onChange={e => setCapExposure(e.target.value)}
+                />
+              </LabeledField>
+              <LabeledField label="K" width={52}>
+                <GssInput
+                  className="w-[52px] font-mono"
+                  value={capK}
+                  onChange={e => setCapK(e.target.value)}
+                />
+              </LabeledField>
+              <LabeledField label="Quality" width={64}>
+                <GssInput
+                  className="w-[64px] font-mono"
+                  value={capQuality}
+                  onChange={e => setCapQuality(e.target.value)}
+                />
+              </LabeledField>
+              <div className="flex-1" />
               <Button
                 size="sm"
                 onClick={() => {
                   const fn = capFn.trim();
                   const qty = capQty.trim();
+                  const delay = capDelay.trim();
                   const focus = capFocus.trim();
                   const exposure = capExposure.trim();
+                  const k = capK.trim();
+                  const quality = capQuality.trim();
                   if (!fn) { showToast('Filename required', 'error', 'tx'); return; }
                   if (!qty) { showToast('Quantity required', 'error', 'tx'); return; }
+                  if (!delay) { showToast('Delay required', 'error', 'tx'); return; }
                   if (!focus) { showToast('Focus required', 'error', 'tx'); return; }
-                  if (!exposure) { showToast('Exposure required', 'error', 'tx'); return; }
-                  stage('cam_capture_imgs', {
+                  if (!exposure) { showToast('Exposure Time required', 'error', 'tx'); return; }
+                  if (!k) { showToast('K required', 'error', 'tx'); return; }
+                  if (!quality) { showToast('Quality required', 'error', 'tx'); return; }
+                  stage('cam_capture', {
                     Filename: withJpg(fn),
                     Quantity: qty,
+                    'Delay (s)': delay,
                     Focus: focus,
-                    Exposure: exposure,
+                    'Exposure Time': exposure,
+                    K: k,
+                    Quality: quality,
                   });
                 }}
                 style={{ backgroundColor: colors.active, color: colors.bgApp }}
@@ -380,10 +425,15 @@ export function TxControlsPanel({
         <TabsContent value="lcd" className="flex-1 overflow-y-auto p-3 space-y-3 mt-0">
           <div>
             <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: colors.dim }}>
-              lcd_display_img
+              lcd_display
             </div>
             <div className="flex items-end gap-2">
-              <FilenameInput className="flex-1" value={lcdFn} onChange={setLcdFn} />
+              <FilenameInput
+                className="flex-1"
+                value={lcdFn}
+                onChange={setLcdFn}
+                thumbPrefix={thumbPrefix}
+              />
               <Button
                 size="sm"
                 onClick={() => {
@@ -392,7 +442,11 @@ export function TxControlsPanel({
                     showToast('Filename required', 'error', 'tx');
                     return;
                   }
-                  stage('lcd_display_img', { Filename: withJpg(fn), Destination: targetArg });
+                  const wrapped = withJpg(fn);
+                  stage('lcd_display', {
+                    Filename: wrapped,
+                    Destination: destFromFilename(wrapped, thumbPrefix),
+                  });
                 }}
                 style={{ backgroundColor: colors.active, color: colors.bgApp }}
               >
@@ -419,6 +473,30 @@ export function TxControlsPanel({
           </div>
         </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+function LabeledField({
+  label,
+  width,
+  className = '',
+  children,
+}: {
+  label: string;
+  width?: number;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className={className} style={width ? { width } : undefined}>
+      <div
+        className="text-[9px] uppercase tracking-wider mb-0.5 font-semibold"
+        style={{ color: colors.dim }}
+      >
+        {label}
+      </div>
+      {children}
     </div>
   );
 }

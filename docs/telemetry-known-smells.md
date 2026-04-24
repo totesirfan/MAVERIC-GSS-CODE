@@ -11,11 +11,11 @@ Re-verified against the tracked code on 2026-04-23.
 
 ## 1. `_format_gnc_register_lines` has its own shape dispatch
 
-**Where:** `mav_gss_lib/missions/maveric/log_format.py` (~line 200).
+**Where:** `mav_gss_lib/missions/maveric/ui/log_format.py` (~line 200).
 
 **What:** The text-log formatter branches on the same shape predicates
 (`is_nvg_sensor`, `is_bcd_display`, `is_adcs_tmp`, `is_nvg_heartbeat`,
-`is_gnc_mode`, `is_gnc_counters`) that `display_helpers._SHAPE_DISPATCH`
+`is_gnc_mode`, `is_gnc_counters`) that `ui/formatters._SHAPE_DISPATCH`
 already dispatches on for the compact and detail-fields renderers.
 
 **Why not fixed:** The text-log output shape (summary line + indented
@@ -33,7 +33,7 @@ Unification would look like a third callable per `_SHAPE_DISPATCH` entry:
 
 ## 2. `compact_value` vs `detail_fields` fallback-path asymmetry
 
-**Where:** `display_helpers.py` — `compact_value` handles
+**Where:** `ui/formatters.py` — `compact_value` handles
 `None / int / float / str / list` inline before the dispatch loop;
 `detail_fields` handles `list` after the loop.
 
@@ -46,7 +46,7 @@ nothing's forcing it right now.
 
 ## 3. `is_bcd_display` predicate is semantically overloaded
 
-**Where:** `display_helpers.py` — named after its original use (GNC TIME / DATE
+**Where:** `ui/formatters.py` — named after its original use (GNC TIME / DATE
 BCD decoders) but now matches any dict with a string `display` key. The
 spacecraft `time` decoder (`to_spacecraft_time`) deliberately produces that
 shape to piggyback on the predicate.

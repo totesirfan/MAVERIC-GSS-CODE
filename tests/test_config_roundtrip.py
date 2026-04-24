@@ -1,4 +1,4 @@
-"""Round-trip tests for mav_gss_lib.config load/save."""
+"""Round-trip tests for mav_gss_lib.config load/save (native split shape)."""
 
 from __future__ import annotations
 
@@ -14,68 +14,98 @@ from mav_gss_lib import config as cfg_mod
 
 
 class TestConfigRoundTrip(unittest.TestCase):
-    def test_load_missing_file_returns_defaults(self):
+    def test_load_missing_file_returns_split_defaults(self):
         with tempfile.TemporaryDirectory() as td:
             missing = os.path.join(td, "does-not-exist.yml")
-            loaded = cfg_mod.load_gss_config(missing)
-            self.assertEqual(loaded["tx"]["zmq_addr"], "tcp://127.0.0.1:52002")
-            self.assertEqual(loaded["rx"]["zmq_addr"], "tcp://127.0.0.1:52001")
-            self.assertEqual(loaded["general"]["mission"], "maveric")
+            platform_cfg, mission_id, mission_cfg = cfg_mod.load_split_config(missing)
+            self.assertEqual(platform_cfg["tx"]["zmq_addr"], "tcp://127.0.0.1:52002")
+            self.assertEqual(platform_cfg["rx"]["zmq_addr"], "tcp://127.0.0.1:52001")
+            self.assertEqual(mission_id, "maveric")
+            self.assertEqual(mission_cfg, {})
 
     def test_user_value_overrides_default(self):
         with tempfile.TemporaryDirectory() as td:
             path = os.path.join(td, "gss.yml")
-            initial = cfg_mod.load_gss_config("/tmp/does-not-exist-guaranteed")
-            initial["tx"]["zmq_addr"] = "tcp://127.0.0.1:59999"
-            initial["rx"]["tx_blackout_ms"] = 250
-            cfg_mod.save_gss_config(initial, path)
+            initial = {
+                "platform": {
+                    "tx": {"zmq_addr": "tcp://127.0.0.1:59999"},
+                    "rx": {"tx_blackout_ms": 250},
+                },
+                "mission": {"id": "maveric", "config": {}},
+            }
+            cfg_mod.save_operator_config(initial, path)
 
-            reloaded = cfg_mod.load_gss_config(path)
-            self.assertEqual(reloaded["tx"]["zmq_addr"], "tcp://127.0.0.1:59999")
-            self.assertEqual(reloaded["rx"]["tx_blackout_ms"], 250)
-            # Unchanged keys still carry defaults
-            self.assertEqual(reloaded["general"]["mission"], "maveric")
+            platform_cfg, mission_id, _ = cfg_mod.load_split_config(path)
+            self.assertEqual(platform_cfg["tx"]["zmq_addr"], "tcp://127.0.0.1:59999")
+            self.assertEqual(platform_cfg["rx"]["tx_blackout_ms"], 250)
+            self.assertEqual(mission_id, "maveric")
 
-    def test_round_trip_preserves_nested_structure(self):
+    def test_round_trip_preserves_native_split_shape(self):
         with tempfile.TemporaryDirectory() as td:
             path = os.path.join(td, "gss.yml")
             value = {
-                "tx": {"zmq_addr": "tcp://x:1", "delay_ms": 100},
-                "rx": {"zmq_addr": "tcp://y:2", "tx_blackout_ms": 5},
-                "general": {"mission": "echo", "log_dir": "logs-test"},
+                "platform": {
+                    "tx": {"zmq_addr": "tcp://x:1", "delay_ms": 100},
+                    "rx": {"zmq_addr": "tcp://y:2", "tx_blackout_ms": 5},
+                    "general": {"log_dir": "logs-test"},
+                },
+                "mission": {
+                    "id": "echo_v2",
+                    "config": {"ax25": {"src_call": "WM2XBC"}},
+                },
             }
-            cfg_mod.save_gss_config(value, path)
-            reloaded = cfg_mod.load_gss_config(path)
-            self.assertEqual(reloaded["tx"]["zmq_addr"], "tcp://x:1")
-            self.assertEqual(reloaded["tx"]["delay_ms"], 100)
-            self.assertEqual(reloaded["rx"]["zmq_addr"], "tcp://y:2")
-            self.assertEqual(reloaded["rx"]["tx_blackout_ms"], 5)
-            self.assertEqual(reloaded["general"]["mission"], "echo")
-            self.assertEqual(reloaded["general"]["log_dir"], "logs-test")
+            cfg_mod.save_operator_config(value, path)
+            platform_cfg, mission_id, mission_cfg = cfg_mod.load_split_config(path)
+            self.assertEqual(platform_cfg["tx"]["zmq_addr"], "tcp://x:1")
+            self.assertEqual(platform_cfg["tx"]["delay_ms"], 100)
+            self.assertEqual(platform_cfg["rx"]["zmq_addr"], "tcp://y:2")
+            self.assertEqual(platform_cfg["rx"]["tx_blackout_ms"], 5)
+            self.assertEqual(platform_cfg["general"]["log_dir"], "logs-test")
+            self.assertEqual(mission_id, "echo_v2")
+            self.assertEqual(mission_cfg["ax25"]["src_call"], "WM2XBC")
 
     def test_save_is_atomic_replace(self):
         """Partial write scenario — temp file shouldn't leak into real path."""
         with tempfile.TemporaryDirectory() as td:
             path = os.path.join(td, "gss.yml")
-            good = {"general": {"mission": "maveric", "log_dir": "logs"}}
-            cfg_mod.save_gss_config(good, path)
-            # Verify file exists and no .tmp files linger.
+            good = {"platform": {}, "mission": {"id": "maveric", "config": {}}}
+            cfg_mod.save_operator_config(good, path)
             entries = os.listdir(td)
             self.assertIn("gss.yml", entries)
             for name in entries:
                 self.assertFalse(name.endswith(".tmp"), f"leftover temp file: {name}")
 
-    def test_deep_merge_does_not_drop_platform_defaults(self):
+    def test_partial_platform_overrides_deep_merge_with_defaults(self):
         with tempfile.TemporaryDirectory() as td:
             path = os.path.join(td, "gss.yml")
-            # User only sets one key; everything else should deep-merge
-            partial = {"tx": {"delay_ms": 250}}
-            cfg_mod.save_gss_config(partial, path)
-            reloaded = cfg_mod.load_gss_config(path)
-            self.assertEqual(reloaded["tx"]["delay_ms"], 250)
-            # These came from defaults
-            self.assertEqual(reloaded["tx"]["zmq_addr"], "tcp://127.0.0.1:52002")
-            self.assertEqual(reloaded["rx"]["zmq_addr"], "tcp://127.0.0.1:52001")
+            partial = {
+                "platform": {"tx": {"delay_ms": 250}},
+                "mission": {"id": "maveric", "config": {}},
+            }
+            cfg_mod.save_operator_config(partial, path)
+            platform_cfg, _, _ = cfg_mod.load_split_config(path)
+            self.assertEqual(platform_cfg["tx"]["delay_ms"], 250)
+            self.assertEqual(platform_cfg["tx"]["zmq_addr"], "tcp://127.0.0.1:52002")
+            self.assertEqual(platform_cfg["rx"]["zmq_addr"], "tcp://127.0.0.1:52001")
+
+    def test_legacy_flat_file_on_disk_is_canonicalized(self):
+        """Older operator gss.yml files written in flat shape still load."""
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "gss.yml")
+            flat = {
+                "tx": {"zmq_addr": "tcp://x:1", "delay_ms": 250},
+                "general": {"mission": "maveric", "log_dir": "native-logs"},
+                "ax25": {"src_call": "WM2XBC"},
+                "csp": {"priority": 3},
+            }
+            cfg_mod.save_operator_config(flat, path)
+            platform_cfg, mission_id, mission_cfg = cfg_mod.load_split_config(path)
+            self.assertEqual(mission_id, "maveric")
+            self.assertEqual(platform_cfg["general"]["log_dir"], "native-logs")
+            self.assertEqual(platform_cfg["tx"]["zmq_addr"], "tcp://x:1")
+            self.assertEqual(platform_cfg["tx"]["delay_ms"], 250)
+            self.assertEqual(mission_cfg["ax25"]["src_call"], "WM2XBC")
+            self.assertEqual(mission_cfg["csp"]["priority"], 3)
 
 
 if __name__ == "__main__":

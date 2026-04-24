@@ -6,7 +6,9 @@ import json
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from .state import WebRuntime, get_runtime
+from mav_gss_lib.platform import collect_connect_events
+
+from .state import get_runtime
 from .shutdown import schedule_shutdown_check
 from .security import authorize_websocket
 
@@ -20,7 +22,7 @@ async def ws_rx(websocket: WebSocket):
     await websocket.accept()
     runtime.had_clients = True
     # Send column definitions before any packet data
-    columns = runtime.adapter.packet_list_columns()
+    columns = [column.to_json() for column in runtime.mission.ui.packet_columns()]
     await websocket.send_text(json.dumps({"type": "columns", "data": columns}))
     for pkt_json in list(runtime.rx.packets):
         try:
@@ -28,18 +30,8 @@ async def ws_rx(websocket: WebSocket):
         except Exception:
             return
 
-    # Plugin hook — let the adapter replay its current snapshots as
-    # synthetic WS messages before the client enters its live loop.
-    # This removes the need for a REST seed step on the frontend:
-    # the first WS frames a plugin consumer sees are the current state.
-    connect_hook = getattr(runtime.adapter, "on_client_connect", None)
-    if connect_hook is not None:
-        try:
-            for msg in connect_hook() or []:
-                await websocket.send_text(json.dumps(msg))
-        except Exception:
-            import logging
-            logging.warning("on_client_connect hook failed", exc_info=True)
+    for msg in collect_connect_events(runtime.mission):
+        await websocket.send_text(json.dumps(msg))
 
     with runtime.rx.lock:
         runtime.rx.clients.append(websocket)

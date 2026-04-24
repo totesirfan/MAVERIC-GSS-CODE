@@ -12,7 +12,6 @@ import {
 import { colors } from '@/lib/colors';
 import {
   computeMissingRanges,
-  formatMissingRanges,
   type PairedFile,
   type FileLeaf,
   type MissingRange,
@@ -235,6 +234,8 @@ function ProgressRow({
     );
   }
 
+  const missing = total - leaf.received;
+
   return (
     <div>
       <div className="flex items-center gap-2 mb-1.5">
@@ -251,21 +252,36 @@ function ProgressRow({
           ({pct}%)
         </span>
         <div className="flex-1" />
-        <span
-          className="text-[11px]"
-          style={{
-            color: complete
-              ? colors.success
-              : ranges.length
-              ? colors.warning
-              : colors.active,
-          }}
-        >
-          {complete ? 'Complete' : ranges.length ? `${total - leaf.received} missing` : 'Receiving...'}
-        </span>
+        {complete ? (
+          <span className="text-[11px]" style={{ color: colors.success }}>Complete</span>
+        ) : (() => {
+          const initial = leaf.received === 0;
+          const tone = initial ? colors.active : colors.warning;
+          const Icon = initial ? Download : RefreshCcw;
+          const label = initial ? `get ${total}` : `${missing} missing`;
+          const title = initial
+            ? `Download all ${total} chunks`
+            : `Re-request ${missing} missing chunk${missing === 1 ? '' : 's'} (${ranges.length} range${ranges.length === 1 ? '' : 's'})`;
+          return (
+            <button
+              onClick={() => onStageRerequest(side, leaf, ranges)}
+              className="inline-flex items-center gap-1 px-1.5 rounded-sm border font-mono text-[11px] color-transition btn-feedback"
+              style={{
+                height: 20,
+                color: tone,
+                borderColor: `${tone}66`,
+                backgroundColor: `${tone}0A`,
+              }}
+              title={title}
+            >
+              <Icon className="size-2.5" />
+              {label}
+            </button>
+          );
+        })()}
       </div>
 
-      <div className="flex flex-wrap gap-[3px] mb-2">
+      <div className="flex flex-wrap gap-[3px]">
         {Array.from({ length: total }, (_, i) => {
           const received = chunkSet.has(i);
           return (
@@ -290,69 +306,6 @@ function ProgressRow({
           );
         })}
       </div>
-
-      {!complete && leaf.received === 0 && total > 0 && (
-        <div
-          className="flex items-center pt-2 border-t"
-          style={{ borderColor: colors.borderSubtle }}
-        >
-          <div className="flex-1" />
-          <button
-            onClick={() => onStageRerequest(side, leaf, ranges)}
-            className="inline-flex items-center gap-1 px-2 rounded-sm border font-medium text-[10px]"
-            style={{
-              height: 22,
-              color: colors.label,
-              borderColor: `${colors.label}66`,
-              backgroundColor: `${colors.label}0A`,
-            }}
-          >
-            <Download className="size-3" /> Request chunks ({total})
-          </button>
-        </div>
-      )}
-
-      {!complete && leaf.received > 0 && ranges.length > 0 && (
-        <div
-          className="flex items-center flex-wrap gap-1.5 pt-2 border-t"
-          style={{ borderColor: colors.borderSubtle }}
-        >
-          <span
-            className="text-[10px] font-bold uppercase tracking-wider mr-1"
-            style={{ color: colors.danger }}
-          >
-            Missing
-          </span>
-          {formatMissingRanges(ranges).map((label, i) => (
-            <button
-              key={i}
-              onClick={() => onStageRerequest(side, leaf, [ranges[i]])}
-              className="inline-flex items-center gap-1 px-1.5 rounded-sm border font-mono text-[11px]"
-              style={{
-                height: 18,
-                color: colors.danger,
-                borderColor: `${colors.danger}66`,
-                backgroundColor: `${colors.danger}0A`,
-              }}
-            >
-              <RefreshCcw className="size-2.5" />
-              {label}
-            </button>
-          ))}
-          <button
-            onClick={() => onStageRerequest(side, leaf, ranges)}
-            className="ml-auto inline-flex items-center gap-1 px-2 rounded-sm border font-medium text-[10px]"
-            style={{
-              height: 22,
-              color: colors.warning,
-              borderColor: `${colors.warning}66`,
-              backgroundColor: `${colors.warning}0A`,
-            }}
-          >
-            <RefreshCcw className="size-3" /> Re-request all ({ranges.length})
-          </button>
-        </div>
-      )}
     </div>
   );
 }

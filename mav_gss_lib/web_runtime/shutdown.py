@@ -1,8 +1,8 @@
 """
 mav_gss_lib.web_runtime.shutdown -- Shutdown-delay helpers.
 
-Used by API/WS handlers to schedule a delayed process exit after all browser
-clients disconnect. Extracted from the legacy runtime.py module.
+Used by API/WS handlers to schedule a delayed process exit once all
+browser clients disconnect.
 
 Author:  Irfan Annuar - USC ISI SERC
 """

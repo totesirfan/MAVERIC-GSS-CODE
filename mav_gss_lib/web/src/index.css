@@ -272,8 +272,8 @@ body {
 
 /* Focus rings — keyboard only */
 *:focus-visible {
-  outline: 2px solid var(--state-active);
-  outline-offset: 2px;
+  outline: 1px solid color-mix(in srgb, var(--state-active) 50%, transparent);
+  outline-offset: 0;
 }
 *:focus:not(:focus-visible) { outline: none; }
 

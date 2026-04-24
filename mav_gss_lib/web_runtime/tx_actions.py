@@ -115,8 +115,7 @@ async def handle_queue(runtime: "WebRuntime", msg: dict, ws: "WebSocket") -> Non
         await send_error(ws, "empty input")
         return
     try:
-        payload = runtime.adapter.cmd_line_to_payload(line)
-        item = validate_mission_cmd(payload, runtime=runtime)
+        item = validate_mission_cmd(line, runtime=runtime)
         err = mutate_queue_if_idle(runtime, lambda q: q.append(item), check_space=True)
         if err:
             await send_error(ws, err)

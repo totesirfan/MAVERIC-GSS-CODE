@@ -4,8 +4,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from mav_gss_lib.web_runtime.telemetry import TelemetryFragment
 from mav_gss_lib.web_runtime.telemetry.api import get_telemetry_router
+from mav_gss_lib.web_runtime.telemetry import TelemetryFragment
 from mav_gss_lib.web_runtime.telemetry.router import TelemetryRouter
 
 

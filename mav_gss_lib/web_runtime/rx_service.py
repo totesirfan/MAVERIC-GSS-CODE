@@ -18,11 +18,10 @@ from queue import Empty, Queue
 from typing import TYPE_CHECKING
 
 from mav_gss_lib.config import get_rx_zmq_addr
-from mav_gss_lib.constants import DEFAULT_MISSION
-from mav_gss_lib.parsing import RxPipeline, build_rx_log_record
 
 from ._atomics import AtomicStatus
-from mav_gss_lib.protocols.frame_detect import is_noise_frame
+from mav_gss_lib.platform.logging import build_rx_log_record, format_rx_text_lines
+from mav_gss_lib.protocols.frame_detect import detect_frame_type, is_noise_frame
 from mav_gss_lib.transport import SUB_STATUS, init_zmq_sub, poll_monitor, receive_pdu, zmq_cleanup
 
 from ._broadcast import broadcast_safe
@@ -46,7 +45,7 @@ class RxService:
         self.log = None
         self.thread_handle: threading.Thread | None = None
         self.broadcast_task = None
-        self.pipeline = RxPipeline.from_adapter(runtime.adapter)
+        self.pipeline = runtime.platform.rx.packet_pipeline
         self.last_rx_at: float = 0.0
         self._was_traffic_active: bool = False
 
@@ -63,19 +62,22 @@ class RxService:
     def _should_drop_noise(self, meta, raw: bytes) -> bool:
         """Return True for gr-satellites AX.25 noise frames.
 
-        Delegates to is_noise_frame after resolving the frame type via
-        the active adapter. Mirrors _should_drop_rx: called before any
+        Delegates to is_noise_frame after resolving the frame type from
+        transport metadata. Mirrors _should_drop_rx: called before any
         state mutation so a dropped frame produces no side effects.
         """
-        frame_type = self.runtime.adapter.detect_frame_type(meta)
+        frame_type = detect_frame_type(meta)
         return is_noise_frame(frame_type, raw)
 
     def start_receiver(self) -> None:
         if self.thread_handle and self.thread_handle.is_alive():
             return
         self.stop.clear()
-        mission = self.runtime.cfg.get("general", {}).get("mission", DEFAULT_MISSION)
-        self.thread_handle = threading.Thread(target=self._thread, daemon=True, name=f"{mission}-rx-sub")
+        self.thread_handle = threading.Thread(
+            target=self._thread,
+            daemon=True,
+            name=f"{self.runtime.mission_id}-rx-sub",
+        )
         self.thread_handle.start()
 
     def restart_receiver(self) -> None:
@@ -83,12 +85,15 @@ class RxService:
         if self.thread_handle:
             self.thread_handle.join(timeout=1.0)
         self.stop.clear()
-        mission = self.runtime.cfg.get("general", {}).get("mission", DEFAULT_MISSION)
-        self.thread_handle = threading.Thread(target=self._thread, daemon=True, name=f"{mission}-rx-sub")
+        self.thread_handle = threading.Thread(
+            target=self._thread,
+            daemon=True,
+            name=f"{self.runtime.mission_id}-rx-sub",
+        )
         self.thread_handle.start()
 
     def _thread(self) -> None:
-        addr = get_rx_zmq_addr(self.runtime.cfg)
+        addr = get_rx_zmq_addr(self.runtime.platform_cfg)
         try:
             ctx, sock, monitor = init_zmq_sub(addr)
         except Exception as exc:
@@ -114,7 +119,7 @@ class RxService:
 
     async def broadcast_loop(self) -> None:
         """Drain received packets and push packet/status updates to clients."""
-        version = self.runtime.cfg.get("general", {}).get("version", "")
+        version = self.runtime.version
         last_status_push = 0.0
         while True:
             drained = 0
@@ -127,56 +132,28 @@ class RxService:
                     continue
                 if self._should_drop_noise(meta, raw):
                     continue  # gr-satellites noise — behave as if never received
-                pkt = self.pipeline.process(meta, raw)
-                # Fragments must land on pkt.mission_data BEFORE build_rx_log_record
-                # runs — text log, JSONL, and _rendering snapshot all consume them.
-                # Defensive: if extractors raise, still install an empty list so
-                # downstream consumers see a deterministic shape rather than KeyError.
-                attach = getattr(self.runtime.adapter, "attach_fragments", None)
-                if attach is not None:
-                    try:
-                        attach(pkt)
-                    except Exception as exc:
-                        logging.warning("attach_fragments hook failed: %s", exc)
-                        pkt.mission_data["fragments"] = []
+                result = self.runtime.platform.process_rx(meta, raw)
+                pkt = result.packet
                 record = build_rx_log_record(
-                    pkt, version, meta, self.runtime.adapter,
+                    self.runtime.mission, pkt, version,
                     operator=self.runtime.operator, station=self.runtime.station,
                 )
                 try:
                     if self.log:
                         self.log.write_jsonl(record)
-                        self.log.write_packet(pkt, adapter=self.runtime.adapter)
+                        self.log.write_packet_v2(
+                            pkt,
+                            text_lines=format_rx_text_lines(self.runtime.mission, pkt),
+                        )
                 except Exception as exc:
                     logging.warning("RX log write failed: %s", exc)
-                pkt_json = {
-                    "num": pkt.pkt_num,
-                    "time": pkt.gs_ts_short,
-                    "time_utc": pkt.gs_ts,
-                    "frame": pkt.frame_type,
-                    "size": len(pkt.raw),
-                    "raw_hex": pkt.raw.hex(),
-                    "warnings": pkt.warnings,
-                    "is_echo": pkt.is_uplink_echo,
-                    "is_dup": pkt.is_dup,
-                    "is_unknown": pkt.is_unknown,
-                    "_rendering": record["_rendering"],
-                }
+                pkt_json = result.packet_message["data"]
+                pkt_json["_rendering"] = record["_rendering"]
                 self.packets.append(pkt_json)
-                msg = json.dumps({"type": "packet", "data": pkt_json})
-                await broadcast_safe(self.clients, self.lock, msg)
+                await broadcast_safe(self.clients, self.lock, json.dumps(result.packet_message))
 
-                # Plugin hook — let adapter inject extra WS messages
-                hook = getattr(self.runtime.adapter, 'on_packet_received', None)
-                if hook:
-                    try:
-                        extra_msgs = hook(pkt)
-                        if extra_msgs:
-                            for extra in extra_msgs:
-                                extra_text = json.dumps(extra)
-                                await broadcast_safe(self.clients, self.lock, extra_text)
-                    except Exception as exc:
-                        logging.warning("on_packet_received hook failed: %s", exc)
+                for extra in result.telemetry_messages + result.event_messages:
+                    await broadcast_safe(self.clients, self.lock, json.dumps(extra))
 
                 # Track last RX time and detect inactive→active transition
                 self.last_rx_at = time.time()

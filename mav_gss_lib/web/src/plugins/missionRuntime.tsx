@@ -10,7 +10,7 @@
  *
  * Eager discovery is required: providers must exist when
  * RxProvider's WebSocket starts delivering messages (including the
- * adapter's `on_client_connect` replay). Lazy loading would miss it.
+ * mission `EventOps.on_client_connect` replay). Lazy loading would miss it.
  * Eager resolution also sidesteps the async `/api/config` fetch that
  * determines the active mission — the provider tree renders every
  * discovered provider regardless of active-mission state. For a

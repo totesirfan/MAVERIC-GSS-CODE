@@ -21,7 +21,7 @@ from ..state import get_runtime
 router = APIRouter()
 
 
-def parse_replay_entry(entry: dict, cmd_defs: dict, adapter=None) -> dict | None:
+def parse_replay_entry(entry: dict) -> dict | None:
     """Normalize one JSONL log entry for replay.
 
     RX entries: platform envelope + _rendering passthrough.
@@ -56,6 +56,12 @@ def parse_replay_entry(entry: dict, cmd_defs: dict, adapter=None) -> dict | None
     else:
         # TX log entry normalization — consumes persisted display directly
         display = entry.get("display", {})
+        row = dict(display.get("row", {}))
+        row.update({
+            "num": {"value": entry.get("n", 0)},
+            "time": {"value": ts_time, "monospace": True},
+            "size": {"value": entry.get("raw_len", entry.get("len", 0))},
+        })
         normalized = {
             "num": entry.get("n", 0),
             "time": ts_time,
@@ -69,12 +75,7 @@ def parse_replay_entry(entry: dict, cmd_defs: dict, adapter=None) -> dict | None
             "raw_hex": entry.get("raw_hex", ""),
             "warnings": [],
             "_rendering": {
-                "row": {"values": {
-                    "num": entry.get("n", 0),
-                    "time": ts_time,
-                    "size": entry.get("raw_len", entry.get("len", 0)),
-                    **display.get("row", {}),
-                }, "_meta": {}},
+                "row": row,
                 "detail_blocks": display.get("detail_blocks", []),
                 "protocol_blocks": [],
                 "integrity_blocks": [],
@@ -87,7 +88,7 @@ def parse_replay_entry(entry: dict, cmd_defs: dict, adapter=None) -> dict | None
 @router.get("/api/logs")
 async def api_logs(request: Request):
     runtime = get_runtime(request)
-    log_dir = Path(runtime.cfg.get("general", {}).get("log_dir", "logs")) / "json"
+    log_dir = Path(runtime.log_dir) / "json"
     if not log_dir.is_dir():
         return []
     sessions = []
@@ -118,7 +119,7 @@ async def api_log_entries(
     limit: int = Query(200, ge=1, le=2000),
 ):
     runtime = get_runtime(request)
-    log_dir = (Path(runtime.cfg.get("general", {}).get("log_dir", "logs")) / "json").resolve()
+    log_dir = (Path(runtime.log_dir) / "json").resolve()
     log_file = (log_dir / f"{session_id}.jsonl").resolve()
     if log_file.parent != log_dir:
         return JSONResponse(status_code=400, content={"error": "invalid session_id"})
@@ -138,18 +139,20 @@ async def api_log_entries(
             except json.JSONDecodeError:
                 continue
 
-            normalized = parse_replay_entry(entry, runtime.cmd_defs, adapter=runtime.adapter)
+            normalized = parse_replay_entry(entry)
             if normalized is None:
                 continue
 
-            # Apply cmd filter — both RX and TX use _rendering.row.values.cmd
+            # Apply cmd filter — RX and TX use v2 cell-shaped _rendering.row.cmd.
             if cmd:
                 row_cmd = ""
                 r = normalized.get("_rendering")
                 if isinstance(r, dict):
-                    row_vals = r.get("row", {})
-                    if isinstance(row_vals, dict):
-                        row_cmd = str(row_vals.get("values", {}).get("cmd", ""))
+                    row = r.get("row", {})
+                    if isinstance(row, dict):
+                        cmd_cell = row.get("cmd", {})
+                        if isinstance(cmd_cell, dict):
+                            row_cmd = str(cmd_cell.get("value", ""))
                 if cmd.lower() not in row_cmd.lower():
                     continue
             # Apply time filters

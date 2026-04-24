@@ -16,7 +16,6 @@ bootstrap_dependencies()
 # Safe — all critical deps guaranteed importable past this line.
 import uvicorn
 
-from mav_gss_lib.constants import DEFAULT_MISSION
 from mav_gss_lib.web_runtime.app import create_app
 from mav_gss_lib.web_runtime.state import HOST, PORT
 
@@ -37,8 +36,9 @@ def _wait_for_server_and_open(url: str, host: str, port: int, timeout_s: float =
 
 if __name__ == "__main__":
     url = f"http://{HOST}:{PORT}"
-    mission_name = app.state.runtime.cfg.get("general", {}).get("mission_name", "Mission")
-    mission = app.state.runtime.cfg.get("general", {}).get("mission", DEFAULT_MISSION)
+    runtime = app.state.runtime
+    mission_name = runtime.mission_name
+    mission = runtime.mission_id
     print(f"{mission_name} GSS Web -> {url}")
     # Skip the auto-open when the updater restarted us. `_reexec` sets
     # MAV_UPDATE_APPLIED in the new process env for exactly this kind of

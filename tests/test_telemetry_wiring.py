@@ -1,7 +1,4 @@
-"""Task 5 wiring test: WebRuntime builds a TelemetryRouter, adapter sees it,
-and create_app mounts /api/telemetry/*. Mission-side manifest is still empty
-at this task (Task 11 populates it), so the REST surface is checked with a
-runtime-level register_domain call."""
+"""Telemetry wiring tests for the platform-owned router."""
 
 from fastapi.testclient import TestClient
 
@@ -13,12 +10,8 @@ def test_runtime_has_telemetry_router():
 
     runtime = create_runtime()
     assert isinstance(runtime.telemetry, TelemetryRouter)
-    # Adapter sees the same router instance.
-    assert runtime.adapter.telemetry is runtime.telemetry
-    # Extractors alias is set from the manifest registered by Task 11
-    # (eps, gnc, platform) — 3 extractor callables.
-    assert len(runtime.adapter.extractors) == 3
-    # Domains registered from TELEMETRY_MANIFEST.
+    assert runtime.telemetry is runtime.platform.telemetry
+    assert len(runtime.mission.telemetry.extractors) == 1
     for name in ("eps", "gnc", "spacecraft"):
         assert runtime.telemetry.has_domain(name), f"{name} domain missing"
 

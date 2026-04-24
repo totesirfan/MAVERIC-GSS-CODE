@@ -9,13 +9,17 @@ Author:  Irfan Annuar - USC ISI SERC
 
 from dataclasses import dataclass, field
 
+from mav_gss_lib.missions.maveric.config_access import gs_node_name
+
 
 @dataclass
 class NodeTable:
     """Immutable snapshot of node/ptype addressing tables.
 
-    Created by init_nodes(cfg) at startup. Passed explicitly through
-    the adapter to all ops/rendering/logging code that needs resolution.
+    Built once by `init_nodes(mission_cfg)` inside MAVERIC's `mission.build()`
+    and handed to every MissionSpec op (`MavericPacketOps`, `MavericCommandOps`,
+    `MavericUiOps`, telemetry extractors, log formatters) that needs to
+    resolve node/ptype IDs or names.
     """
     node_names: dict = field(default_factory=dict)   # int -> str
     node_ids:   dict = field(default_factory=dict)    # str -> int
@@ -51,10 +55,10 @@ class NodeTable:
 
 
 def init_nodes(cfg: dict) -> NodeTable:
-    """Build a NodeTable from a loaded config dict.
+    """Build a NodeTable from mission config.
 
-    Must be called once at startup after load_gss_config() + metadata merge.
-    Returns the table — caller stores it (no module globals).
+    Accepts both the native v2 mission-config shape and the older merged
+    flat config shape used by some tests/helpers.
     """
     node_names = {int(k): v for k, v in cfg["nodes"].items()}
     node_ids = {v: k for k, v in node_names.items()}
@@ -62,7 +66,7 @@ def init_nodes(cfg: dict) -> NodeTable:
     ptype_names = {int(k): v for k, v in cfg["ptypes"].items()}
     ptype_ids = {v: k for k, v in ptype_names.items()}
 
-    gs_name = cfg.get("general", {}).get("gs_node", "GS")
+    gs_name = gs_node_name(cfg)
     gs_node = node_ids.get(gs_name, 6)
 
     return NodeTable(

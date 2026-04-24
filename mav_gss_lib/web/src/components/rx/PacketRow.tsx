@@ -9,11 +9,10 @@ import {
   ContextMenuContent,
   ContextMenuItem,
 } from '@/components/shared/ContextMenu'
-import type { ColumnDef, GssConfig, RxPacket } from '@/lib/types'
+import type { ColumnDef, RxPacket } from '@/lib/types'
 
 interface PacketRowProps {
   packet: RxPacket
-  nodeDescriptions?: GssConfig['node_descriptions']
   selected: boolean
   showFrame: boolean
   showEcho: boolean
@@ -22,7 +21,7 @@ interface PacketRowProps {
   onClick: () => void
 }
 
-export function PacketRow({ packet: p, nodeDescriptions, selected, showFrame, showEcho, columns, compact, onClick }: PacketRowProps) {
+export function PacketRow({ packet: p, selected, showFrame, showEcho, columns, compact, onClick }: PacketRowProps) {
   const effectiveSelected = compact ? false : selected
   const handleClick = compact ? () => {} : onClick
   return (
@@ -32,7 +31,7 @@ export function PacketRow({ packet: p, nodeDescriptions, selected, showFrame, sh
           onClick={handleClick}
           className={`flex items-center text-xs font-mono ${compact ? '' : 'cursor-pointer'} hover:bg-white/[0.03] color-transition`}
           style={{
-            opacity: p._rendering?.row?._meta?.opacity
+            opacity: p._rendering?.meta?.opacity
               ?? (p.is_unknown ? 0.5 : 1),
           }}
         >
@@ -49,7 +48,7 @@ export function PacketRow({ packet: p, nodeDescriptions, selected, showFrame, sh
             <>
               {columns!.map(c => (
                 <CellValue key={c.id} col={c} row={p._rendering!.row}
-                  showFrame={showFrame} showEcho={showEcho} nodeDescriptions={nodeDescriptions} />
+                  showFrame={showFrame} showEcho={showEcho} />
               ))}
             </>
           ) : (

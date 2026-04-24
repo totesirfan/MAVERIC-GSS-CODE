@@ -1,18 +1,34 @@
-from mav_gss_lib.parsing import Packet, build_rx_log_record
+from mav_gss_lib.platform import MissionSpec
+from mav_gss_lib.platform.logging import build_rx_log_record
+from mav_gss_lib.platform.packets import PacketEnvelope, PacketFlags
+from mav_gss_lib.platform.rendering import PacketRendering
 
 
-class _FakeAdapter:
-    def protocol_blocks(self, pkt):      return []
-    def integrity_blocks(self, pkt):     return []
-    def packet_list_row(self, pkt):      return {}
-    def packet_detail_blocks(self, pkt): return []
-    def build_log_mission_data(self, pkt): return None
+class _Ui:
+    def packet_columns(self): return []
+    def tx_columns(self): return []
+    def render_packet(self, packet): return PacketRendering(columns=[], row={})
+    def render_log_data(self, packet): return {}
+    def format_text_log(self, packet): return []
 
 
 def test_rx_record_carries_identity():
-    pkt = Packet(pkt_num=1, gs_ts="2026-04-21T12:00:00Z", frame_type="AX.25", raw=b"abc", inner_payload=b"a")
+    pkt = PacketEnvelope(
+        seq=1,
+        received_at_ms=0,
+        received_at_text="2026-04-21T12:00:00Z",
+        received_at_short="12:00:00",
+        frame_type="AX.25",
+        raw=b"abc",
+        payload=b"a",
+        transport_meta={"transmitter": "gr"},
+        warnings=[],
+        mission_payload={},
+        flags=PacketFlags(),
+    )
+    spec = MissionSpec(id="test", name="Test", packets=None, ui=_Ui(), config=None)
     record = build_rx_log_record(
-        pkt, version="1.2.3", meta={"transmitter": "gr"}, adapter=_FakeAdapter(),
+        spec, pkt, version="1.2.3",
         operator="irfan", station="GS-0",
     )
     assert record["operator"] == "irfan"
@@ -23,8 +39,6 @@ import json
 import os
 
 from mav_gss_lib.logging import TXLog
-from mav_gss_lib.protocols.ax25 import AX25Config
-from mav_gss_lib.protocols.csp import CSPConfig
 
 
 def test_tx_record_carries_identity(tmp_path):
@@ -36,8 +50,9 @@ def test_tx_record_carries_identity(tmp_path):
             mission_payload={"cmd": "ping"},
             raw_cmd=b"\x01\x02",
             payload=b"\x01\x02",
-            ax25=AX25Config(),
-            csp=CSPConfig(),
+            frame_label="RAW",
+            log_fields={"uplink_mode": "RAW"},
+            log_text=[],
             operator="irfan",
             station="GS-0",
         )
@@ -48,6 +63,8 @@ def test_tx_record_carries_identity(tmp_path):
         rec = json.loads(f.readline())
     assert rec["operator"] == "irfan"
     assert rec["station"] == "GS-0"
+    assert rec["uplink_mode"] == "RAW"
+    assert rec["frame_label"] == "RAW"
 
 
 import re

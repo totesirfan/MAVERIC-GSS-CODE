@@ -116,7 +116,10 @@ async def _run_mission_checks(runtime) -> list[CheckResult]:
     results: list[CheckResult] = []
     try:
         for check in run_preflight(
-            cfg=runtime.cfg,
+            cfg=runtime.platform_cfg,
+            mission_cfg=runtime.mission_cfg,
+            mission=runtime.mission,
+            mission_id=runtime.mission_id,
             operator=runtime.operator,
             host=runtime.host,
             station=runtime.station,

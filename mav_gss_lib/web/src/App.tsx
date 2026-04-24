@@ -105,10 +105,10 @@ function AppShell() {
 
   // Load plugin pages once mission is known
   useEffect(() => {
-    const missionId = config?.general?.mission
+    const missionId = config?.mission?.id
     if (!missionId) return
     getPluginPages(missionId).then(setPlugins)
-  }, [config?.general?.mission])
+  }, [config?.mission?.id])
 
   const navigateTo = useCallback((target: string | null, sub?: string) => {
     const url = new URL(window.location.href)
@@ -138,12 +138,12 @@ function AppShell() {
   }, [])
 
   useEffect(() => {
-    const missionName = config?.general?.mission_name ?? 'Mission'
+    const missionName = config?.mission.config.mission_name ?? 'Mission'
     document.title = `${missionName} GSS`
-  }, [config?.general?.mission_name])
+  }, [config?.mission.config.mission_name])
 
-  const version = config?.general?.version ?? '...'
-  const missionName = config?.general?.mission_name ?? 'Mission'
+  const version = config?.platform.general.version ?? '...'
+  const missionName = config?.mission.config.mission_name ?? 'Mission'
 
   // Derived state
   const activeTabId = page ?? '__dashboard__'
@@ -262,8 +262,8 @@ function AppShell() {
 function PreflightOverlay() {
   const preflight = usePreflight()
   const { config } = useConfig()
-  const version = config?.general?.version
-  const buildSha = config?.general?.build_sha
+  const version = config?.platform.general.version
+  const buildSha = config?.platform.general.build_sha
   const [dismissing, setDismissing] = useState(false)
   const [dismissed, setDismissed] = useState(false)
   const [identity, setIdentity] = useState<{ operator: string; station: string } | null>(null)
@@ -318,7 +318,7 @@ function PreflightOverlay() {
 function PopOutTx() {
   const { config } = usePopOutBootstrap()
   const tx = useTxSocket()
-  const uplinkMode = config?.tx?.uplink_mode ?? ''
+  const uplinkMode = config?.platform.tx.uplink_mode ?? ''
 
   return (
     <div className="flex flex-col h-full" style={{ backgroundColor: colors.bgApp }}>

@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
+import { renderingFlags } from '@/lib/rendering'
 import type { RxPacket, RxStatus } from '@/lib/types'
 
 export interface Alarm {
@@ -13,7 +14,6 @@ export interface Alarm {
 
 const STALE_THRESHOLD_S = 210
 const CRC_THRESHOLD = 3
-const NONE_THRESHOLD = 3
 const DUP_THRESHOLD = 5
 const WINDOW_MS = 60_000
 const LINGER_MS = 10_000
@@ -25,7 +25,6 @@ const ALARM_META = {
   zmq_down: { label: 'ZMQ DOWN', severity: 'danger' },
   zmq_retry: { label: 'ZMQ RETRY', severity: 'warning' },
   crc: { label: 'CRC', severity: 'warning' },
-  none_frames: { label: 'NONE', severity: 'warning' },
   dup: { label: 'DUP', severity: 'advisory' },
 } as const satisfies Record<string, { label: string; severity: AlarmSeverity }>
 
@@ -49,7 +48,6 @@ export function useAlarms(
 
   // Sliding window timestamps for packet-based alarms
   const crcTimes = useRef<number[]>([])
-  const noneTimes = useRef<number[]>([])
   const dupTimes = useRef<number[]>([])
   const prevLen = useRef(0)
 
@@ -58,7 +56,6 @@ export function useAlarms(
     if (sessionGeneration === 0) return // skip initial mount
     prevLen.current = 0
     crcTimes.current = []
-    noneTimes.current = []
     dupTimes.current = []
     firstSeenMap.current = new Map()
     clearedAtMap.current = new Map()
@@ -76,13 +73,8 @@ export function useAlarms(
       const newPkts = packets.slice(prevLen.current)
       const now = Date.now()
       for (const p of newPkts) {
-        const flags = p._rendering?.row?.values?.flags
-        const hasCrcFlag = Array.isArray(flags) && flags.some(
-          (f: unknown) => typeof f === 'object' && f !== null && (f as Record<string, string>).tag === 'CRC',
-        )
+        const hasCrcFlag = renderingFlags(p._rendering).some(f => f.tag === 'CRC')
         if (hasCrcFlag) crcTimes.current.push(now)
-        const ptype = p._rendering?.row?.values?.ptype
-        if (ptype === 'NONE' || ptype === '0') noneTimes.current.push(now)
         if (p.is_dup) dupTimes.current.push(now)
       }
       prevLen.current = packets.length
@@ -103,7 +95,6 @@ export function useAlarms(
     const cutoff = now - WINDOW_MS
 
     crcTimes.current = crcTimes.current.filter(t => t > cutoff)
-    noneTimes.current = noneTimes.current.filter(t => t > cutoff)
     dupTimes.current = dupTimes.current.filter(t => t > cutoff)
 
     // Build active candidates (condition currently true)
@@ -140,15 +131,6 @@ export function useAlarms(
         id: 'crc', label: ALARM_META.crc.label,
         detail: `${crcCount} errors in 60s`,
         severity: ALARM_META.crc.severity,
-      })
-    }
-
-    const noneCount = noneTimes.current.length
-    if (noneCount >= NONE_THRESHOLD) {
-      active.push({
-        id: 'none_frames', label: ALARM_META.none_frames.label,
-        detail: `${noneCount} unparseable in 60s`,
-        severity: ALARM_META.none_frames.severity,
       })
     }
 

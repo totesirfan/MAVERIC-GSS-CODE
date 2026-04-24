@@ -9,7 +9,6 @@ Author:  Irfan Annuar - USC ISI SERC
 from __future__ import annotations
 
 import asyncio
-import copy
 import json
 import logging
 import threading
@@ -18,7 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Awaitable, Callable, NamedTuple
 
-from mav_gss_lib.protocols.ax25 import build_ax25_gfsk_frame
+from mav_gss_lib.platform import EncodedCommand, FramedCommand
 from mav_gss_lib.transport import PUB_STATUS, init_zmq_pub, send_pdu, zmq_cleanup
 
 from ._broadcast import broadcast_safe
@@ -39,17 +38,8 @@ class _SendContext:
     sent: int
     total: int
     sock: object
-    uplink_mode: str
     default_delay: int
     blackout_ms: int
-    send_csp: object
-    send_ax25: object
-
-try:
-    from mav_gss_lib.protocols.golay import _GR_RS_OK, build_asm_golay_frame
-    GOLAY_OK = _GR_RS_OK
-except ImportError:
-    GOLAY_OK = False
 
 
 class TxService:
@@ -113,7 +103,7 @@ class TxService:
     def queue_summary(self):
         """Summarize queue size, guard count, and rough execution time."""
         from . import tx_queue as _tq
-        return _tq.queue_summary(self.queue, self.runtime.cfg)
+        return _tq.queue_summary(self.queue, self.runtime.tx_delay_ms)
 
     def queue_items_json(self):
         """Project the current queue into the websocket/API JSON shape."""
@@ -222,22 +212,27 @@ class TxService:
                 self.sending["guarding"] = False
         return self.abort.is_set()
 
-    def _build_frame(self, raw_cmd: bytes, uplink_mode: str, send_csp, send_ax25) -> bytes:
-        """Wrap a raw command in CSP + the configured uplink framing."""
-        csp_packet = send_csp.wrap(raw_cmd)
-        if uplink_mode == "ASM+Golay":
-            if not GOLAY_OK:
-                raise RuntimeError(
-                    "ASM+Golay selected but libfec RS encoder is unavailable in this "
-                    "environment. Install libfec (e.g. `sudo apt install libfec-dev && "
-                    "sudo ldconfig`, `conda install -c ryanvolz libfec`, or build from "
-                    "https://github.com/quiet/libfec) or switch tx.uplink_mode to AX.25."
-                )
-            return build_asm_golay_frame(csp_packet)
-        ax25_frame = send_ax25.wrap(csp_packet)
-        return build_ax25_gfsk_frame(ax25_frame)
+    def _frame_mission_cmd(self, item) -> FramedCommand:
+        """Ask the active mission to frame the command's encoded bytes.
 
-    def _record_sent(self, item, raw_cmd: bytes, payload: bytes, send_csp, send_ax25, uplink_mode: str) -> dict:
+        Queue items persist mission-opaque bytes only, not the EncodedCommand
+        object. We rebuild it through the mission command pipeline, then
+        prefer the persisted raw bytes if present so guard-time rendering
+        stays stable even if the mission encoder is non-deterministic.
+        """
+        encoded_raw = item.get("raw_cmd", b"")
+        encoded = self.runtime.mission.commands.encode(
+            self.runtime.mission.commands.parse_input({**(item.get("payload") or {})})
+        )
+        if encoded_raw and encoded.raw != encoded_raw:
+            encoded = EncodedCommand(
+                raw=encoded_raw,
+                guard=encoded.guard,
+                mission_payload=encoded.mission_payload,
+            )
+        return self.runtime.mission.commands.frame(encoded)
+
+    def _record_sent(self, item, raw_cmd: bytes, framed: FramedCommand) -> dict:
         """Write the TX log entry and append a history item; return the history entry."""
         if self.log:
             try:
@@ -245,8 +240,10 @@ class TxService:
                     self.count,
                     item.get("display", {}),
                     item.get("payload", {}),
-                    raw_cmd, payload, send_ax25, send_csp,
-                    uplink_mode=uplink_mode,
+                    raw_cmd, framed.wire,
+                    frame_label=framed.frame_label,
+                    log_fields=framed.log_fields,
+                    log_text=framed.log_text,
                     operator=self.runtime.operator,
                     station=self.runtime.station,
                 )
@@ -261,7 +258,7 @@ class TxService:
             "station": self.runtime.station,
             "display": item.get("display", {}),
             "payload": item.get("payload", {}),
-            "size": len(payload),
+            "size": len(framed.wire),
         }
         self.history.append(hist_entry)
         if len(self.history) > self.runtime.max_history:
@@ -297,14 +294,14 @@ class TxService:
             return _RunResult(aborted=True, sent_delta=0)
 
         try:
-            payload = self._build_frame(raw_cmd, ctx.uplink_mode, ctx.send_csp, ctx.send_ax25)
+            framed = self._frame_mission_cmd(item)
         except Exception as exc:
             logging.error("Frame build failed for %s: %s", item.get("cmd", "?"), exc)
             await self.broadcast({"type": "send_error", "error": f"frame build failed: {exc}"})
             self._pop_and_renumber()
             return _RunResult(aborted=True, sent_delta=0)
 
-        if not send_pdu(ctx.sock, payload):
+        if not send_pdu(ctx.sock, framed.wire):
             logging.error("ZMQ send failed for %s", item.get("cmd", "?"))
             await self.broadcast({"type": "send_error", "error": "ZMQ send failed"})
             self._pop_and_renumber()
@@ -329,7 +326,7 @@ class TxService:
             self.sending["sent_at"] = time.time()
         self.count += 1
 
-        hist_entry = self._record_sent(item, raw_cmd, payload, ctx.send_csp, ctx.send_ax25, ctx.uplink_mode)
+        hist_entry = self._record_sent(item, raw_cmd, framed)
 
         new_sent = ctx.sent + 1
         await self.broadcast({"type": "sent", "data": hist_entry})
@@ -370,21 +367,15 @@ class TxService:
             return
 
         with self.runtime.cfg_lock:
-            uplink_mode = self.runtime.cfg.get("tx", {}).get("uplink_mode", "AX.25")
-            default_delay = self.runtime.cfg.get("tx", {}).get("delay_ms", 500)
-            blackout_ms = int(self.runtime.cfg.get("rx", {}).get("tx_blackout_ms", 0) or 0)
-            send_csp = copy.copy(self.runtime.csp)
-            send_ax25 = copy.copy(self.runtime.ax25)
+            default_delay = self.runtime.tx_delay_ms
+            blackout_ms = self.runtime.tx_blackout_ms
 
         ctx = _SendContext(
             sent=0,
             total=self.sending.get("total", len(self.queue)),
             sock=self.zmq_sock,
-            uplink_mode=uplink_mode,
             default_delay=default_delay,
             blackout_ms=blackout_ms,
-            send_csp=send_csp,
-            send_ax25=send_ax25,
         )
 
         try:

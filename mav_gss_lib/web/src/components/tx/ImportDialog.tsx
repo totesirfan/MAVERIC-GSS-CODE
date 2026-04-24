@@ -3,9 +3,10 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { FileUp, FileText, Check, ChevronRight, Shield, Timer, MessageSquareText } from 'lucide-react'
 import { colors } from '@/lib/colors'
 import { col } from '@/lib/columns'
-import { PtypeBadge } from '@/components/shared/PtypeBadge'
+import { cellText } from '@/lib/rendering'
+import { ValueBadge } from '@/components/shared/ValueBadge'
 import { authFetch } from '@/lib/auth'
-import type { TxColumnDef, DetailBlock } from '@/lib/types'
+import type { TxColumnDef, DetailBlock, RenderCell } from '@/lib/types'
 
 interface ImportDialogProps {
   open: boolean
@@ -25,7 +26,7 @@ interface PreviewItem {
   display?: {
     title: string
     subtitle?: string
-    row?: Record<string, string | number>
+    row?: Record<string, RenderCell>
     detail_blocks?: DetailBlock[]
   }
   guard?: boolean
@@ -62,7 +63,7 @@ export function ImportDialog({ open, onClose, onImported, txColumns }: ImportDia
       const suppressSet = new Set(col.hide_if_all)
       return !preview.every(item => {
         if (item.type === 'delay') return true
-        return suppressSet.has(String(item.display?.row?.[col.id] ?? ''))
+        return suppressSet.has(cellText(item.display?.row?.[col.id]))
       })
     })
   }, [txColumns, preview])
@@ -222,10 +223,11 @@ export function ImportDialog({ open, onClose, onImported, txColumns }: ImportDia
                       ) : visibleColumns.length > 0 ? (
                         <>
                           {visibleColumns.map(c => {
-                            const val = item.display?.row?.[c.id] ?? ''
+                            const cell = item.display?.row?.[c.id]
+                            const val = cellText(cell)
                             return (
                               <span key={c.id} className={`${c.width ?? ''} ${c.flex ? 'flex-1 min-w-0 truncate' : 'shrink-0'}`}>
-                                {c.badge ? <PtypeBadge ptype={val} /> :
+                                {cell?.badge ? <ValueBadge value={val} tone={cell.tone} /> :
                                  c.id === 'cmd' ? (
                                    <span className="shrink-0 px-1.5 py-0.5 rounded text-[11px] font-semibold" style={{ color: colors.value, backgroundColor: 'rgba(255,255,255,0.06)' }}>
                                      {String(val)}

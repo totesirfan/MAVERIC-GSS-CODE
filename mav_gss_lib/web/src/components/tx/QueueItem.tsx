@@ -5,7 +5,8 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { colors } from '@/lib/colors'
 import { col } from '@/lib/columns'
-import { PtypeBadge } from '@/components/shared/PtypeBadge'
+import { cellText } from '@/lib/rendering'
+import { ValueBadge } from '@/components/shared/ValueBadge'
 import {
   ContextMenuRoot, ContextMenuTrigger, ContextMenuContent,
   ContextMenuItem, ContextMenuSeparator,
@@ -74,10 +75,11 @@ export function QueueItem({ item, index, sortId, expanded, isNext, isSending, is
             <span className={`${col.num} text-right shrink-0 tabular-nums`} style={{ color: colors.dim }}>{item.num}</span>
             {visibleColumns.length > 0 ? (
               visibleColumns.map(c => {
-                const val = display.row?.[c.id] ?? ''
+                const cell = display.row?.[c.id]
+                const val = cellText(cell)
                 return (
                   <span key={c.id} className={`${c.width ?? ''} ${c.flex ? 'flex-1 min-w-0 truncate' : 'shrink-0'}`}>
-                    {c.badge ? <PtypeBadge ptype={val} /> :
+                    {cell?.badge ? <ValueBadge value={val} tone={cell.tone} /> :
                      c.id === 'cmd' ? (
                        <>
                          <span className="inline-block px-1.5 py-0 rounded-sm text-[11px] font-semibold" style={{ color: colors.value, backgroundColor: 'rgba(255,255,255,0.06)' }}>

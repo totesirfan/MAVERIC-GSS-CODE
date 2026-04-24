@@ -1,34 +1,22 @@
-"""
-mav_gss_lib.missions.maveric.wire_format -- MAVERIC Command Wire Format
+"""MAVERIC command wire format.
 
-CommandFrame encode/decode, build helpers, and parse helpers for the
-MAVERIC command wire format.
+`CommandFrame` is the single source of truth for MAVERIC's inner command
+layout — both `build_cmd_raw()` (TX) and `try_parse_command()` (RX)
+delegate to it. Outer CSP/AX.25/Golay framing lives in `framing.py`.
 
-Node resolution → nodes.py
-Command schema  → schema.py
-TX CLI parsing  → cmd_parser.py
+Inner layout:
+    [src][dest][echo][ptype][id_len][args_len]
+    [id_str][0x00][args_str][0x00][CRC-16 LE]
+
+Wrapped CSP packet on the radio wire:
+    [CSP v1 header 4B][command + CRC-16][CRC-32C 4B BE]  (csp_crc=true)
+    [CSP v1 header 4B][command + CRC-16]                 (csp_crc=false)
 
 Author:  Irfan Annuar - USC ISI SERC
 """
 
 from mav_gss_lib.protocols.crc import crc16
-from mav_gss_lib.protocols.csp import kiss_wrap
 
-
-# =============================================================================
-#  COMMAND WIRE FORMAT
-#
-#  Layout (from Commands.py):
-#    [src][dest][echo][ptype][id_len][args_len]
-#    [id_str][0x00][args_str][0x00][CRC-16 LE]
-#
-#  Full CSP packet on the wire:
-#    [CSP v1 header 4B][command + CRC-16][CRC-32C 4B BE]  (csp_crc=true)
-#    [CSP v1 header 4B][command + CRC-16]                 (csp_crc=false)
-#
-#  CommandFrame is the single source of truth for this layout --
-#  both build_cmd_raw() and try_parse_command() delegate to it.
-# =============================================================================
 
 _CMD_HDR_LEN = 6  # src, dest, echo, ptype, id_len, args_len
 
@@ -113,7 +101,7 @@ class CommandFrame:
         return frame, tail
 
     def to_dict(self):
-        """Convert to dict (backward-compatible with old try_parse_command output)."""
+        """Convert to the parse-output dict shape consumed by `rx_ops`."""
         d = {
             "src": self.src, "dest": self.dest, "echo": self.echo,
             "pkt_type": self.pkt_type, "cmd_id": self.cmd_id,
@@ -126,26 +114,20 @@ class CommandFrame:
 
 
 def build_cmd_raw(src, dest, cmd, args="", echo=0, ptype=1):
-    """Build raw MAVERIC command payload with CRC-16.
+    """Build the raw inner MAVERIC command payload (with CRC-16).
 
-    src is required — caller must pass the source node explicitly.
-    Returns bytearray matching Commands.py wire format.
-    Ready for CSP wrapping via CSPConfig.wrap()."""
+    Caller passes `src` explicitly — the framer does not default it.
+    Returns the bytearray ready for CSP wrapping by `framing.py`.
+    """
     return CommandFrame(src, dest, echo, ptype, cmd, args).to_bytes()
-
-
-def build_kiss_cmd(src, dest, cmd, args="", echo=0, ptype=1):
-    """Build a complete KISS-wrapped command.
-    Returns (kiss_bytes, raw_bytes)."""
-    raw = build_cmd_raw(src, dest, cmd, args, echo, ptype)
-    return kiss_wrap(raw), raw
 
 
 def try_parse_command(payload):
     """Attempt to parse a byte payload as a MAVERIC command structure.
 
     Returns (parsed_dict, remaining_bytes) or (None, None) on failure.
-    Uses CommandFrame.from_bytes() internally."""
+    Uses CommandFrame.from_bytes() internally.
+    """
     frame, tail = CommandFrame.from_bytes(payload)
     if frame is None:
         return None, None

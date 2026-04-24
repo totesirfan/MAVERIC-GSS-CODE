@@ -5,9 +5,8 @@ Mission-agnostic platform for CubeSat ground station software.
 The web runtime (MAV_WEB.py) is the primary operational interface.
 
 Core modules:
-    mission_adapter  -- Mission boundary Protocol and shared loader
+    platform/        -- MissionSpec API and platform-owned pipelines
     protocols/       -- Protocol-family support (CRC, CSP, AX.25, KISS)
-    parsing          -- RX packet processing pipeline
     logging          -- Session logging (JSONL + text)
     config           -- Shared config loader
     transport        -- ZMQ + PMT pub/sub

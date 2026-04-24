@@ -115,8 +115,8 @@ def _decode_nvg_entry(status: int, sensor_id: int, tokens: list[str]) -> dict[st
 def _handle_nvg_get_1(cmd: dict) -> dict[str, dict] | None:
     """Decode an `nvg_get_1` RES into `{register_name: decoded_dict}`.
 
-    Registered in `semantics.gnc_handlers.COMMAND_HANDLERS` so the existing
-    adapter hook automatically persists + broadcasts the snapshot.
+    Registered in `semantics.gnc_handlers.COMMAND_HANDLERS` so the mission's
+    telemetry extractor automatically persists + broadcasts the snapshot.
     The `Status` field on nvg_get_1 is a per-sensor "data valid"
     indicator, not the module-level on/off — that lives on
     `nvg_heartbeat` instead and updates the `NVG_STATUS` slot.

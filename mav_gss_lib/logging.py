@@ -96,6 +96,10 @@ class _BaseLog:
         os.makedirs(os.path.join(log_dir, "json"), exist_ok=True)
         self._open_files()
 
+    def set_zmq_addr(self, zmq_addr: str) -> None:
+        """Update the ZMQ endpoint embedded in subsequent session headers."""
+        self._zmq_addr = zmq_addr
+
     # Flush cadence for _writer_loop. Idle cadence is enforced by the
     # queue.get() timeout, not by elapsed-time arithmetic — so an idle
     # writer thread still flushes pending writes every _FLUSH_EVERY_S
@@ -207,20 +211,6 @@ class _BaseLog:
                 lines.append(f"  {'':12}{chunk}")
             offset += chunk_w + 1  # +1 for the space between chunks
         return lines
-
-    @staticmethod
-    def _route_line(src, dest, echo, ptype, adapter=None):
-        """Format routing fields: Src:x  Dest:x  Echo:x  Type:x"""
-        nl = adapter.node_name if adapter else str
-        pl = adapter.ptype_name if adapter else str
-        return (f"Src:{nl(src)}  Dest:{nl(dest)}  "
-                f"Echo:{nl(echo)}  Type:{pl(ptype)}")
-
-    @staticmethod
-    def _format_csp(prio, src, dest, dport, sport, flags):
-        """Format CSP header fields."""
-        return (f"Prio:{prio}  Src:{src}  Dest:{dest}  "
-                f"DPort:{dport}  SPort:{sport}  Flags:0x{flags:02X}")
 
     def write_jsonl(self, record):
         with self._q_lock:
@@ -402,34 +392,31 @@ class SessionLog(_BaseLog):
                          mission_name=mission_name,
                          station=station, operator=operator, host=host)
 
-    def write_packet(self, pkt, adapter=None):
-        """Write one RX packet entry. Takes a Packet instance.
-
-        Platform handles: separator, warnings, hex dump, ASCII.
-        Adapter handles: mission-specific text lines (protocol headers,
-        command details, CRC display) via format_log_lines().
-        """
+    def write_packet_v2(self, packet, text_lines=None):
+        """Write one platform v2 RX packet entry."""
         lines = []
-        label = f"U-{pkt.unknown_num}" if pkt.is_unknown and pkt.unknown_num is not None else f"#{pkt.pkt_num}"
-        extras = f"{pkt.frame_type}  {len(pkt.raw)}B \u2192 {len(pkt.inner_payload)}B"
-        if pkt.delta_t is not None: extras += f"  \u0394t {pkt.delta_t:.3f}s"
-        if pkt.is_dup: extras += "  [DUP]"
-        if pkt.is_uplink_echo: extras += "  [UL]"
+        label = f"#{packet.seq}"
+        extras = f"{packet.frame_type}  {len(packet.raw)}B -> {len(packet.payload)}B"
+        if packet.flags.is_duplicate:
+            extras += "  [DUP]"
+        if packet.flags.is_uplink_echo:
+            extras += "  [UL]"
         lines.append(self._separator(label, extras))
-        if pkt.is_uplink_echo:
-            lines.append("  \u25b2\u25b2\u25b2 UPLINK ECHO \u25b2\u25b2\u25b2")
+        if packet.flags.is_uplink_echo:
+            lines.append("  UPLINK ECHO")
 
-        # Warnings
-        for w in pkt.warnings:
-            lines.append(self._field("\u26a0 WARNING", w))
+        for warning in packet.warnings:
+            lines.append(self._field("WARNING", warning))
 
-        # Mission-specific lines (adapter-driven)
-        if adapter is not None:
-            lines.extend(adapter.format_log_lines(pkt))
+        lines.extend(text_lines or [])
+        lines.extend(self._hex_lines(packet.raw, "HEX"))
 
-        lines.extend(self._hex_lines(pkt.raw, "HEX"))
-        if pkt.text:
-            lines.append(self._field("ASCII", pkt.text))
+        try:
+            text = packet.raw.decode("utf-8", errors="ignore").strip()
+        except Exception:
+            text = ""
+        if text:
+            lines.append(self._field("ASCII", text))
 
         self._write_entry(lines)
 
@@ -448,40 +435,30 @@ class TXLog(_BaseLog):
                          station=station, operator=operator, host=host)
 
     def write_mission_command(self, n, display, mission_payload,
-                              raw_cmd, payload, ax25, csp, uplink_mode="AX.25",
-                              *, operator="", station=""):
-        """Write one mission-built TX command entry with protocol details."""
+                              raw_cmd, payload,
+                              *, frame_label="", log_fields=None, log_text=None,
+                              operator="", station=""):
+        """Write one mission-built TX command entry.
+
+        `frame_label`, `log_fields`, and `log_text` are provided by the
+        mission's framer (platform.FramedCommand). The platform writes the
+        envelope (separator, command title, RAW CMD / FULL HEX / ASCII dumps,
+        JSONL metadata); mission banner lines are inserted verbatim; mission
+        metadata is merged into the JSONL record.
+        """
         title = display.get("title", "?")
         subtitle = display.get("subtitle", "")
+        log_fields = dict(log_fields or {})
+        log_text = list(log_text or [])
 
-        lines = []
-        lines.append(self._separator(f"#{n}", subtitle))
-        lines.append(self._field("MODE", uplink_mode))
+        lines = [self._separator(f"#{n}", subtitle)]
+        if frame_label:
+            lines.append(self._field("MODE", frame_label))
         lines.append(self._field("COMMAND", title))
         for block in display.get("detail_blocks", []):
             for field in block.get("fields", []):
                 lines.append(self._field(field["name"].upper(), str(field["value"])))
-
-        if uplink_mode != "ASM+Golay" and ax25.enabled:
-            lines.append(self._field("AX.25",
-                f"Src:{ax25.src_call}-{ax25.src_ssid}  "
-                f"Dest:{ax25.dest_call}-{ax25.dest_ssid}"))
-
-        if csp.enabled:
-            lines.append(self._field("CSP",
-                self._format_csp(csp.prio, csp.src, csp.dest,
-                                 csp.dport, csp.sport, csp.flags)))
-
-        cmd_len = len(raw_cmd)
-        csp_overhead = csp.overhead()
-        if uplink_mode == "ASM+Golay":
-            lines.append(self._field("SIZE",
-                f"{len(payload)}B (cmd {cmd_len}B + CSP {csp_overhead}B)"))
-        else:
-            ax25_overhead = ax25.overhead()
-            lines.append(self._field("SIZE",
-                f"{len(payload)}B (cmd {cmd_len}B + CSP {csp_overhead}B + AX.25 {ax25_overhead}B)"))
-
+        lines.extend(log_text)
         lines.extend(self._hex_lines(raw_cmd, "RAW CMD"))
         lines.extend(self._hex_lines(payload, "FULL HEX"))
         ascii_text = clean_text(raw_cmd)
@@ -494,10 +471,19 @@ class TXLog(_BaseLog):
             "n": n, "ts": datetime.now().astimezone().isoformat(),
             "type": "mission_cmd",
             "operator": operator, "station": station,
-            "uplink_mode": uplink_mode,
             "display": display,
             "mission_payload": mission_payload,
             "raw_hex": raw_cmd.hex(), "raw_len": len(raw_cmd),
             "hex": payload.hex(), "len": len(payload),
         }
+        if frame_label:
+            rec["frame_label"] = frame_label
+        # Legacy JSONL field — preserve `uplink_mode` for replay compatibility
+        # when the mission populates it.
+        if "uplink_mode" in log_fields:
+            rec["uplink_mode"] = log_fields["uplink_mode"]
+        for key, value in log_fields.items():
+            if key in ("uplink_mode",):
+                continue
+            rec[key] = value
         self.write_jsonl(rec)

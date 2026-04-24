@@ -1,4 +1,4 @@
-"""Operations-focused protocol and mission-adapter tests for MAVERIC GSS."""
+"""Operations-focused MAVERIC protocol tests."""
 
 from __future__ import annotations
 
@@ -7,8 +7,7 @@ import unittest
 
 from ops_test_support import CMD_DEFS, NODES
 
-from mav_gss_lib.missions.maveric.adapter import MavericMissionAdapter
-from mav_gss_lib.missions.maveric import tx_ops
+from mav_gss_lib.missions.maveric.rx import parser as rx_ops
 from mav_gss_lib.protocols.ax25 import AX25Config
 from mav_gss_lib.protocols.csp import CSPConfig
 from mav_gss_lib.protocols.crc import verify_csp_crc32
@@ -17,10 +16,7 @@ from mav_gss_lib.missions.maveric.schema import enrich_cmd_in_place, validate_ar
 
 
 class TestProtocolCore(unittest.TestCase):
-    """Covers protocol truth plus the current mission-adapter seam."""
-
-    def setUp(self):
-        self.adapter = MavericMissionAdapter(cmd_defs=CMD_DEFS, nodes=NODES)
+    """Covers MAVERIC protocol truth."""
 
     def test_schema_loads_from_repo(self):
         self.assertGreater(len(CMD_DEFS), 0)
@@ -93,20 +89,20 @@ class TestProtocolCore(unittest.TestCase):
         is_valid, _rx_crc, _comp_crc = verify_csp_crc32(bytes(packet))
         self.assertFalse(is_valid)
 
-    def test_adapter_detects_frame_types(self):
-        self.assertEqual(self.adapter.detect_frame_type({"transmitter": "9k6 FSK AX.25 downlink"}), "AX.25")
-        self.assertEqual(self.adapter.detect_frame_type({"transmitter": "9k6 FSK AX100 ASM+Golay downlink"}), "ASM+GOLAY")
-        self.assertEqual(self.adapter.detect_frame_type({"transmitter": "mystery"}), "UNKNOWN")
+    def test_detects_frame_types(self):
+        self.assertEqual(rx_ops.detect({"transmitter": "9k6 FSK AX.25 downlink"}), "AX.25")
+        self.assertEqual(rx_ops.detect({"transmitter": "9k6 FSK AX100 ASM+Golay downlink"}), "ASM+GOLAY")
+        self.assertEqual(rx_ops.detect({"transmitter": "mystery"}), "UNKNOWN")
 
-    def test_adapter_normalizes_ax25_and_parses_schema_matched_command(self):
+    def test_normalizes_ax25_and_parses_schema_matched_command(self):
         raw = build_cmd_raw(6, 2, "gnc_set_mode", "NOMINAL")
         wrapped = AX25Config().wrap(CSPConfig().wrap(raw))
-        inner, stripped, warnings = self.adapter.normalize_frame("AX.25", wrapped)
+        inner, stripped, warnings = rx_ops.normalize("AX.25", wrapped)
         self.assertEqual(inner, CSPConfig().wrap(raw))
         self.assertIsNotNone(stripped)
         self.assertEqual(warnings, [])
 
-        parsed = self.adapter.parse_packet(inner)
+        parsed = rx_ops.parse_packet(inner, CMD_DEFS)
         md = parsed.mission_data
         cmd, tail, ts_result = md["cmd"], md["cmd_tail"], md["ts_result"]
         self.assertEqual(cmd["cmd_id"], "gnc_set_mode")
@@ -115,10 +111,10 @@ class TestProtocolCore(unittest.TestCase):
         self.assertEqual(tail, b"")
         self.assertIsNone(ts_result)
 
-    def test_adapter_crc_and_uplink_echo_behavior(self):
+    def test_crc_and_uplink_echo_behavior(self):
         inner = CSPConfig().wrap(build_cmd_raw(6, 2, "com_ping", ""))
         warnings = []
-        parsed = self.adapter.parse_packet(inner, warnings)
+        parsed = rx_ops.parse_packet(inner, CMD_DEFS, warnings)
         cmd = parsed.mission_data["cmd"]
         clean = parsed.mission_data["crc_status"]
         self.assertTrue(clean["csp_crc32_valid"])
@@ -127,18 +123,19 @@ class TestProtocolCore(unittest.TestCase):
         corrupted = bytearray(inner)
         corrupted[-1] ^= 0xFF
         warnings = []
-        bad_parsed = self.adapter.parse_packet(bytes(corrupted), warnings)
+        bad_parsed = rx_ops.parse_packet(bytes(corrupted), CMD_DEFS, warnings)
         bad = bad_parsed.mission_data["crc_status"]
         self.assertFalse(bad["csp_crc32_valid"])
         self.assertTrue(any("CRC-32C mismatch" in msg for msg in warnings))
-        self.assertTrue(self.adapter.is_uplink_echo({"src": 6}))
-        self.assertFalse(self.adapter.is_uplink_echo({"src": 2}))
+        self.assertTrue(rx_ops.is_uplink_echo({"cmd": {"src": 6}}, NODES.gs_node))
+        self.assertFalse(rx_ops.is_uplink_echo({"cmd": {"src": 2}}, NODES.gs_node))
 
-    def test_adapter_build_and_validate_tx_command(self):
-        raw = tx_ops.build_raw_command(6, 2, 0, 1, "gnc_set_mode", "NOMINAL")
+    def test_build_and_validate_tx_command(self):
+        from mav_gss_lib.missions.maveric.schema import validate_args
+        raw = build_cmd_raw(6, 2, "gnc_set_mode", "NOMINAL", echo=0, ptype=1)
         self.assertIsInstance(raw, (bytes, bytearray))
         self.assertGreater(len(raw), 0)
-        valid, issues = tx_ops.validate_tx_args("gnc_set_mode", "NOMINAL", self.adapter.cmd_defs)
+        valid, issues = validate_args("gnc_set_mode", "NOMINAL", CMD_DEFS)
         self.assertTrue(valid)
         self.assertEqual(issues, [])
 

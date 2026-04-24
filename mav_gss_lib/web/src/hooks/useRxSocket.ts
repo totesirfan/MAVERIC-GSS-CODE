@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { createSocket } from '@/lib/ws'
+import { renderingFlags } from '@/lib/rendering'
 import type { ColumnDef, RxPacket, RxStatus } from '@/lib/types'
 
 const MAX_PACKETS = 5000
@@ -28,11 +29,7 @@ function packetHasEcho(packet: RxPacket): boolean {
 }
 
 function packetHasCrcFail(packet: RxPacket): boolean {
-  const flags = packet._rendering?.row?.values?.flags
-  if (Array.isArray(flags)) {
-    return flags.some((f: unknown) => typeof f === 'object' && f !== null && (f as Record<string, string>).tag === 'CRC')
-  }
-  return false
+  return renderingFlags(packet._rendering).some(f => f.tag === 'CRC')
 }
 
 export function useRxSocket() {

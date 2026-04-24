@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/collapsible'
 import { QueueItem } from '@/components/tx/QueueItem'
 import { colors } from '@/lib/colors'
+import { cellText } from '@/lib/rendering'
 import type {
   TxQueueItem, TxQueueCmd, TxColumnDef, SendProgress,
 } from '@/lib/types'
@@ -69,7 +70,7 @@ export function QueuePanel({
       if (!column.hide_if_all?.length) return true
       const suppressSet = new Set(column.hide_if_all)
       return !imagingRows.every(row =>
-        suppressSet.has(String(row.item.display?.row?.[column.id] ?? '')),
+        suppressSet.has(cellText(row.item.display?.row?.[column.id])),
       )
     })
   }, [txColumns, imagingRows])

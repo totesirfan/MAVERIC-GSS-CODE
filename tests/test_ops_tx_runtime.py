@@ -26,8 +26,8 @@ class TestTxRuntime(unittest.TestCase):
     def setUp(self):
         self.runtime = create_runtime()
         self.tmp = tempfile.TemporaryDirectory()
-        self.runtime.cfg.setdefault("general", {})["log_dir"] = self.tmp.name
-        self.runtime.cfg.setdefault("tx", {})["delay_ms"] = 0
+        self.runtime.platform_cfg.setdefault("general", {})["log_dir"] = self.tmp.name
+        self.runtime.platform_cfg.setdefault("tx", {})["delay_ms"] = 0
         self.runtime.tx.queue.clear()
         self.runtime.tx.history.clear()
         self.runtime.tx.zmq_sock = object()
@@ -87,14 +87,14 @@ class TestTxRuntime(unittest.TestCase):
 
     def test_asm_golay_size_limit_is_enforced(self):
         with self.runtime.cfg_lock:
-            old_mode = self.runtime.cfg.get("tx", {}).get("uplink_mode", "AX.25")
-            self.runtime.cfg["tx"]["uplink_mode"] = "ASM+Golay"
+            old_mode = self.runtime.platform_cfg.get("tx", {}).get("uplink_mode", "AX.25")
+            self.runtime.platform_cfg["tx"]["uplink_mode"] = "ASM+Golay"
         try:
             with self.assertRaisesRegex(ValueError, "too large for ASM\\+Golay"):
                 validate_mission_cmd(_make_payload("cfg_set_ll", "A" * 220), runtime=self.runtime)
         finally:
             with self.runtime.cfg_lock:
-                self.runtime.cfg["tx"]["uplink_mode"] = old_mode
+                self.runtime.platform_cfg["tx"]["uplink_mode"] = old_mode
 
     def test_queue_restore_sanitizes_invalid_entries(self):
         valid = self._make_item("com_ping", "")
@@ -257,7 +257,7 @@ class TestTxRuntime(unittest.TestCase):
         """
         import time as _time
 
-        self.runtime.cfg["tx"]["delay_ms"] = 150
+        self.runtime.platform_cfg["tx"]["delay_ms"] = 150
         self.runtime.tx.queue = [self._make_item("com_ping", "")]
         self.runtime.tx.renumber_queue()
         self.runtime.tx.sending.update(active=True, idx=-1, total=1, guarding=False, sent_at=0, waiting=False)
@@ -282,7 +282,7 @@ class TestTxRuntime(unittest.TestCase):
 
     def test_abort_during_post_send_dwell_still_pops_sent_item(self):
         """Aborting during the dwell must not keep the already-transmitted cmd in queue."""
-        self.runtime.cfg["tx"]["delay_ms"] = 5000  # long dwell so abort can land inside it
+        self.runtime.platform_cfg["tx"]["delay_ms"] = 5000  # long dwell so abort can land inside it
         self.runtime.tx.queue = [self._make_item("com_ping", "")]
         self.runtime.tx.renumber_queue()
         self.runtime.tx.sending.update(active=True, idx=-1, total=1, guarding=False, sent_at=0, waiting=False)

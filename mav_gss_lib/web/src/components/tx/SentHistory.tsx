@@ -3,7 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDown, ChevronRight, History, ClipboardCopy, RotateCcw } from 'lucide-react'
 import { colors } from '@/lib/colors'
 import { col } from '@/lib/columns'
-import { PtypeBadge } from '@/components/shared/PtypeBadge'
+import { cellText } from '@/lib/rendering'
+import { ValueBadge } from '@/components/shared/ValueBadge'
 import { ContextMenuRoot, ContextMenuTrigger, ContextMenuContent, ContextMenuItem } from '@/components/shared/ContextMenu'
 import type { TxHistoryItem, TxColumnDef } from '@/lib/types'
 
@@ -31,7 +32,7 @@ export function SentHistory({ history, txColumns, onRequeue }: SentHistoryProps)
       if (!col.hide_if_all?.length) return true
       const suppressSet = new Set(col.hide_if_all)
       return !history.every(item => {
-        return suppressSet.has(String(item.display?.row?.[col.id] ?? ''))
+        return suppressSet.has(cellText(item.display?.row?.[col.id]))
       })
     })
   }, [txColumns, history])
@@ -73,10 +74,11 @@ export function SentHistory({ history, txColumns, onRequeue }: SentHistoryProps)
                         <span className={`${col.time} shrink-0 tabular-nums`} style={{ color: colors.dim }}>{item.ts}</span>
                         {visibleColumns.length > 0 ? (
                           visibleColumns.map(c => {
-                            const val = display.row?.[c.id] ?? ''
+                            const cell = display.row?.[c.id]
+                            const val = cellText(cell)
                             return (
                               <span key={c.id} className={`${c.width ?? ''} ${c.flex ? 'flex-1 min-w-0 truncate' : 'shrink-0'}`}>
-                                {c.badge ? <PtypeBadge ptype={val} /> :
+                                {cell?.badge ? <ValueBadge value={val} tone={cell.tone} /> :
                                  c.id === 'cmd' ? (
                                    <span className="px-2 py-0.5 rounded text-[11px] font-semibold" style={{ color: colors.value, backgroundColor: 'rgba(255,255,255,0.06)' }}>
                                      {String(val)}
@@ -98,7 +100,7 @@ export function SentHistory({ history, txColumns, onRequeue }: SentHistoryProps)
                     </ContextMenuTrigger>
                     <ContextMenuContent>
                       <ContextMenuItem icon={ClipboardCopy} onSelect={() => {
-                        const text = String(display.row?.cmd ?? display.title ?? '?')
+                        const text = cellText(display.row?.cmd) || String(display.title ?? '?')
                         navigator.clipboard.writeText(text)
                       }}>
                         Copy Command

@@ -2,12 +2,11 @@ import { useMemo, useRef, useEffect, useCallback } from 'react'
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
 import { PacketRow } from './PacketRow'
 import { colors } from '@/lib/colors'
-import type { ColumnDef, GssConfig, RxPacket } from '@/lib/types'
+import type { ColumnDef, RxPacket } from '@/lib/types'
 
 interface PacketListProps {
   packets: RxPacket[]
   columns?: ColumnDef[]
-  nodeDescriptions?: GssConfig['node_descriptions']
   showFrame: boolean
   showEcho: boolean
   flashPacketNum?: number | null
@@ -26,7 +25,7 @@ const BOTTOM_SCROLL_GUTTER_PX = 8
 const BOTTOM_UNLOCK_THRESHOLD_PX = BOTTOM_SCROLL_GUTTER_PX + 8
 
 export function PacketList({
-  packets, columns, nodeDescriptions, showFrame, showEcho, flashPacketNum, selectedNum, onSelect,
+  packets, columns, showFrame, showEcho, flashPacketNum, selectedNum, onSelect,
   autoScroll, onScrolledUp, zmqStatus, scrollSignal, compact,
 }: PacketListProps) {
   const isStale = zmqStatus ? ['DOWN', 'OFFLINE'].includes(zmqStatus.toUpperCase()) : false
@@ -138,10 +137,8 @@ export function PacketList({
               <span className="w-9 px-2 text-right">#</span>
               <span className="w-[68px] px-2">time</span>
               {showFrame && <span className="w-[72px] px-2">frame</span>}
-              <span className="w-[52px] px-1.5">src</span>
               {showEcho && <span className="w-[52px] px-1.5">echo</span>}
-              <span className="w-[52px] px-1">type</span>
-              <span className="flex-1 px-2">id / args</span>
+              <span className="flex-1 px-2">payload</span>
               <span className="w-[72px] px-2 text-right"></span>
               <span className="w-10 px-2 text-right">size</span>
             </>
@@ -176,7 +173,6 @@ export function PacketList({
                   <PacketRow
                     packet={pkt}
                     columns={columns}
-                    nodeDescriptions={nodeDescriptions}
                     selected={isActive}
                     showFrame={showFrame}
                     showEcho={showEcho}

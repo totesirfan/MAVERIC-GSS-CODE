@@ -17,30 +17,32 @@ router = APIRouter()
 
 @router.get("/api/schema")
 async def api_schema(request: Request):
-    return get_runtime(request).cmd_defs
+    runtime = get_runtime(request)
+    return runtime.mission.commands.schema() if runtime.mission.commands is not None else {}
 
 
 @router.get("/api/columns")
 async def api_columns(request: Request):
-    """Return adapter-provided column definitions for packet list rendering.
+    """Return mission-provided column definitions for packet list rendering.
 
     Minimal enabler: same data as sent over /ws/rx on connect, exposed via
     REST so the log viewer can render rows from _rendering.row.
     """
     runtime = get_runtime(request)
-    return runtime.adapter.packet_list_columns()
+    return [column.to_json() for column in runtime.mission.ui.packet_columns()]
 
 
 @router.get("/api/tx/capabilities")
 async def api_tx_capabilities(request: Request):
-    """Return TX capabilities for the loaded mission adapter."""
-    from mav_gss_lib.mission_adapter import get_tx_capabilities
+    """Return TX capabilities for the loaded mission."""
     runtime = get_runtime(request)
-    return get_tx_capabilities(runtime.adapter)
+    return {"mission_commands": runtime.mission.commands is not None}
 
 
 @router.get("/api/tx-columns")
 async def api_tx_columns(request: Request):
-    """Return adapter-provided column definitions for TX queue/history rendering."""
+    """Return mission-provided column definitions for TX queue/history rendering."""
     runtime = get_runtime(request)
-    return runtime.adapter.tx_queue_columns()
+    if runtime.mission.commands is None:
+        return []
+    return [column.to_json() for column in runtime.mission.commands.tx_columns()]

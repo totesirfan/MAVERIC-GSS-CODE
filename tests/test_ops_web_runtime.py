@@ -11,10 +11,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from mav_gss_lib.config import (
-    get_generated_commands_dir,
-    load_gss_config,
-)
+from mav_gss_lib.config import get_generated_commands_dir
 from mav_gss_lib.web_runtime.api.queue_io import (
     export_queue,
     import_file,
@@ -45,12 +42,11 @@ class TestWebRuntimeWorkflows(unittest.TestCase):
     """Covers config-path and import/export workflows exposed to operators."""
 
     def setUp(self):
-        self.cfg = load_gss_config()
         self.runtime = create_runtime()
         self.tmp = tempfile.TemporaryDirectory()
         self.generated_dir = Path(self.tmp.name) / "imports"
         self.generated_dir.mkdir(parents=True, exist_ok=True)
-        self.runtime.cfg.setdefault("general", {})["generated_commands_dir"] = str(self.generated_dir)
+        self.runtime.platform_cfg.setdefault("general", {})["generated_commands_dir"] = str(self.generated_dir)
         self.runtime.tx.queue.clear()
 
         async def _noop(_msg=None):
@@ -141,7 +137,7 @@ class TestWebRuntimeWorkflows(unittest.TestCase):
 
         # Redirect log_dir to isolated temp directory
         log_base = Path(self.tmp.name) / "logs"
-        self.runtime.cfg["general"]["log_dir"] = str(log_base)
+        self.runtime.platform_cfg["general"]["log_dir"] = str(log_base)
         log_dir = log_base / "json"
         log_dir.mkdir(parents=True, exist_ok=True)
 

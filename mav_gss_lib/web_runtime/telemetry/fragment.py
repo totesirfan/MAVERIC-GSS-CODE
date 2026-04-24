@@ -35,8 +35,10 @@ class TelemetryFragment:
     display_only: bool = False
 
     def to_dict(self) -> dict:
-        """Serialize to the JSON-friendly shape stored on `pkt.mission_data["fragments"]`
-        and consumed by log/JSONL/rendering. Field order preserved for readability."""
+        """Serialize to the JSON-friendly shape attached to the mission's
+        RX-packet view (`MavericRxPacket.fragments`) and written into the
+        JSONL log / rendered by detail blocks. Field order preserved for
+        readability."""
         return {
             "domain": self.domain, "key": self.key, "value": self.value,
             "ts_ms": self.ts_ms, "unit": self.unit,

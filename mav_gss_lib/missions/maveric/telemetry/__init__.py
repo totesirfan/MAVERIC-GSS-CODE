@@ -1,13 +1,30 @@
-"""MAVERIC mission telemetry package root.
+"""MAVERIC mission telemetry — extractors, semantic decoders, catalogs.
 
-Semantic decoders live under `semantics/`; extractors under `extractors/`.
-This file exports `TELEMETRY_MANIFEST` — the declarative per-domain
-registration payload the platform `TelemetryRouter` reads at startup.
+Turns inbound MAVERIC packets into canonical, per-domain telemetry
+values (EPS, GNC, spacecraft). The platform `TelemetryRouter` reads
+`TELEMETRY_MANIFEST` at startup to discover domains and their catalog
+endpoints; `MavericTelemetryExtractor` (in `ops.py`) walks `EXTRACTORS`
+per packet and produces `TelemetryFragment`s that feed the platform's
+live-state store.
 
-No decoder dispatch shim lives here after v2: `rx_ops.parse_packet` no
-longer pre-populates `mission_data["telemetry"]` or `["gnc_registers"]`.
-Extractors call the semantic decoders directly and the resulting
-TelemetryFragments are the single per-packet decoded payload.
+Submodules
+----------
+- `ops.py`         — `MavericTelemetryExtractor` and
+  `build_telemetry_ops(nodes)`. Back-fills `mission_data["ts_result"]`
+  from the beacon spacecraft-time fragment so renderers/log formatters
+  don't each need to peek at fragments.
+- `extractors/`    — per-packet fragment producers:
+  `tlm_beacon`, `eps_hk`, `gnc_res`. Tuple order in
+  `extractors/__init__.py` is load-bearing (first-match wins for
+  shared keys).
+- `semantics/`     — canonical value shapes: bitfield layouts,
+  enum tables, engineering-unit scalings. `eps.py`, `gnc_schema.py`,
+  `gnc_handlers.py`, `nvg_sensors.py`, `types.py`. Extractors call
+  these directly and pass the result through as fragment values.
+
+`TELEMETRY_MANIFEST` below also defines the per-domain HTTP catalog
+(`/api/telemetry/<domain>/catalog`) so the frontend and canonical-key
+tests share a single source of truth for "what keys exist + metadata".
 """
 
 from __future__ import annotations
@@ -141,10 +158,12 @@ def _eps_catalog():
     vector (which is self-describing via _EPS_HK_NAMES). Beacon-only
     canonical keys go here.
     """
-    from mav_gss_lib.missions.maveric.telemetry.semantics.eps import _EPS_HK_NAMES
+    from mav_gss_lib.missions.maveric.telemetry.semantics.eps import (
+        _EPS_HK_NAMES, _scale_and_unit,
+    )
     hk_entries = [
-        {"name": n, "type": "int16", "unit": "",
-         "notes": "From eps_hk. Unit/scale via semantics/eps.py _scale_and_unit."}
+        {"name": n, "type": "int16", "unit": _scale_and_unit(n)[1],
+         "notes": "From eps_hk / tlm_beacon. Engineering units via semantics/eps.py _scale_and_unit."}
         for n in _EPS_HK_NAMES
     ]
     return hk_entries + list(_EPS_CATALOG)

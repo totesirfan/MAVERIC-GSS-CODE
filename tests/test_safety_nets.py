@@ -209,23 +209,23 @@ class TestOpsTestSupportImportIsSideEffectFree(unittest.TestCase):
 
         loaded_config_calls = []
 
-        # Monkey-patch load_gss_config BEFORE importing ops_test_support.
+        # Monkey-patch load_split_config BEFORE importing ops_test_support.
         import mav_gss_lib.config as config_module
-        real_load = config_module.load_gss_config
+        real_load = config_module.load_split_config
 
         def _tracking_load(*a, **kw):
             loaded_config_calls.append(True)
             return real_load(*a, **kw)
 
-        config_module.load_gss_config = _tracking_load
+        config_module.load_split_config = _tracking_load
         try:
             importlib.import_module("ops_test_support")
             self.assertEqual(
                 loaded_config_calls, [],
-                "ops_test_support should not call load_gss_config at import time",
+                "ops_test_support should not call load_split_config at import time",
             )
         finally:
-            config_module.load_gss_config = real_load
+            config_module.load_split_config = real_load
 
     def test_accessing_cmd_defs_still_works(self):
         # Force a fresh import to exercise the lazy accessor.

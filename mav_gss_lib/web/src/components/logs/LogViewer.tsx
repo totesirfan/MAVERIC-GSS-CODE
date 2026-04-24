@@ -341,7 +341,7 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
                               className="flex items-center px-3 py-1 text-xs font-mono cursor-pointer hover:bg-white/[0.03]"
                               style={{
                                 backgroundColor: isExpanded ? `${colors.label}08` : undefined,
-                                opacity: row?._meta?.opacity ?? 1,
+                                opacity: rendering?.meta?.opacity ?? 1,
                               }}
                               onClick={() => setExpandedSet(prev => { const next = new Set(prev); if (next.has(i)) next.delete(i); else next.add(i); return next })}
                             >

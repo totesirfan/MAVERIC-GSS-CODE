@@ -7,6 +7,7 @@ import { Switch } from '@/components/ui/switch'
 import type { MissionBuilderProps } from '@/lib/types'
 import { GssInput } from '@/components/ui/gss-input'
 import { strictFilter } from '@/lib/cmdkFilter'
+import type { GssConfig } from '@/lib/types'
 
 interface CommandArg {
   name: string
@@ -27,14 +28,9 @@ interface CommandDef {
 
 type CommandSchema = Record<string, CommandDef>
 
-interface GssNodes {
-  nodes: Record<number, string>
-  general: { gs_node?: string }
-}
-
 export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderProps) {
   const [schema, setSchema] = useState<CommandSchema | null>(null)
-  const [config, setConfig] = useState<GssNodes | null>(null)
+  const [config, setConfig] = useState<GssConfig | null>(null)
   const [destNode, setDestNode] = useState<string | null>(null)
   const [selectedCmd, setSelectedCmd] = useState<string | null>(null)
   const [argValues, setArgValues] = useState<Record<string, string>>({})
@@ -55,7 +51,7 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
   useEffect(() => {
     fetch('/api/config')
       .then((r) => r.json())
-      .then((data: GssNodes) => setConfig(data))
+      .then((data: GssConfig) => setConfig(data))
       .catch(() => {})
   }, [])
 
@@ -67,10 +63,11 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
     }
   }, [destNode])
 
-  const gsNodeName = config?.general?.gs_node ?? ''
+  const gsNodeName = config?.mission.config.gs_node ?? ''
   const nodes = useMemo(() => {
-    if (!config?.nodes) return []
-    return Object.entries(config.nodes)
+    const nodeMap = config?.mission.config.nodes
+    if (!nodeMap) return []
+    return Object.entries(nodeMap)
       .map(([id, name]) => ({ id: Number(id), name }))
       .filter(n => n.id !== 0 && n.name !== String(gsNodeName))
   }, [config, gsNodeName])

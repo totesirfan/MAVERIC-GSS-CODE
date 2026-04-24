@@ -4,11 +4,10 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Clock, Radio, AlertTriangle, Binary } from 'lucide-react'
 import { colors, frameColor } from '@/lib/colors'
 import { SemanticBlocks, ProtocolBlocks, IntegritySection } from '@/components/shared/RenderingBlocks'
-import type { GssConfig, RxPacket } from '@/lib/types'
+import type { RxPacket } from '@/lib/types'
 
 interface PacketDetailProps {
   packet: RxPacket
-  nodeDescriptions?: GssConfig['node_descriptions']
   showHex: boolean
   showWrapper: boolean
   showFrame: boolean

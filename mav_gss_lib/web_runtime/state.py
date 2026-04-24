@@ -2,7 +2,7 @@
 mav_gss_lib.web_runtime.state -- Web Runtime State Container
 
 Owns the long-lived mutable backend state used by the FastAPI app:
-active config, protocol objects, mission adapter, RX/TX services, and
+active config, protocol objects, mission spec, RX/TX services, and
 queue/logging limits.
 
 This module is the construction point for the web runtime and the
@@ -15,6 +15,7 @@ Author:  Irfan Annuar - USC ISI SERC
 from __future__ import annotations
 
 import asyncio
+import logging
 import secrets
 import threading
 import uuid
@@ -27,19 +28,15 @@ if TYPE_CHECKING:
     from fastapi import FastAPI, Request, WebSocket
 
 from mav_gss_lib.config import (
-    apply_ax25,
-    apply_csp,
     get_generated_commands_dir,
-    load_gss_config,
+    load_split_config,
 )
+from mav_gss_lib.constants import DEFAULT_MISSION_NAME
 from mav_gss_lib.identity import capture_host, capture_operator, capture_station
-from mav_gss_lib.mission_adapter import load_mission_adapter
-from mav_gss_lib.protocols.ax25 import AX25Config
-from mav_gss_lib.protocols.csp import CSPConfig
+from mav_gss_lib.platform import PlatformRuntimeV2
 from ._atomics import AtomicStatus
 from .rx_service import RxService
 from .telemetry import reset_legacy_snapshots
-from .telemetry.router import TelemetryRouter
 from .tx_service import TxService
 
 if TYPE_CHECKING:
@@ -64,10 +61,6 @@ class Session:
     station: str
 
 
-# =============================================================================
-#  RUNTIME CONTAINER
-# =============================================================================
-
 class WebRuntime:
     """Own mutable backend state for one FastAPI app instance."""
 
@@ -77,34 +70,37 @@ class WebRuntime:
         self.max_history = MAX_HISTORY
         self.max_queue = MAX_QUEUE
 
-        self.cfg = load_gss_config()
+        # Split runtime state is primary. `platform_cfg` and `mission_cfg` are
+        # the authoritative live state; `mission_id` is the active mission.
+        # `mission_id` is NOT mirrored into `platform_cfg["general"]` — that
+        # would be a platform/mission boundary leak.
+        # Split runtime state is primary. Mission defaults (nodes, ptypes,
+        # mission-declared TX params, ax25/csp placeholders, ui titles) are
+        # seeded by the mission's own `build(ctx)` inside `from_split(...)` —
+        # operator values in gss.yml win. The platform does not merge mission
+        # YAML any more; missions own their defaults in code.
+        self.platform_cfg, self.mission_id, self.mission_cfg = load_split_config()
         self.operator = capture_operator()
         self.host = capture_host()
-        self.station = capture_station(self.cfg, self.host)
-        self.adapter = load_mission_adapter(self.cfg)
-        self.cmd_defs = self.adapter.cmd_defs
+        self.station = capture_station(self.platform_cfg, self.host)
+        self.platform = PlatformRuntimeV2.from_split(
+            self.platform_cfg, self.mission_id, self.mission_cfg,
+        )
+        self.mission = self.platform.mission
 
-        log_dir = self.cfg.get("general", {}).get("log_dir", "logs")
+        log_dir = self.log_dir
         # v2 upgrade path: if pre-v2 flat snapshot files are still on
         # disk from a prior incarnation, remove them once and log the
         # removal. Operators see the WARNING on startup; dashboards
         # will be blank until the next live packet arrives.
         removed = reset_legacy_snapshots(log_dir)
         if removed:
-            import logging as _logging
-            _logging.warning(
+            logging.warning(
                 "telemetry v2 upgrade: removed %d legacy snapshot file(s): %s. "
                 "Dashboards will show empty state until the next live packet arrives.",
                 len(removed), ", ".join(removed),
             )
-        self.telemetry = TelemetryRouter(Path(log_dir) / ".telemetry")
-        for name, spec in self.adapter.telemetry_manifest.items():
-            self.telemetry.register_domain(name, **spec)
-        # Aliases so the adapter can reach the router + its extractors
-        # without a separate handoff step. Platform still owns construction;
-        # adapter code just reads through these attrs.
-        self.adapter.extractors = self.adapter.telemetry_extractors
-        self.adapter.telemetry = self.telemetry
+        self.telemetry = self.platform.telemetry
 
         self.tx_status = AtomicStatus()
 
@@ -112,11 +108,6 @@ class WebRuntime:
         # is GIL-atomic; writer (TxService send loop) and reader (RX drop filter)
         # see a coherent value without a lock. Seconds since epoch.
         self.tx_blackout_until: float = 0.0
-
-        self.csp = CSPConfig()
-        self.ax25 = AX25Config()
-        apply_csp(self.cfg, self.csp)
-        apply_ax25(self.cfg, self.ax25)
 
         self.shutdown_task = None
         self.had_clients = False
@@ -152,15 +143,53 @@ class WebRuntime:
         self.tx = TxService(self)
 
     def queue_file(self) -> Path:
-        return Path(self.cfg.get("general", {}).get("log_dir", "logs")) / ".pending_queue.jsonl"
+        return Path(self.log_dir) / ".pending_queue.jsonl"
 
     def generated_commands_dir(self) -> Path:
-        return get_generated_commands_dir(self.cfg)
+        return get_generated_commands_dir(self.platform_cfg)
 
+    # --- typed split-state accessors (primary read API) ---
 
-# =============================================================================
-#  RUNTIME FACTORIES / ACCESSORS
-# =============================================================================
+    @property
+    def log_dir(self) -> str:
+        general = self.platform_cfg.get("general") or {}
+        return str(general.get("log_dir", "logs"))
+
+    @property
+    def version(self) -> str:
+        general = self.platform_cfg.get("general") or {}
+        return str(general.get("version", ""))
+
+    @property
+    def build_sha(self) -> str:
+        general = self.platform_cfg.get("general") or {}
+        return str(general.get("build_sha", ""))
+
+    @property
+    def mission_name(self) -> str:
+        name = self.mission_cfg.get("mission_name") if isinstance(self.mission_cfg, dict) else None
+        return str(name) if name else DEFAULT_MISSION_NAME
+
+    @property
+    def uplink_mode(self) -> str:
+        tx = self.platform_cfg.get("tx") or {}
+        return str(tx.get("uplink_mode", "AX.25"))
+
+    @property
+    def tx_frequency(self) -> str:
+        tx = self.platform_cfg.get("tx") or {}
+        return str(tx.get("frequency", ""))
+
+    @property
+    def tx_delay_ms(self) -> int:
+        tx = self.platform_cfg.get("tx") or {}
+        return int(tx.get("delay_ms", 500))
+
+    @property
+    def tx_blackout_ms(self) -> int:
+        rx = self.platform_cfg.get("rx") or {}
+        return int(rx.get("tx_blackout_ms", 0) or 0)
+
 
 def create_runtime() -> WebRuntime:
     """Create a fresh WebRuntime with loaded config and initialized services."""

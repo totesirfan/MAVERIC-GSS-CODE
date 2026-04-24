@@ -23,6 +23,7 @@ import { QueueItem } from './QueueItem'
 import { DelayItem } from './DelayItem'
 import { NoteItem } from './NoteItem'
 import { colors } from '@/lib/colors'
+import { cellText } from '@/lib/rendering'
 import { col } from '@/lib/columns'
 import type { TxQueueItem, TxQueueSummary, SendProgress, TxColumnDef } from '@/lib/types'
 
@@ -185,7 +186,7 @@ export function TxQueue({
       const suppressSet = new Set(col.hide_if_all)
       return !queue.every(item => {
         if (item.type === 'delay' || item.type === 'note') return true
-        return suppressSet.has(String(item.display?.row?.[col.id] ?? ''))
+        return suppressSet.has(cellText(item.display?.row?.[col.id]))
       })
     })
   }, [txColumns, queue])
@@ -341,4 +342,3 @@ export function TxQueue({
     </div>
   )
 }
-

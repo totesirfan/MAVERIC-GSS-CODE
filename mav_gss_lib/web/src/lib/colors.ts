@@ -59,11 +59,11 @@ export const colors = {
   ulColor: '#A07CC8',
 } as const
 
-// ── Packet type → semantic tone mapping ────────────────────────
+// ── Badge label → semantic tone mapping ────────────────────────
 
 export type SemanticTone = 'danger' | 'warning' | 'info' | 'success' | 'active' | 'neutral'
 
-export const packetToneMap: Record<string, SemanticTone> = {
+export const badgeToneMap: Record<string, SemanticTone> = {
   ACK:     'info',
   RES:     'success',
   CMD:     'neutral',
@@ -78,9 +78,9 @@ export const packetToneMap: Record<string, SemanticTone> = {
   NONE:    'neutral',
 } as const
 
-/** Get the semantic tone for a packet type badge */
-export function ptypeTone(ptype: string | number): SemanticTone {
-  return packetToneMap[String(ptype).toUpperCase()] ?? 'neutral'
+/** Get the semantic tone for a mission-provided badge label. */
+export function labelTone(label: string | number): SemanticTone {
+  return badgeToneMap[String(label).toUpperCase()] ?? 'neutral'
 }
 
 /** Semantic tone → foreground color */

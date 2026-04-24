@@ -20,18 +20,11 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NotRequired, TypedDict, Union
 
+from mav_gss_lib.platform import EncodedCommand
+
 if TYPE_CHECKING:
     from .state import WebRuntime
 
-try:
-    from mav_gss_lib.protocols.golay import MAX_PAYLOAD as GOLAY_MAX_PAYLOAD
-except ImportError:
-    GOLAY_MAX_PAYLOAD = 223
-
-
-# =============================================================================
-#  QUEUE ITEM SHAPES
-# =============================================================================
 
 class MissionCmdItem(TypedDict):
     type: Literal["mission_cmd"]
@@ -55,10 +48,6 @@ class NoteItem(TypedDict):
 QueueItem = Union[MissionCmdItem, DelayItem, NoteItem]
 
 
-# =============================================================================
-#  ITEM CONSTRUCTORS
-# =============================================================================
-
 def make_delay(delay_ms: int) -> DelayItem:
     """Build one delay queue item."""
     return {"type": "delay", "delay_ms": delay_ms}
@@ -69,45 +58,68 @@ def make_note(text) -> NoteItem:
     return {"type": "note", "text": " ".join(str(text).split())}
 
 
-def make_mission_cmd(payload, adapter=None) -> MissionCmdItem:
+def _display_from_prepared(prepared) -> dict:
+    rendering = prepared.rendering
+    return {
+        "title": rendering.title,
+        "subtitle": rendering.subtitle,
+        "row": {key: cell.to_json() for key, cell in rendering.row.items()},
+        "detail_blocks": [block.to_json() for block in rendering.detail_blocks],
+        "_rendering": rendering.to_json(),
+    }
+
+
+def make_mission_cmd(payload, runtime: "WebRuntime | None" = None) -> MissionCmdItem:
     """Build one mission-command queue item from a mission-specific payload.
 
-    Calls the adapter's build_tx_command() to validate, encode, and
-    produce display metadata. Does NOT check MTU — use
+    Calls the active mission command ops to validate, encode, and produce
+    display metadata. Does NOT check MTU — use
     validate_mission_cmd() for full admission.
 
     The original payload is stored so it can be re-built on queue restore.
     """
-    result = adapter.build_tx_command(payload)
+    if runtime is None:
+        raise ValueError("mission command validation requires a runtime")
+
+    prepared = runtime.platform.prepare_tx(payload)
+    mission_payload = prepared.encoded.mission_payload
     return {
         "type": "mission_cmd",
-        "raw_cmd": result["raw_cmd"],
-        "display": result.get("display", {}),
-        "guard": result.get("guard", False),
-        "payload": payload,
+        "raw_cmd": prepared.encoded.raw,
+        "display": _display_from_prepared(prepared),
+        "guard": prepared.encoded.guard,
+        "payload": mission_payload.get("payload", payload),
     }
 
 
 def validate_mission_cmd(payload, runtime: "WebRuntime | None" = None):
     """Validate and build a mission-command queue item.
 
-    Checks: build succeeds, MTU fits.
+    Checks: mission-owned build succeeds, mission-owned framing admits the
+    encoded bytes (MTU / FEC-cap / etc). The platform does not inspect the
+    mission's MTU rule — it just runs the mission framer against the
+    encoded bytes and surfaces whatever ValueError the mission raises.
     """
     from .state import ensure_runtime
-    from .tx_context import build_send_context
 
     runtime = ensure_runtime(runtime)
 
-    item = make_mission_cmd(payload, adapter=runtime.adapter)
+    item = make_mission_cmd(payload, runtime=runtime)
 
-    uplink_mode, send_csp, _send_ax25 = build_send_context(runtime)
-    if uplink_mode == "ASM+Golay":
-        csp_packet = send_csp.wrap(item["raw_cmd"])
-        if len(csp_packet) > GOLAY_MAX_PAYLOAD:
-            raise ValueError(
-                f"command too large for ASM+Golay RS payload "
-                f"({len(csp_packet)}B > {GOLAY_MAX_PAYLOAD}B)"
+    # Mission framer is the authoritative admission check. It raises
+    # ValueError (or mission-specific errors) when the command won't fit.
+    mission = runtime.mission
+    if mission.commands is not None:
+        encoded = mission.commands.encode(mission.commands.parse_input(payload))
+        # Preserve bytes identity with the queued raw_cmd (mission encode
+        # should be deterministic; guard against accidental drift).
+        if encoded.raw != item["raw_cmd"]:
+            encoded = EncodedCommand(
+                raw=item["raw_cmd"],
+                guard=encoded.guard,
+                mission_payload=encoded.mission_payload,
             )
+        mission.commands.frame(encoded)
     return item
 
 
@@ -139,10 +151,6 @@ def sanitize_queue_items(items, runtime: "WebRuntime | None" = None):
     return accepted, skipped
 
 
-# =============================================================================
-#  SERIALIZATION
-# =============================================================================
-
 def item_to_json(item):
     """Serialize a queue item for persistence (strips raw_cmd bytes)."""
     return {key: value for key, value in item.items() if key != "raw_cmd"}
@@ -164,10 +172,6 @@ def json_to_item(payload, runtime: "WebRuntime | None" = None):
         return item
     raise ValueError(f"unsupported queue item type: {payload['type']}")
 
-
-# =============================================================================
-#  PERSISTENCE
-# =============================================================================
 
 def save_queue(queue: list, queue_file: Path) -> None:
     """Persist the current queue to disk as JSONL."""
@@ -215,10 +219,6 @@ def load_queue(queue_file: Path, runtime: "WebRuntime | None" = None) -> list:
     return items
 
 
-# =============================================================================
-#  QUEUE OPERATIONS
-# =============================================================================
-
 def renumber_queue(queue: list) -> None:
     """Assign sequential display numbers to queued command items."""
     count = 0
@@ -228,13 +228,12 @@ def renumber_queue(queue: list) -> None:
             item["num"] = count
 
 
-def queue_summary(queue: list, cfg: dict) -> dict:
+def queue_summary(queue: list, default_delay_ms: int = 500) -> dict:
     """Summarize queue size, guard count, and rough execution time."""
     cmds = sum(1 for item in queue if item["type"] == "mission_cmd")
     guards = sum(1 for item in queue if item.get("guard"))
     delay_total = sum(item.get("delay_ms", 0) for item in queue if item["type"] == "delay")
-    default_delay = cfg.get("tx", {}).get("delay_ms", 500)
-    inter_cmd_ms = default_delay * max(cmds - 1, 0)
+    inter_cmd_ms = default_delay_ms * max(cmds - 1, 0)
     est_time_s = (delay_total + inter_cmd_ms) / 1000.0
     return {"cmds": cmds, "guards": guards, "est_time_s": round(est_time_s, 1)}
 
@@ -259,10 +258,6 @@ def queue_items_json(queue: list) -> list:
         })
     return result
 
-
-# =============================================================================
-#  IMPORT / EXPORT
-# =============================================================================
 
 def parse_import_file(filepath, runtime=None):
     """Parse a queue import JSONL file into runtime queue items."""

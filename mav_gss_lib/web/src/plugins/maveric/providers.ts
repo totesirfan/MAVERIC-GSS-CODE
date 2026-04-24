@@ -21,10 +21,12 @@
 import type { ComponentType, PropsWithChildren } from 'react'
 import { EpsProvider } from './eps/EpsProvider'
 import { GncProvider } from './gnc/GncProvider'
+import { ImagingProvider } from './imaging/ImagingProvider'
 
 const providers: ComponentType<PropsWithChildren>[] = [
   EpsProvider,
   GncProvider,
+  ImagingProvider,
 ]
 
 export default providers

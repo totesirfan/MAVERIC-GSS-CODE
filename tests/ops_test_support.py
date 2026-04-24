@@ -15,21 +15,21 @@ ROOT_DIR = CODE_DIR.parent
 sys.path.insert(0, str(CODE_DIR))
 
 from mav_gss_lib import config as _config_module
-from mav_gss_lib import mission_adapter as _mission_adapter_module
+from mav_gss_lib.platform.loader import load_mission_spec_from_split
 
 # Cached on first attribute access (PEP 562). Tests that import
-# CFG / _ADAPTER / CMD_DEFS / NODES trigger the load lazily, so importing
+# CFG / CMD_DEFS / NODES trigger the load lazily, so importing
 # this module has no side effects and doesn't require gss.yml to exist.
 #
-# IMPORTANT: the two loaders are dereferenced via `_config_module.…` /
-# `_mission_adapter_module.…` every call instead of being aliased with a
+# IMPORTANT: loaders are dereferenced via module attributes every call
+# instead of being aliased with a
 # `from … import …`. That keeps monkey-patching from tests working —
 # `from X import foo` would bake a local name at THIS module's import
 # time and would silently shadow any later `X.foo = fake`.
 #
 # To INVALIDATE the cache after monkey-patching a loader (e.g. in a test
-# that wants to observe a patched load_gss_config), drop this module from
-# sys.modules and re-import:
+# that wants to observe a patched load_split_config), drop this module
+# from sys.modules and re-import:
 #
 #     del sys.modules["ops_test_support"]
 #     import ops_test_support  # fresh module, empty _cache
@@ -40,22 +40,32 @@ _cache: dict = {}
 
 def _load() -> dict:
     if "cfg" not in _cache:
-        cfg = _config_module.load_gss_config()
-        adapter = _mission_adapter_module.load_mission_adapter(cfg)
-        _cache["cfg"] = cfg
-        _cache["adapter"] = adapter
-        _cache["cmd_defs"] = adapter.cmd_defs
-        _cache["nodes"] = getattr(adapter, "nodes", None)
+        platform_cfg, mission_id, mission_cfg = _config_module.load_split_config()
+        # Mission defaults are seeded inside the mission's own build(ctx)
+        # when load_mission_spec_from_split invokes it.
+        spec = load_mission_spec_from_split(platform_cfg, mission_id, mission_cfg)
+        commands = spec.commands
+        # Expose a flat cfg snapshot for legacy test consumers (CFG). This
+        # is a point-in-time merge for convenience; production paths use
+        # split state directly.
+        flat = dict(platform_cfg)
+        flat["general"] = dict(platform_cfg.get("general", {}))
+        flat["general"]["mission"] = mission_id
+        for key, value in mission_cfg.items():
+            if key not in flat and isinstance(value, dict):
+                flat[key] = value
+        _cache["cfg"] = flat
+        _cache["adapter"] = None
+        _cache["cmd_defs"] = commands.schema() if commands is not None else {}
+        _cache["nodes"] = getattr(commands, "nodes", None)
     return _cache
 
 
 def __getattr__(name: str):
     # PEP 562 — invoked only for attributes that are NOT already defined
-    # at module scope (i.e. CFG, _ADAPTER, CMD_DEFS, NODES).
+    # at module scope (i.e. CFG, CMD_DEFS, NODES).
     if name == "CFG":
         return _load()["cfg"]
-    if name == "_ADAPTER":
-        return _load()["adapter"]
     if name == "CMD_DEFS":
         return _load()["cmd_defs"]
     if name == "NODES":
@@ -67,11 +77,11 @@ def __dir__() -> list[str]:
     # PEP 562 companion — makes `dir(ops_test_support)` include the lazy
     # attributes so tab-completion, hasattr(), and debugger introspection
     # behave as if the attributes were statically defined.
-    return sorted(set(globals()) | {"CFG", "_ADAPTER", "CMD_DEFS", "NODES"})
+    return sorted(set(globals()) | {"CFG", "CMD_DEFS", "NODES"})
 
 
 __all__ = [
-    "CFG", "_ADAPTER", "CMD_DEFS", "NODES",
+    "CFG", "CMD_DEFS", "NODES",
     "TESTS_DIR", "CODE_DIR", "ROOT_DIR",
     "GNURADIO_PYTHON",
     "decode_golay_via_gr", "decode_golay_via_flowgraph",

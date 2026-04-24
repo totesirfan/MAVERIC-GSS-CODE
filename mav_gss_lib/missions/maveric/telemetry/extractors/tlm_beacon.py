@@ -129,13 +129,26 @@ def _stat(mtq_stat: int) -> dict:
     return _decode_stat(bytes_le)
 
 
-def _eps_scaled(name: str, raw: int) -> float:
+def _eps_scaled(name: str, raw: int) -> tuple[float, str]:
     """Beacon carries raw int16-style EPS values (mV / mA / raw ADC LSBs);
     scale to engineering units (V / A / % / °C) via the same ``_scale_and_unit``
-    table ``eps_hk`` uses, so values are identical from either source."""
+    table ``eps_hk`` uses, so values and units are identical from either source.
+    Returns ``(engineering_value, unit)`` so the caller can attach the unit
+    to the emitted ``TelemetryFragment`` (the eps_hk path does the same — keeps
+    value and unit separate on the wire for downstream DB storage)."""
     from mav_gss_lib.missions.maveric.telemetry.semantics.eps import _scale_and_unit
-    scale, _unit = _scale_and_unit(name)
-    return round(raw * scale, 6)
+    scale, unit = _scale_and_unit(name)
+    return round(raw * scale, 6), unit
+
+
+# Canonical units for beacon-sourced GNC vectors. Matches the RES register
+# table (`gnc_schema.REGISTERS`) so a `RATE` / `MAG` / `MTQ` fragment carries
+# the same unit whether it came from a beacon or a RES packet.
+_GNC_VECTOR_UNITS = {
+    "RATE": "rad/s",
+    "MAG":  "nT",
+    "MTQ":  "A.m^2",
+}
 
 
 def _callsign(raw7: bytes) -> str:
@@ -186,9 +199,9 @@ def extract(pkt, nodes, now_ms: int):
     yield TelemetryFragment("gnc", "STAT", _stat(mtq_stat), now_ms)
     yield TelemetryFragment("gnc", "GYRO_RATE_SRC", gyro_rate_src, now_ms)
     yield TelemetryFragment("gnc", "MAG_SRC", mag_src, now_ms)
-    yield TelemetryFragment("gnc", "RATE", [gyro_x, gyro_y, gyro_z], now_ms)
-    yield TelemetryFragment("gnc", "MAG", [mag_x, mag_y, mag_z], now_ms)
-    yield TelemetryFragment("gnc", "MTQ", [mtq_x, mtq_y, mtq_z], now_ms)
+    yield TelemetryFragment("gnc", "RATE", [gyro_x, gyro_y, gyro_z], now_ms, unit=_GNC_VECTOR_UNITS["RATE"])
+    yield TelemetryFragment("gnc", "MAG",  [mag_x, mag_y, mag_z],    now_ms, unit=_GNC_VECTOR_UNITS["MAG"])
+    yield TelemetryFragment("gnc", "MTQ",  [mtq_x, mtq_y, mtq_z],    now_ms, unit=_GNC_VECTOR_UNITS["MTQ"])
     yield TelemetryFragment("gnc", "ADCS_TMP", _adcs_tmp(temp_adcs), now_ms)
     yield TelemetryFragment("gnc", "GNC_MODE", _gnc_mode(gnc_mode_raw), now_ms)
     yield TelemetryFragment(
@@ -198,12 +211,19 @@ def extract(pkt, nodes, now_ms: int):
     )
 
     # EPS domain — engineering-unit scalars (same scale table as eps_hk).
-    yield TelemetryFragment("eps", "I_BUS",  _eps_scaled("I_BUS",  i_bus),    now_ms)
-    yield TelemetryFragment("eps", "I_BAT",  _eps_scaled("I_BAT",  i_bat),    now_ms)
-    yield TelemetryFragment("eps", "V_BUS",  _eps_scaled("V_BUS",  v_bus),    now_ms)
-    yield TelemetryFragment("eps", "V_BAT",  _eps_scaled("V_BAT",  v_bat),    now_ms)
-    yield TelemetryFragment("eps", "V_SYS",  _eps_scaled("V_SYS",  v_sys),    now_ms)
-    yield TelemetryFragment("eps", "TS_ADC", _eps_scaled("TS_ADC", temp_adc), now_ms)
-    yield TelemetryFragment("eps", "T_DIE",  _eps_scaled("T_DIE",  temp_die), now_ms)
+    # Value and unit stay separate on each fragment so downstream consumers
+    # (packet view, text log, JSONL log, future DB sink) can read them
+    # independently rather than parsing a combined "3.3 V" string.
+    for name, raw in (
+        ("I_BUS",  i_bus),
+        ("I_BAT",  i_bat),
+        ("V_BUS",  v_bus),
+        ("V_BAT",  v_bat),
+        ("V_SYS",  v_sys),
+        ("TS_ADC", temp_adc),
+        ("T_DIE",  temp_die),
+    ):
+        val, unit = _eps_scaled(name, raw)
+        yield TelemetryFragment("eps", name, val, now_ms, unit=unit)
     yield TelemetryFragment("eps", "eps_heartbeat", eps_heartbeat, now_ms)
     yield TelemetryFragment("eps", "eps_mode", eps_mode, now_ms)

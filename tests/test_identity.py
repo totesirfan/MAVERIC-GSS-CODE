@@ -56,6 +56,7 @@ def test_stations_strip_preserves_disk_value(tmp_path, monkeypatch):
     """A UI config save must not wipe the stations catalog from the persisted YAML."""
     import yaml
     from mav_gss_lib import config as cfg_module
+    from mav_gss_lib.platform.config_boundary import apply_platform_config_update
 
     gss_path = tmp_path / "gss.yml"
     gss_path.write_text("stations:\n  host1: GS-7\ntx:\n  delay_ms: 500\n")
@@ -63,18 +64,19 @@ def test_stations_strip_preserves_disk_value(tmp_path, monkeypatch):
     monkeypatch.setattr(cfg_module, "get_operator_config_path", lambda: gss_path)
 
     # Simulate UI save: operator changes delay_ms and tries to overwrite stations.
-    from mav_gss_lib.web_runtime.api.config import _strip_persisted_junk
-    raw = cfg_module.load_operator_config_raw()
-    update = {"tx": {"delay_ms": 1000}, "stations": {"host1": "MALICIOUS"}}
-    # Mirror the handler's inline strip:
-    update.pop("stations", None)
-    cfg_module.deep_merge_inplace(raw, update)
-    raw = _strip_persisted_junk(raw)
-    cfg_module.save_operator_config_raw(raw)
+    platform_cfg, mission_id, mission_cfg = cfg_module.load_split_config(gss_path)
+    apply_platform_config_update(platform_cfg, {
+        "tx": {"delay_ms": 1000},
+        "stations": {"host1": "MALICIOUS"},
+    })
+    assert platform_cfg["stations"] == {"host1": "GS-7"}  # stations refused
+
+    native = cfg_module.split_to_persistable(platform_cfg, mission_id, mission_cfg)
+    cfg_module.save_operator_config(native)
 
     reloaded = yaml.safe_load(gss_path.read_text())
-    assert reloaded["stations"]["host1"] == "GS-7"
-    assert reloaded["tx"]["delay_ms"] == 1000
+    assert reloaded["platform"]["stations"]["host1"] == "GS-7"
+    assert reloaded["platform"]["tx"]["delay_ms"] == 1000
 
 
 def test_preflight_yields_identity_row_from_capture():

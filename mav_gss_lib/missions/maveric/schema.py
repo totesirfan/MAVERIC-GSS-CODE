@@ -1,8 +1,8 @@
-"""
-mav_gss_lib.missions.maveric.schema -- Command Schema Loading & Validation
+"""MAVERIC command schema loading and validation.
 
-Loads command definitions from YAML, applies typed argument parsing to
-received commands, and validates TX arguments before sending.
+Loads command definitions from `commands.yml`, applies typed argument
+parsing to received commands (`enrich_cmd_in_place`), and validates TX
+arguments before sending (`validate_args`).
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -12,10 +12,14 @@ from __future__ import annotations
 import os
 import warnings
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from mav_gss_lib.missions.maveric.nodes import NodeTable
+
+
+_MISSION_DIR = Path(__file__).resolve().parent
 
 try:
     import yaml
@@ -23,10 +27,6 @@ try:
 except ImportError:
     _YAML_OK = False
 
-
-# =============================================================================
-#  COMMAND SCHEMA -- Deterministic Parsing
-# =============================================================================
 
 TS_MIN_MS = 1_704_067_200_000  # ~2024-01-01
 TS_MAX_MS = 1_830_297_600_000  # ~2028-01-01
@@ -131,12 +131,10 @@ def load_command_defs(path: str | None = None, nodes: NodeTable | None = None):
                        "dest", "echo", "ptype"}}
       warning: str or None -- set when schema could not be loaded.
     """
-    from pathlib import Path as _Path
-    _mission_dir = _Path(__file__).resolve().parent
     if path is None:
-        path = str(_mission_dir / "commands.yml")
+        path = str(_MISSION_DIR / "commands.yml")
     elif not os.path.isabs(path):
-        path = str((_mission_dir / path).resolve())
+        path = str((_MISSION_DIR / path).resolve())
     if not _YAML_OK:
         msg = ("PyYAML not installed -- command schema unavailable. "
                "Install with: pip install pyyaml")

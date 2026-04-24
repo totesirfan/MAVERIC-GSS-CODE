@@ -10,12 +10,11 @@ export function GssInput({ className, style, onFocus, onBlur, ref, ...props }: I
       ref={ref}
       onFocus={(e) => { setFocused(true); onFocus?.(e) }}
       onBlur={(e) => { setFocused(false); onBlur?.(e) }}
-      className={cn('px-2 py-1 rounded text-xs outline-none border focus:ring-1', className)}
+      className={cn('px-2 py-1 rounded text-xs outline-none border', className)}
       style={{
         backgroundColor: colors.bgBase,
         color: colors.value,
-        borderColor: focused ? colors.active : colors.borderSubtle,
-        '--tw-ring-color': `${colors.active}33`,
+        borderColor: focused ? `${colors.active}80` : colors.borderSubtle,
         ...style,
       } as React.CSSProperties}
     />

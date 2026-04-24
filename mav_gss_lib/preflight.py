@@ -51,6 +51,9 @@ def summarize(results: list[CheckResult]) -> PreflightSummary:
 
 
 def run_preflight(cfg: dict | None = None,
+                  mission_cfg: dict | None = None,
+                  mission=None,
+                  mission_id: str | None = None,
                   lib_dir: Path | None = None,
                   *,
                   operator: str | None = None,
@@ -59,7 +62,21 @@ def run_preflight(cfg: dict | None = None,
     """Yield check results as each check executes.
 
     Args:
-        cfg: Pre-loaded config dict. If None, loads from gss.yml.
+        cfg: Pre-loaded platform config dict (native `platform_cfg` shape or
+            legacy flat runtime cfg — both expose `tx.uplink_mode`,
+            `rx.zmq_addr`, `tx.zmq_addr` at the same paths). If None, loads
+            from gss.yml.
+        mission_cfg: Mission-config dict for mission-specific checks such as
+            command-schema path resolution. Optional for legacy callers.
+        mission: Optional `MissionSpec` whose `preflight()` hook, if set, is
+            called after the platform-neutral checks. Mission-specific checks
+            (command schema file presence, radio capability probes, etc.)
+            live under `MissionSpec.preflight` — the platform preflight no
+            longer branches on mission id.
+        mission_id: Active mission id. When None, falls back to
+            `cfg.general.mission` (legacy) or `mission.id` when a MissionSpec
+            is provided. Preferred in v2 callers since `platform_cfg` does
+            not carry `general.mission`.
         lib_dir: Library directory for path resolution. Defaults to mav_gss_lib/.
         operator, host, station: Inject identity captured elsewhere (e.g. from
             the already-running WebRuntime). When any of these is None, the
@@ -120,60 +137,41 @@ def run_preflight(cfg: dict | None = None,
 
     # Load config for remaining checks
     if cfg is None:
-        from mav_gss_lib.config import load_gss_config
-        cfg = load_gss_config(str(gss_yml)) if gss_yml.is_file() else {}
+        if gss_yml.is_file():
+            from mav_gss_lib.config import load_split_config
+            platform_cfg, _mission_id, loaded_mission_cfg = load_split_config(str(gss_yml))
+            cfg = platform_cfg
+            if mission_cfg is None:
+                mission_cfg = loaded_mission_cfg
+        else:
+            cfg = {}
 
-    mission = cfg.get("general", {}).get("mission", DEFAULT_MISSION)
-    mission_dir = lib_dir / "missions" / mission
+    if mission_id is None:
+        if mission is not None and getattr(mission, "id", None):
+            mission_id = str(mission.id)
+        else:
+            mission_id = cfg.get("general", {}).get("mission", DEFAULT_MISSION)
+    mission_dir = lib_dir / "missions" / mission_id
     if mission_dir.is_dir():
-        yield CheckResult("config", f"Mission: {mission}", "ok")
+        yield CheckResult("config", f"Mission: {mission_id}", "ok")
     else:
-        yield CheckResult("config", f"Mission: {mission}", "fail",
-                          fix=f"Set general.mission in gss.yml or create {mission_dir}")
+        yield CheckResult("config", f"Mission: {mission_id}", "fail",
+                          fix=f"Set mission.id in gss.yml or create {mission_dir}")
 
-    # Command schema
-    cmd_defs_name = cfg.get("general", {}).get("command_defs", "commands.yml")
-    if Path(cmd_defs_name).is_absolute():
-        cmd_schema = Path(cmd_defs_name)
-    else:
-        cmd_schema = mission_dir / cmd_defs_name
-    cmd_example = mission_dir / (Path(cmd_defs_name).stem + ".example" + Path(cmd_defs_name).suffix)
-    if cmd_schema.is_file():
-        yield CheckResult("config", f"Command schema: {cmd_schema.name}", "ok")
-    elif cmd_example.is_file():
-        yield CheckResult("config", f"Command schema: {cmd_schema.name}", "warn",
-                          fix=f"Copy from example: cp {cmd_example} {cmd_schema}")
-    else:
-        yield CheckResult("config", f"Command schema: {cmd_schema.name}", "warn",
-                          fix="System starts but cannot validate or send commands")
-
-    # ── Uplink Capability (libfec / ASM+Golay RS encoder) ──
-    # Imported lazily so preflight never fails hard on the capability probe.
-    try:
-        from mav_gss_lib.protocols.golay import _GR_RS_OK as _golay_rs_ok
-    except ImportError:
-        _golay_rs_ok = False
-
-    selected_mode = cfg.get("tx", {}).get("uplink_mode", "AX.25")
-    golay_fix = (
-        "Install libfec (e.g. `sudo apt install libfec-dev && sudo ldconfig`, "
-        "`conda install -c ryanvolz libfec`, or build from "
-        "https://github.com/quiet/libfec)"
-    )
-    if _golay_rs_ok:
-        yield CheckResult("uplink", "libfec (ASM+Golay RS encoder)", "ok")
-    elif selected_mode == "ASM+Golay":
-        yield CheckResult(
-            "uplink", "libfec (ASM+Golay RS encoder)", "fail",
-            fix=f"{golay_fix}, or switch tx.uplink_mode to AX.25",
-            detail="tx.uplink_mode='ASM+Golay' selected but libfec is not loadable",
-        )
-    else:
-        yield CheckResult(
-            "uplink", "libfec (ASM+Golay RS encoder)", "warn",
-            fix=f"{golay_fix} to enable tx.uplink_mode='ASM+Golay'",
-            detail="AX.25 mode active; ASM+Golay would be unavailable if selected",
-        )
+    # Mission-specific checks (command schema, radio capability, etc.) come
+    # from the mission's preflight hook. The platform doesn't branch on
+    # mission id or inspect mission-private wire modes.
+    if mission is not None and getattr(mission, "preflight", None) is not None:
+        try:
+            for check in mission.preflight():
+                yield check
+        except Exception as exc:
+            yield CheckResult(
+                "config",
+                f"Mission preflight ({mission_id})",
+                "fail",
+                detail=str(exc),
+            )
 
     # ── Web Build ──
     dist = lib_dir / "web" / "dist"

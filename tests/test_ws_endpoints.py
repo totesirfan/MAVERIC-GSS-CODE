@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from mav_gss_lib.platform import ColumnDef, EventOps
 from mav_gss_lib.web_runtime.rx import router as rx_router
 from mav_gss_lib.web_runtime.tx import router as tx_router
 from mav_gss_lib.web_runtime.session_ws import router as session_router
@@ -58,10 +59,10 @@ def _build_stub_runtime():
     runtime.session_clients = []
     runtime.session_lock = threading.Lock()
 
-    # Adapter stubs
-    runtime.adapter.packet_list_columns.return_value = [
-        {"id": "num", "label": "#", "width": 40},
+    runtime.mission.ui.packet_columns.return_value = [
+        ColumnDef(id="num", label="#", width="40px"),
     ]
+    runtime.mission.events = EventOps()
 
     return runtime
 

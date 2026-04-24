@@ -209,19 +209,47 @@ export function ConfigSidebar({ open, onClose }: ConfigSidebarProps) {
     onClose()
   }, [onClose])
 
-  // Updater that marks dirty
-  const update = useCallback(<K extends keyof GssConfig>(section: K, key: string, value: unknown) => {
+  const updatePlatform = useCallback(<K extends keyof GssConfig['platform']>(
+    section: K,
+    key: string,
+    value: unknown,
+  ) => {
     setCfg((prev) => {
       if (!prev) return prev
-      const next = { ...prev, [section]: { ...prev[section], [key]: value } }
+      const next = {
+        ...prev,
+        platform: { ...prev.platform, [section]: { ...prev.platform[section], [key]: value } },
+      }
       setDirty(true)
       return next
     })
   }, [])
 
-  const isAx25 = cfg?.tx.uplink_mode?.toLowerCase().includes('ax25') ||
-                  cfg?.tx.uplink_mode?.toLowerCase().includes('ax.25') ||
-                  cfg?.tx.uplink_mode === 'Mode 6'
+  const updateMission = useCallback(<K extends keyof GssConfig['mission']['config']>(
+    section: K,
+    key: string,
+    value: unknown,
+  ) => {
+    setCfg((prev) => {
+      if (!prev) return prev
+      const next = {
+        ...prev,
+        mission: {
+          ...prev.mission,
+          config: {
+            ...prev.mission.config,
+            [section]: { ...(prev.mission.config[section] as object), [key]: value },
+          },
+        },
+      }
+      setDirty(true)
+      return next
+    })
+  }, [])
+
+  const isAx25 = cfg?.platform.tx.uplink_mode?.toLowerCase().includes('ax25') ||
+                  cfg?.platform.tx.uplink_mode?.toLowerCase().includes('ax.25') ||
+                  cfg?.platform.tx.uplink_mode === 'Mode 6'
 
   return (
     <AnimatePresence initial={false}>
@@ -264,11 +292,11 @@ export function ConfigSidebar({ open, onClose }: ConfigSidebarProps) {
                 <Section title="Uplink Mode">
                   <div className="flex gap-1">
                     {['AX.25', 'ASM+Golay'].map((mode) => {
-                      const active = cfg.tx.uplink_mode === mode
+                      const active = cfg.platform.tx.uplink_mode === mode
                       return (
                         <button
                           key={mode}
-                          onClick={() => update('tx', 'uplink_mode', mode)}
+                          onClick={() => updatePlatform('tx', 'uplink_mode', mode)}
                           className="flex-1 px-2 py-1.5 rounded text-xs font-medium transition-colors btn-feedback"
                           style={{
                             backgroundColor: active ? `${colors.label}22` : 'transparent',
@@ -285,29 +313,29 @@ export function ConfigSidebar({ open, onClose }: ConfigSidebarProps) {
 
                 {/* AX.25 (conditional) */}
                 <Section title="AX.25" show={isAx25}>
-                  <TextField label="Src Call" value={cfg.ax25.src_call} onChange={(v) => update('ax25', 'src_call', v)} />
-                  <NumberField label="Src SSID" value={cfg.ax25.src_ssid} onChange={(v) => update('ax25', 'src_ssid', v)} />
-                  <TextField label="Dest Call" value={cfg.ax25.dest_call} onChange={(v) => update('ax25', 'dest_call', v)} />
-                  <NumberField label="Dest SSID" value={cfg.ax25.dest_ssid} onChange={(v) => update('ax25', 'dest_ssid', v)} />
+                  <TextField label="Src Call" value={cfg.mission.config.ax25.src_call} onChange={(v) => updateMission('ax25', 'src_call', v)} />
+                  <NumberField label="Src SSID" value={cfg.mission.config.ax25.src_ssid} onChange={(v) => updateMission('ax25', 'src_ssid', v)} />
+                  <TextField label="Dest Call" value={cfg.mission.config.ax25.dest_call} onChange={(v) => updateMission('ax25', 'dest_call', v)} />
+                  <NumberField label="Dest SSID" value={cfg.mission.config.ax25.dest_ssid} onChange={(v) => updateMission('ax25', 'dest_ssid', v)} />
                 </Section>
 
                 {/* CSP */}
                 <Section title="CSP">
-                  <ToggleField label="CRC-32" value={cfg.csp.csp_crc} onChange={(v) => update('csp', 'csp_crc', v)} />
-                  <NumberField label="Priority" value={cfg.csp.priority} onChange={(v) => update('csp', 'priority', v)} compact />
-                  <NumberField label="Source" value={cfg.csp.source} onChange={(v) => update('csp', 'source', v)} compact />
-                  <NumberField label="Destination" value={cfg.csp.destination} onChange={(v) => update('csp', 'destination', v)} compact />
-                  <NumberField label="Dest Port" value={cfg.csp.dest_port} onChange={(v) => update('csp', 'dest_port', v)} compact />
-                  <NumberField label="Src Port" value={cfg.csp.src_port} onChange={(v) => update('csp', 'src_port', v)} compact />
-                  <NumberField label="Flags" value={cfg.csp.flags} onChange={(v) => update('csp', 'flags', v)} compact />
+                  <ToggleField label="CRC-32" value={cfg.mission.config.csp.csp_crc} onChange={(v) => updateMission('csp', 'csp_crc', v)} />
+                  <NumberField label="Priority" value={cfg.mission.config.csp.priority} onChange={(v) => updateMission('csp', 'priority', v)} compact />
+                  <NumberField label="Source" value={cfg.mission.config.csp.source} onChange={(v) => updateMission('csp', 'source', v)} compact />
+                  <NumberField label="Destination" value={cfg.mission.config.csp.destination} onChange={(v) => updateMission('csp', 'destination', v)} compact />
+                  <NumberField label="Dest Port" value={cfg.mission.config.csp.dest_port} onChange={(v) => updateMission('csp', 'dest_port', v)} compact />
+                  <NumberField label="Src Port" value={cfg.mission.config.csp.src_port} onChange={(v) => updateMission('csp', 'src_port', v)} compact />
+                  <NumberField label="Flags" value={cfg.mission.config.csp.flags} onChange={(v) => updateMission('csp', 'flags', v)} compact />
                 </Section>
 
                 {/* System */}
                 <Section title="System">
-                  <TextField label="Frequency" value={cfg.tx.frequency} onChange={(v) => update('tx', 'frequency', v)} />
-                  <TextField label="ZMQ Address" value={cfg.tx.zmq_addr} onChange={(v) => update('tx', 'zmq_addr', v)} />
-                  <NumberField label="TX Delay (ms)" value={cfg.tx.delay_ms} onChange={(v) => update('tx', 'delay_ms', v)} />
-                  <NumberField label="TX→RX Blackout (ms)" value={cfg.rx.tx_blackout_ms ?? 0} onChange={(v) => update('rx', 'tx_blackout_ms', v)} />
+                  <TextField label="Frequency" value={cfg.platform.tx.frequency} onChange={(v) => updatePlatform('tx', 'frequency', v)} />
+                  <TextField label="ZMQ Address" value={cfg.platform.tx.zmq_addr} onChange={(v) => updatePlatform('tx', 'zmq_addr', v)} />
+                  <NumberField label="TX Delay (ms)" value={cfg.platform.tx.delay_ms} onChange={(v) => updatePlatform('tx', 'delay_ms', v)} />
+                  <NumberField label="TX→RX Blackout (ms)" value={cfg.platform.rx.tx_blackout_ms ?? 0} onChange={(v) => updatePlatform('rx', 'tx_blackout_ms', v)} />
                 </Section>
 
                 {/* Session Info */}

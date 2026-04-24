@@ -44,17 +44,15 @@ def _stub_runtime():
     rt.tx.send_queue_update = MagicMock(side_effect=_send_queue_update)
     rt.tx.run_send = MagicMock()
 
-    # Adapter stub — simplest possible payload shape
-    rt.adapter.cmd_line_to_payload.side_effect = lambda line: {"line": line}
-
     return rt
 
 
 class TestHandleQueue(unittest.TestCase):
     """handle_queue and handle_queue_mission_cmd glue.
 
-    validate_mission_cmd itself depends on runtime.cfg_lock/cfg/csp/ax25 and
-    is already exercised end-to-end in tests/test_tx_plugin.py. Here we patch
+    `validate_mission_cmd` exercises the mission command pipeline end-to-end
+    (parse -> encode -> frame) and is already covered by
+    `test_mission_owned_framing.py` and the TX runtime tests. Here we patch
     it to isolate the WS-handler glue: payload parse, mutation under lock,
     error propagation, and broadcast side-effect.
     """
@@ -64,11 +62,11 @@ class TestHandleQueue(unittest.TestCase):
         rt = _stub_runtime()
         ws = _RecordingWS()
         fake_item = {"type": "mission_cmd", "guard": False, "display": {"row": {}}}
-        with patch.object(tx_actions, "validate_mission_cmd", return_value=fake_item):
+        with patch.object(tx_actions, "validate_mission_cmd", return_value=fake_item) as validate:
             asyncio.run(tx_actions.handle_queue(rt, {"input": "com_ping"}, ws))
+        validate.assert_called_once_with("com_ping", runtime=rt)
         self.assertEqual(rt.tx.queue, [fake_item])
         rt.tx.send_queue_update.assert_called_once()
-        rt.adapter.cmd_line_to_payload.assert_called_once_with("com_ping")
 
     def test_handle_queue_empty_input_errors(self):
         rt = _stub_runtime()
@@ -81,9 +79,10 @@ class TestHandleQueue(unittest.TestCase):
     def test_handle_queue_parse_error_becomes_error_message(self):
         from unittest.mock import patch
         rt = _stub_runtime()
-        rt.adapter.cmd_line_to_payload.side_effect = ValueError("bad command")
         ws = _RecordingWS()
-        asyncio.run(tx_actions.handle_queue(rt, {"input": "garbage"}, ws))
+        with patch.object(tx_actions, "validate_mission_cmd",
+                          side_effect=ValueError("bad command")):
+            asyncio.run(tx_actions.handle_queue(rt, {"input": "garbage"}, ws))
         self.assertEqual(rt.tx.queue, [])
         payload = json.loads(ws.sent[0])
         self.assertEqual(payload["type"], "error")

@@ -17,7 +17,7 @@
 export interface FileLeaf {
   /** Actual filename on disk, e.g. "limb_003.jpg" or "thumb_limb_003.jpg" */
   filename: string;
-  /** Total chunk count (null until img_cnt_chunks or cam_capture_imgs returns) */
+  /** Total chunk count (null until img_cnt_chunks or cam_capture returns) */
   total: number | null;
   /** COUNT of chunks received so far — not the indices. Chunk indices are
    *  fetched separately via /api/plugins/imaging/chunks/<filename>. */
@@ -36,6 +36,11 @@ export interface PairedFile {
   /** Thumbnail leaf. Null only when prefix is unset; otherwise always populated
    *  (real leaf or placeholder with total=null). */
   thumb: FileLeaf | null;
+  /** Wall-clock millis of the most recent state change (set_total or
+   *  chunk arrival) across either side. Null if neither side has ever
+   *  been touched. Backend sorts `/api/plugins/imaging/status` newest
+   *  first using this field; frontend treats it as read-only metadata. */
+  last_activity_ms: number | null;
 }
 
 /** Which side of a paired file the UI is currently focused on */

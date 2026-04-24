@@ -10,6 +10,7 @@ import { TxPanel } from '@/components/tx/TxPanel'
 import { showToast } from '@/components/shared/StatusToast'
 import { AlarmStrip } from '@/components/shared/AlarmStrip'
 import { Skeleton } from '@/components/ui/skeleton'
+import { renderingFlags, renderingText } from '@/lib/rendering'
 import type { GssConfig } from '@/lib/types'
 
 /** Sentinel that watches the packet stream for CRC failures and toasts them.
@@ -22,11 +23,8 @@ export function RxCrcToastSentinel() {
     const last = packets[packets.length - 1]
     if (last.num <= lastCheckedNum.current) return
     lastCheckedNum.current = last.num
-    const flags = last._rendering?.row?.values?.flags
-    const hasCrcFail = Array.isArray(flags) && flags.some(
-      (f: unknown) => typeof f === 'object' && f !== null && (f as Record<string, string>).tag === 'CRC',
-    )
-    const cmdLabel = String(last._rendering?.row?.values?.cmd ?? 'unknown').split(' ')[0] || 'unknown'
+    const hasCrcFail = renderingFlags(last._rendering).some(f => f.tag === 'CRC')
+    const cmdLabel = renderingText(last._rendering, 'cmd').split(' ')[0] || 'unknown'
     if (hasCrcFail) showToast(`CRC-16 FAIL: ${cmdLabel} #${last.num} — verify link quality`, 'warning', 'rx')
   }, [packets])
   return null
@@ -158,7 +156,7 @@ export function MainDashboard({ config, confirmSendSignal, confirmClearSignal, r
     if (tx.error) showToast(tx.error, 'error', 'tx')
   }, [tx.error])
 
-  const uplinkMode = config?.tx?.uplink_mode ?? ''
+  const uplinkMode = config?.platform.tx.uplink_mode ?? ''
 
   return (
     <div className="flex-1 overflow-hidden p-4">

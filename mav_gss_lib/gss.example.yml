@@ -1,25 +1,56 @@
 # Ground Station Operator Config (Example)
 #
-# Platform-level settings only. Mission-specific defaults (nodes, ptypes,
-# callsigns, CSP routing, frequency, command schema, UI labels) are
-# provided by the active mission package's mission.yml.
+# Native v2 split shape. `platform.*` holds station-wide transport and general
+# config; `mission.*` selects the active mission and overrides mission-declared
+# editable config keys (per the mission's `MissionConfigSpec.editable_paths`).
+# Mission identity constants (nodes, ptypes, mission name, ui titles, command
+# schema filename) are NOT operator-editable — they live in the mission
+# package's own code (e.g. `missions/maveric/defaults.py`) and are protected
+# via `MissionConfigSpec.protected_paths`.
 #
 # Copy this file to gss.yml and adjust for your station.
 
-tx:
-  zmq_addr: tcp://127.0.0.1:52002
-  delay_ms: 500
-rx:
-  zmq_addr: tcp://127.0.0.1:52001
-general:
-  log_dir: logs
-  generated_commands_dir: generated_commands
+platform:
+  tx:
+    zmq_addr: tcp://127.0.0.1:52002
+    delay_ms: 500
+    # Mission-declared defaults (frequency, uplink_mode) are seeded by the
+    # active mission at startup; override them here if needed.
+    # frequency: 437.25 MHz
+    # uplink_mode: ASM+Golay
+  rx:
+    zmq_addr: tcp://127.0.0.1:52001
+    tx_blackout_ms: 0
+  general:
+    log_dir: logs
+    generated_commands_dir: generated_commands
 
-# Station identity catalog — hostname → station ID.
-# Every laptop runs the same gss.yml; each resolves its own station by
-# hostname at startup. Unknown hosts fall back to the raw hostname label.
-# UI config saves CANNOT change this catalog — edit the file directly.
-stations:
-  gs-laptop-0.local: GS-0
-  gs-laptop-1.local: GS-1
-  gs-laptop-2.local: GS-2
+  # Station identity catalog — hostname → station ID.
+  # Every laptop runs the same gss.yml; each resolves its own station by
+  # hostname at startup. Unknown hosts fall back to the raw hostname label.
+  # UI config saves CANNOT change this catalog — edit the file directly.
+  stations:
+    gs-laptop-0.local: GS-0
+    gs-laptop-1.local: GS-1
+    gs-laptop-2.local: GS-2
+
+mission:
+  id: maveric
+  # mission.config overrides mission-declared editable paths. For MAVERIC:
+  # ax25.*, csp.*, and imaging.thumb_prefix.
+  config: {}
+    # ax25:
+    #   src_call: NOCALL    # Replace with ground-station callsign
+    #   src_ssid: 0         # Replace with operational SSID
+    #   dest_call: NOCALL   # Replace with spacecraft callsign
+    #   dest_ssid: 0        # Replace with operational SSID
+    # csp:
+    #   priority: 2
+    #   source: 0
+    #   destination: 0      # Replace with operational CSP destination node
+    #   dest_port: 0        # Replace with operational CSP destination port
+    #   src_port: 0
+    #   flags: 0
+    #   csp_crc: true
+    # imaging:
+    #   thumb_prefix: "tn_"

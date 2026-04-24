@@ -1,47 +1,29 @@
 import { Badge } from '@/components/ui/badge'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Shield } from 'lucide-react'
 import { colors, frameColor } from '@/lib/colors'
-import { PtypeBadge } from '@/components/shared/PtypeBadge'
-import { getNodeFullName } from '@/lib/nodes'
-import type { ColumnDef, DetailBlock, GssConfig, IntegrityBlock as IntegrityBlockType, RenderingFlag } from '@/lib/types'
+import { ValueBadge } from '@/components/shared/ValueBadge'
+import type { ColumnDef, DetailBlock, IntegrityBlock as IntegrityBlockType, RenderCell, RenderingData, RenderingFlag } from '@/lib/types'
 
 // --- Row cell rendering (shared by PacketRow and LogViewer) ---
 
-function NodeName({ name, color, nodeDescriptions }: { name: string; color: string; nodeDescriptions?: GssConfig['node_descriptions'] }) {
-  const full = getNodeFullName(name, nodeDescriptions)
-  if (!full) return <span style={{ color }}>{name}</span>
-  return (
-    <TooltipProvider delay={300}>
-      <Tooltip>
-        <TooltipTrigger render={<span />} style={{ color }}>{name}</TooltipTrigger>
-        <TooltipContent side="top" className="text-xs">
-          {full}
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
-  )
-}
-
-export function CellValue({ col: c, row, showFrame, showEcho, nodeDescriptions }: {
+export function CellValue({ col: c, row, showFrame, showEcho }: {
   col: ColumnDef
-  row: { values: Record<string, unknown>; _meta?: { opacity?: number } }
+  row: Record<string, RenderCell>
   showFrame: boolean
   showEcho: boolean
-  nodeDescriptions?: GssConfig['node_descriptions']
 }) {
   if (c.toggle === 'showFrame' && !showFrame) return null
   if (c.toggle === 'showEcho' && !showEcho) return null
 
-  const val = row.values[c.id]
+  const cell = row[c.id]
+  const val = cell?.value
   const width = c.flex ? 'flex-1 min-w-0 truncate' : `${c.width ?? ''} shrink-0`
   const align = c.align === 'right' ? 'text-right' : ''
 
-  // Badge column (ptype)
-  if (c.badge) {
+  if (cell?.badge) {
     return (
       <span className={`py-1.5 px-1 ${width}`}>
-        <PtypeBadge ptype={val as string | number} />
+        <ValueBadge value={val as string | number} tone={cell.tone} />
       </span>
     )
   }
@@ -59,16 +41,6 @@ export function CellValue({ col: c, row, showFrame, showEcho, nodeDescriptions }
             </Badge>
           ))}
         </span>
-      </span>
-    )
-  }
-
-  // Node columns (src, dest, echo) — with tooltip
-  if (c.id === 'src' || c.id === 'dest' || c.id === 'echo') {
-    const nodeColor = c.id === 'echo' ? colors.warning : colors.label
-    return (
-      <span className={`py-1.5 px-1.5 ${width} whitespace-nowrap`}>
-        <NodeName name={String(val ?? '')} color={nodeColor} nodeDescriptions={nodeDescriptions} />
       </span>
     )
   }
@@ -105,7 +77,7 @@ export function CellValue({ col: c, row, showFrame, showEcho, nodeDescriptions }
 
   // Default text cell
   return (
-    <span className={`py-1.5 px-2 ${width} ${align} whitespace-nowrap`} style={{ color: colors.dim }}>
+    <span className={`py-1.5 px-2 ${width} ${align} whitespace-nowrap ${cell?.monospace ? 'font-mono' : ''}`} style={{ color: colors.dim }} title={cell?.tooltip ?? undefined}>
       {c.id === 'size' ? `${val}B` : String(val ?? '')}
     </span>
   )
@@ -113,7 +85,7 @@ export function CellValue({ col: c, row, showFrame, showEcho, nodeDescriptions }
 
 // --- Detail block rendering (shared by PacketDetail and LogViewer) ---
 
-function F({ label, value, color }: { label: string; value: string; color?: string }) {
+function Field({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
     <span className="inline-flex items-center gap-1 text-xs whitespace-nowrap">
       <span style={{ color: colors.sep }}>{label}:</span>
@@ -143,7 +115,7 @@ export function SemanticBlocks({ blocks }: { blocks: DetailBlock[] }) {
           ) : (
             <div className="flex items-center gap-4">
               {block.fields.map((f, fi) => (
-                <F key={fi} label={f.name} value={f.value} color={colors.label} />
+                <Field key={fi} label={f.name} value={f.value} color={colors.label} />
               ))}
             </div>
           )}
@@ -190,10 +162,10 @@ export function IntegritySection({ blocks }: { blocks: IntegrityBlockType[] }) {
 
 /** Extract copyable command text from _rendering. */
 // eslint-disable-next-line react-refresh/only-export-components
-export function extractFromRendering(rendering: { row?: { values: Record<string, unknown> }; detail_blocks?: DetailBlock[] } | undefined): { cmd: string; args: string } {
-  const row = rendering?.row?.values
-  if (row?.cmd) {
-    return { cmd: String(row.cmd), args: String(row.cmd) }
+export function extractFromRendering(rendering: Pick<RenderingData, 'row' | 'detail_blocks'> | undefined): { cmd: string; args: string } {
+  const cmdValue = rendering?.row?.cmd?.value
+  if (cmdValue) {
+    return { cmd: String(cmdValue), args: String(cmdValue) }
   }
   const blocks = rendering?.detail_blocks ?? []
   let cmd = ''
