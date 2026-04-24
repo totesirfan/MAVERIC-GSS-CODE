@@ -1,12 +1,62 @@
+/* Unified gauge visual — same 10 px bar as bar-viz. Temperature
+ * renders as a fill-from-left bar (0 % = cold end of scale, tip of
+ * fill = current value) with thin 1 px neutral ticks at the safe-band
+ * edges. Axis labels below, no tick marks. Matches EPS soc-gauge.
+ */
 .row {
   display: grid; grid-template-columns: auto 1fr auto auto;
   align-items: center; gap: 14px;
-  padding: 10px 14px 28px;
+  padding: 10px 14px;
 }
 .label {
   font-family: 'JetBrains Mono', monospace; font-size: 11px;
   color: #8A8A8A; letter-spacing: 0.08em;
 }
+
+.barWrap { display: flex; flex-direction: column; min-width: 0; }
+
+.bar {
+  position: relative; height: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid #222222; border-radius: 1px;
+}
+.fill {
+  position: absolute; top: 0; bottom: 0; left: 0;
+  background: #3CC98E; opacity: 0.85; max-width: 100%;
+}
+.fill.caution { background: #E8B83A; }
+.fill.danger  { background: #FF3838; }
+
+.lim {
+  position: absolute; top: -2px; bottom: -2px; width: 1px;
+  transform: translateX(-50%);
+  background: #8A8A8A; opacity: 0.7;
+}
+
+/* Precision marker — a slim glowing tick at the current value so
+ * operators can pinpoint the exact reading. Sits on top of the fill
+ * edge; colored to match the tone so nominal is subtle (green on
+ * green) while caution/danger pop against their tinted fills. */
+.marker {
+  position: absolute; top: -2px; bottom: -2px; width: 2px;
+  transform: translateX(-50%);
+  background: #E5E5E5;
+  box-shadow: 0 0 4px rgba(229, 229, 229, 0.6);
+}
+
+.axis {
+  position: relative; height: 14px; margin-top: 4px;
+  font-family: 'JetBrains Mono', monospace; font-size: 10px;
+  color: #777777; letter-spacing: 0.04em;
+}
+.tick {
+  position: absolute; top: 0;
+  transform: translateX(-50%); white-space: nowrap; line-height: 1;
+}
+.tickEdgeLo { transform: translateX(0); }
+.tickEdgeHi { transform: translateX(-100%); }
+.safeEdge { color: #8A8A8A; font-weight: 500; }
+
 .value {
   font-family: 'JetBrains Mono', monospace; font-size: 13px;
   color: #E5E5E5; font-variant-numeric: tabular-nums;
@@ -14,54 +64,8 @@
 .nominal { color: #3CC98E; }
 .caution { color: #E8B83A; }
 .danger  { color: #FF3838; }
+
 .age {
   font-family: 'JetBrains Mono', monospace; font-size: 11px;
   color: #777777;
-}
-
-.gauge {
-  position: relative; height: 12px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid #222222; border-radius: 1px;
-}
-.limDanger,
-.limCaution,
-.limSafe {
-  position: absolute; top: -3px; bottom: -3px; width: 2px;
-  transform: translateX(-50%);
-}
-.limDanger  { background: #FF3838; opacity: 0.75; }
-.limCaution { background: #E8B83A; opacity: 0.65; }
-.limSafe    { background: #888888; opacity: 0.85; }
-
-.marker {
-  position: absolute; top: -4px; bottom: -4px;
-  width: 2px; transform: translateX(-50%);
-  background: #E5E5E5;
-  box-shadow: 0 0 6px rgba(229, 229, 229, 0.7);
-}
-
-.range {
-  position: absolute; top: 14px; left: 0; right: 0;
-  height: 18px;
-  font-family: 'JetBrains Mono', monospace;
-  color: #777777;
-}
-.tick {
-  position: absolute; top: 4px;
-  font-size: 11px; line-height: 1;
-  transform: translateX(-50%);
-}
-.tick::before {
-  content: ''; position: absolute;
-  top: -5px; left: 50%; transform: translateX(-50%);
-  width: 1px; height: 4px; background: #777777;
-}
-.tickEdgeLo { transform: translateX(0); }
-.tickEdgeLo::before { left: 0; transform: none; }
-.tickEdgeHi { transform: translateX(-100%); }
-.tickEdgeHi::before { left: 100%; transform: translateX(-1px); }
-
-.safeEdge {
-  color: #8A8A8A; font-weight: 600;
 }

@@ -86,10 +86,9 @@ export function AdcsMtqCard({ state, nowMs }: AdcsMtqCardProps) {
 
   const modeChip = statV ? (
     <div
-      className="font-mono text-[10px] px-2 py-0.5 rounded-sm"
+      className="font-mono text-[11px] px-2 py-0.5 rounded-sm"
       style={{
         color: colors.active,
-        backgroundColor: colors.activeFill,
         border: `1px solid ${colors.active}4D`,
       }}
     >
@@ -99,13 +98,21 @@ export function AdcsMtqCard({ state, nowMs }: AdcsMtqCardProps) {
 
   return (
     <Card title="ADCS · MTQ" status={modeChip} className="h-full">
+      {/* Local flex wrapper — scoped stretching so the shared Card
+          component stays free of layout constraints that other plugin
+          cards (Planner, NaviGuider) don't need. */}
+      <div className="h-full flex flex-col min-h-0">
       <ModeStrip labels={ADCS_MODES} activeIndex={statV?.MODE} columns={8} />
 
-      <div className="grid grid-cols-2 border-t border-[#1a1a1a]">
+      <div className="grid grid-cols-2 border-t border-[#1a1a1a] flex-1 min-h-0">
         <div className="border-r border-[#1a1a1a] min-h-0">
           <Maveric3DViewer q={qArr} />
         </div>
-        <div className="min-w-0">
+        {/* justify-evenly spreads extra vertical height as uniform gaps
+            between every row, so when the left column (Planner +
+            NaviGuider) makes this card taller the rows stay visually
+            balanced instead of pooling empty space at the bottom. */}
+        <div className="min-w-0 flex flex-col justify-evenly min-h-0">
           <FieldDisplay
             label="Att Q"
             value={fmtQuat(qArr)}
@@ -207,6 +214,7 @@ export function AdcsMtqCard({ state, nowMs }: AdcsMtqCardProps) {
             nowMs={nowMs}
           />
         </div>
+      </div>
       </div>
     </Card>
   )

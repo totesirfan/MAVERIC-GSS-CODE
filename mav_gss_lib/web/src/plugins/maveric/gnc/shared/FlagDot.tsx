@@ -21,6 +21,9 @@ interface FlagDotProps {
   receivedAtMs?: number | null
   /** Current clock tick, shared across the panel. */
   nowMs: number
+  /** Hide the per-flag age line (the containing section owns one shared
+   *  timer instead). Opacity still tracks staleness via receivedAtMs. */
+  compact?: boolean
 }
 
 export function FlagDot({
@@ -29,6 +32,7 @@ export function FlagDot({
   polarity = 'fault',
   receivedAtMs,
   nowMs,
+  compact,
 }: FlagDotProps) {
   const noData = value === null || value === undefined
   const age = ageMs(receivedAtMs ?? null, nowMs)
@@ -50,10 +54,18 @@ export function FlagDot({
 
   const opacity = receivedAtMs != null ? STALE_OPACITY[level] : NO_DATA_OPACITY
 
+  // Surface the per-flag age via the native tooltip when running in
+  // compact mode — the cluster shows one shared timer, but an operator
+  // can still hover a specific flag to confirm its freshness.
+  const title = compact && receivedAtMs != null
+    ? `${label} · ${formatAge(age)}`
+    : undefined
+
   return (
     <div
       className="flex flex-col items-center justify-center px-2 py-2 border-r border-[#1a1a1a] last:border-r-0"
       style={{ opacity }}
+      title={title}
     >
       <div className="text-[11px] uppercase tracking-wide text-[#8A8A8A] text-center mb-1">
         {label}
@@ -73,9 +85,11 @@ export function FlagDot({
           {text}
         </span>
       </div>
-      <div className="font-mono text-[11px] text-[#555555] mt-0.5 min-h-[14px]">
-        {receivedAtMs != null ? formatAge(age) : ''}
-      </div>
+      {!compact && (
+        <div className="font-mono text-[11px] text-[#555555] mt-0.5 min-h-[14px]">
+          {receivedAtMs != null ? formatAge(age) : ''}
+        </div>
+      )}
     </div>
   )
 }

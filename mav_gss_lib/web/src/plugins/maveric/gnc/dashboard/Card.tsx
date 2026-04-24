@@ -13,16 +13,31 @@ interface CardProps {
 export function Card({ title, status, className, children }: CardProps) {
   return (
     <div
-      className={`flex flex-col rounded-sm border ${className ?? ''}`}
-      style={{ backgroundColor: colors.bgPanel, borderColor: colors.borderSubtle }}
+      className={`flex flex-col border overflow-hidden ${className ?? ''}`}
+      style={{
+        backgroundColor: colors.bgPanel,
+        borderColor: colors.borderSubtle,
+        borderRadius: 6,
+        boxShadow: '0 1px 3px rgba(0,0,0,0.4)',
+      }}
     >
       <div
-        className="flex items-center justify-between px-3 py-2 border-b"
-        style={{ borderColor: colors.borderSubtle }}
+        className="flex items-center justify-between border-b"
+        style={{
+          borderColor: colors.borderSubtle,
+          padding: '6px 12px',
+          minHeight: 34,
+        }}
       >
         <h3
-          className="font-sans text-[12px] uppercase tracking-wider"
-          style={{ color: colors.textPrimary }}
+          className="font-sans uppercase"
+          style={{
+            color: colors.textPrimary,
+            fontSize: 14,
+            fontWeight: 700,
+            letterSpacing: '0.02em',
+            whiteSpace: 'nowrap',
+          }}
         >
           {title}
         </h3>
