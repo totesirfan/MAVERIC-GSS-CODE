@@ -13,7 +13,7 @@ from mav_gss_lib.platform import (
     MissionSpec,
     ValidationIssue,
 )
-from mav_gss_lib.platform.command_pipeline import CommandRejected, prepare_command
+from mav_gss_lib.platform.tx.commands import CommandRejected, prepare_command
 from mav_gss_lib.platform.loader import load_mission_spec
 from mav_gss_lib.missions.echo_v2.mission import EchoPacketOps, EchoUiOps
 

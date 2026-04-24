@@ -1,4 +1,4 @@
-"""Rendering helpers for platform v2.
+"""RX rendering helpers — safe wrappers around mission UI renderers.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -8,12 +8,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from .mission_api import MissionSpec
-from .packets import PacketEnvelope
-from .rendering import Cell, ColumnDef, DetailBlock, PacketRendering
+from ..contract.mission import MissionSpec
+from ..contract.packets import PacketEnvelope
+from ..contract.rendering import Cell, ColumnDef, DetailBlock, PacketRendering
 
 
-def render_packet_safe(mission: MissionSpec, packet: PacketEnvelope) -> PacketRendering:
+def render_packet(mission: MissionSpec, packet: PacketEnvelope) -> PacketRendering:
     """Render a packet, falling back to raw data if mission rendering fails."""
 
     try:

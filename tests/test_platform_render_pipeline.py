@@ -3,12 +3,12 @@ from typing import Any
 
 from mav_gss_lib.platform import MissionConfigSpec, MissionSpec
 from mav_gss_lib.platform.loader import load_mission_spec
-from mav_gss_lib.platform.packet_pipeline import PacketPipeline
-from mav_gss_lib.platform.render_pipeline import (
+from mav_gss_lib.platform.rx.packets import PacketPipeline
+from mav_gss_lib.platform.rx.rendering import (
     fallback_packet_rendering,
     format_text_log_safe,
     render_log_data_safe,
-    render_packet_safe,
+    render_packet,
 )
 from mav_gss_lib.missions.echo_v2.mission import EchoPacketOps
 
@@ -20,7 +20,7 @@ def test_render_packet_safe_uses_mission_renderer(tmp_path):
     )
     packet = PacketPipeline(spec).process({}, b"\xca\xfe")
 
-    rendering = render_packet_safe(spec, packet)
+    rendering = render_packet(spec, packet)
 
     assert packet.rendering is rendering
     assert rendering.row["hex"].value == "cafe"
@@ -55,7 +55,7 @@ def test_render_packet_safe_falls_back_when_mission_renderer_fails(caplog):
     )
     packet = PacketPipeline(spec).process({}, b"\x01\x02")
 
-    rendering = render_packet_safe(spec, packet)
+    rendering = render_packet(spec, packet)
 
     assert packet.rendering is rendering
     assert rendering == fallback_packet_rendering(packet)

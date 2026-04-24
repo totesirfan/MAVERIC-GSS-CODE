@@ -1,4 +1,7 @@
-"""Telemetry contracts for the platform v2 mission boundary.
+"""Telemetry contract — what missions implement for telemetry extraction and merge.
+
+Runtime types (TelemetryFragment, MergePolicy, EntryLoader) live in
+`mav_gss_lib.platform.telemetry`; the contract references them.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -8,12 +11,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Protocol
 
-from .fragment import TelemetryFragment
-from .policy import MergePolicy, lww_by_ts
-from .state import EntryLoader
+from ..telemetry import EntryLoader, MergePolicy, TelemetryFragment, lww_by_ts
 
 if TYPE_CHECKING:
-    from ..packets import PacketEnvelope
+    from .packets import PacketEnvelope
 
 CatalogProvider = Callable[[], Any]
 

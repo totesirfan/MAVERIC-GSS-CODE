@@ -1,4 +1,4 @@
-"""MissionSpec loader scaffolding for platform v2.
+"""MissionSpec loader — resolve a mission id to a built MissionSpec.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -9,7 +9,7 @@ import importlib
 from pathlib import Path
 from typing import Any
 
-from .mission_api import MissionContext, MissionSpec
+from .contract.mission import MissionContext, MissionSpec
 
 
 def load_mission_spec_from_split(
@@ -43,7 +43,7 @@ def load_mission_spec(cfg: dict[str, Any], *, data_dir: str | Path = "logs") -> 
     """Test-only convenience: accept a native `{platform, mission}` dict and
     delegate to `load_mission_spec_from_split`.
 
-    Production code paths (`PlatformRuntimeV2.from_split`, `WebRuntime`) call
+    Production code paths (`PlatformRuntime.from_split`, `WebRuntime`) call
     `load_mission_spec_from_split` directly with the split tuple. This wrapper
     keeps test ergonomics ergonomic without smuggling the flat legacy shape
     back into the loader surface.

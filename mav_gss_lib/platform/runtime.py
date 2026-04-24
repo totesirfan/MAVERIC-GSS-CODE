@@ -1,7 +1,8 @@
-"""Platform v2 runtime container used by the production web runtime.
+"""Platform runtime container used by the production web runtime.
 
-Loads the active MissionSpec, registers mission telemetry domains, processes
-RX through RxPipelineV2, and prepares TX commands through CommandOps.
+Loads the active MissionSpec, registers mission telemetry domains,
+processes RX through `RxPipeline`, and prepares TX commands through
+`CommandOps`.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -12,13 +13,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .telemetry import TelemetryRouter
-
-from .command_pipeline import PreparedCommand, frame_command, prepare_command
-from .commands import EncodedCommand, FramedCommand
+from .contract.commands import EncodedCommand, FramedCommand
+from .contract.mission import MissionSpec
 from .loader import load_mission_spec_from_split
-from .mission_api import MissionSpec
-from .rx_pipeline import RxPipelineV2, RxResult
+from .rx.pipeline import RxPipeline, RxResult
+from .telemetry import TelemetryRouter
+from .tx.commands import PreparedCommand, frame_command, prepare_command
 
 
 def _resolve_log_dir(platform_cfg: dict[str, Any]) -> str:
@@ -31,10 +31,10 @@ def _resolve_log_dir(platform_cfg: dict[str, Any]) -> str:
 
 
 @dataclass(slots=True)
-class PlatformRuntimeV2:
+class PlatformRuntime:
     mission: MissionSpec
     telemetry: TelemetryRouter
-    rx: RxPipelineV2
+    rx: RxPipeline
 
     @classmethod
     def from_split(
@@ -42,8 +42,8 @@ class PlatformRuntimeV2:
         platform_cfg: dict[str, Any],
         mission_id: str,
         mission_cfg: dict[str, Any],
-    ) -> "PlatformRuntimeV2":
-        """Build the platform v2 runtime from split operator state."""
+    ) -> "PlatformRuntime":
+        """Build the platform runtime from split operator state."""
         log_dir = _resolve_log_dir(platform_cfg)
         mission = load_mission_spec_from_split(
             platform_cfg, mission_id, mission_cfg, data_dir=Path(log_dir),
@@ -55,7 +55,7 @@ class PlatformRuntimeV2:
         return cls(
             mission=mission,
             telemetry=telemetry,
-            rx=RxPipelineV2(mission, telemetry),
+            rx=RxPipeline(mission, telemetry),
         )
 
     def process_rx(self, meta: dict[str, Any], raw: bytes) -> RxResult:

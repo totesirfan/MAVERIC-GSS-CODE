@@ -1,4 +1,4 @@
-"""End-to-end RX orchestration for platform v2.
+"""End-to-end RX orchestration: packet → telemetry → render → events.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -8,14 +8,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .telemetry import TelemetryRouter
-
-from .event_pipeline import collect_packet_events
-from .mission_api import MissionSpec
-from .packet_pipeline import PacketPipeline
-from .packets import PacketEnvelope
-from .render_pipeline import render_packet_safe
-from .telemetry_pipeline import extract_telemetry_fragments, ingest_packet_telemetry
+from ..contract.mission import MissionSpec
+from ..contract.packets import PacketEnvelope
+from ..telemetry import TelemetryRouter
+from .events import collect_packet_events
+from .packets import PacketPipeline
+from .rendering import render_packet
+from .telemetry import extract_telemetry_fragments, ingest_packet_telemetry
 
 
 @dataclass(slots=True)
@@ -26,10 +25,10 @@ class RxResult:
     event_messages: list[dict[str, Any]] = field(default_factory=list)
 
 
-class RxPipelineV2:
-    """Platform v2 RX flow independent of the web runtime.
+class RxPipeline:
+    """Platform RX flow, independent of the web runtime.
 
-    Target ordering:
+    Ordering:
       1. packet normalize/parse/classify
       2. telemetry extract
       3. telemetry ingest
@@ -46,7 +45,7 @@ class RxPipelineV2:
         packet = self.packet_pipeline.process(meta, raw)
         extract_telemetry_fragments(self.mission, packet)
         telemetry_messages = ingest_packet_telemetry(self.telemetry_router, packet)
-        rendering = render_packet_safe(self.mission, packet)
+        rendering = render_packet(self.mission, packet)
         event_messages = collect_packet_events(self.mission, packet)
         packet_message = {
             "type": "packet",

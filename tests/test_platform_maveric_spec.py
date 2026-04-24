@@ -1,8 +1,8 @@
 from mav_gss_lib.config import load_split_config
-from mav_gss_lib.platform.command_pipeline import prepare_command
+from mav_gss_lib.platform.tx.commands import prepare_command
 from mav_gss_lib.platform.loader import load_mission_spec_from_split
-from mav_gss_lib.platform.packets import PacketEnvelope, PacketFlags
-from mav_gss_lib.platform.rx_pipeline import RxPipelineV2
+from mav_gss_lib.platform.contract.packets import PacketEnvelope, PacketFlags
+from mav_gss_lib.platform.rx.pipeline import RxPipeline
 from mav_gss_lib.platform.telemetry.router import TelemetryRouter
 
 
@@ -66,7 +66,7 @@ def test_maveric_v2_command_ops_prepare_schema_command(tmp_path):
 
 def test_maveric_v2_rx_pipeline_renders_unknown_raw_packet(tmp_path):
     spec = _maveric_spec(tmp_path)
-    rx = RxPipelineV2(spec, _router_for(spec, tmp_path))
+    rx = RxPipeline(spec, _router_for(spec, tmp_path))
 
     result = rx.process({"transmitter": "fixture"}, b"\x01\x02")
 
@@ -78,7 +78,7 @@ def test_maveric_v2_rx_pipeline_renders_unknown_raw_packet(tmp_path):
 
 def test_maveric_v2_rx_pipeline_extracts_eps_hk_telemetry(tmp_path):
     spec = _maveric_spec(tmp_path)
-    rx = RxPipelineV2(spec, _router_for(spec, tmp_path))
+    rx = RxPipeline(spec, _router_for(spec, tmp_path))
 
     result = rx.process({"transmitter": "fixture"}, bytes.fromhex(EPS_HK_PAYLOAD_HEX))
 

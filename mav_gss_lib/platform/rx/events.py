@@ -1,4 +1,4 @@
-"""Packet event helper for platform v2.
+"""Packet event collector — runs mission EventOps sources on each RX packet.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import logging
 
-from .mission_api import MissionSpec
-from .packets import PacketEnvelope
+from ..contract.mission import MissionSpec
+from ..contract.packets import PacketEnvelope
 
 
 def collect_packet_events(mission: MissionSpec, packet: PacketEnvelope) -> list[dict]:

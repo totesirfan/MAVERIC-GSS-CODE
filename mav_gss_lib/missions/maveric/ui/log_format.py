@@ -32,7 +32,7 @@ def build_log_mission_data(pkt) -> dict:
     """Return MAVERIC-specific fields for the JSONL log mission block.
 
     This produces the same fields that were previously inlined in
-    build_rx_log_record(), but scoped under a 'mission' key in the
+    rx_log_record(), but scoped under a 'mission' key in the
     platform envelope.
     """
     md = _md(pkt)

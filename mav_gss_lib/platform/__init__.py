@@ -1,36 +1,87 @@
-"""Platform v2 mission API.
+"""Platform — the mission/platform boundary and the runners that drive it.
 
-`MissionSpec` is the single mission/platform boundary consumed by
-`WebRuntime` and every production code path. Missions live under
-`mav_gss_lib.missions.<id>` and are loaded via
-`PlatformRuntimeV2.from_split`.
+Layout:
+    contract/    — what missions implement (Protocols + types)
+    rx/          — inbound packet flow (PacketPipeline, RxPipeline, …)
+    tx/          — outbound command flow (prepare_command, frame_command)
+    config/      — platform-config update spec + appliers
+    telemetry/   — runtime fragment/policy/state/router types
+    runtime.py   — PlatformRuntime container
+    loader.py    — MissionSpec loading
+
+Most callers import from this facade:
+    from mav_gss_lib.platform import MissionSpec, PacketOps, CommandOps
 
 Author:  Irfan Annuar - USC ISI SERC
 """
 
-from .command_pipeline import CommandRejected, PreparedCommand, prepare_command
-from .commands import CommandDraft, CommandOps, CommandRendering, EncodedCommand, FramedCommand, ValidationIssue
-from .config_boundary import (
-    DEFAULT_PLATFORM_CONFIG_SPEC,
-    PlatformConfigSpec,
+from .config.spec import DEFAULT_PLATFORM_CONFIG_SPEC, PlatformConfigSpec
+from .config.updates import (
     apply_mission_config_update,
     apply_platform_config_update,
     persist_mission_config,
 )
-from .events import EventOps, PacketEventSource
-from .event_pipeline import collect_connect_events, collect_packet_events
-from .loader import load_mission_spec, load_mission_spec_from_split, validate_mission_spec
-from .logging import build_rx_log_record, format_rx_text_lines
-from .mission_api import MissionConfigSpec, MissionContext, MissionSpec
-from .packet_pipeline import PacketPipeline
-from .packets import MissionPacket, NormalizedPacket, PacketEnvelope, PacketFlags, PacketOps
-from .rendering import Cell, ColumnDef, DetailBlock, IntegrityBlock, PacketRendering
-from .runtime import PlatformRuntimeV2
-from .rx_pipeline import RxPipelineV2, RxResult
-from .telemetry import TelemetryDomainSpec, TelemetryExtractor, TelemetryOps
-from .telemetry_pipeline import extract_telemetry_fragments, ingest_packet_telemetry
+from .contract.commands import (
+    CommandDraft,
+    CommandOps,
+    CommandRendering,
+    EncodedCommand,
+    FramedCommand,
+    ValidationIssue,
+)
+from .contract.events import EventOps, PacketEventSource
+from .contract.http import HttpOps
+from .contract.mission import (
+    MissionConfigSpec,
+    MissionContext,
+    MissionPreflightFn,
+    MissionSpec,
+)
+from .contract.packets import (
+    MissionPacket,
+    NormalizedPacket,
+    PacketEnvelope,
+    PacketFlags,
+    PacketOps,
+)
+from .contract.rendering import (
+    Cell,
+    ColumnDef,
+    DetailBlock,
+    IntegrityBlock,
+    PacketRendering,
+)
+from .contract.telemetry import (
+    CatalogProvider,
+    TelemetryDomainSpec,
+    TelemetryExtractor,
+    TelemetryOps,
+)
+from .contract.ui import UiOps
+from .loader import (
+    load_mission_spec,
+    load_mission_spec_from_split,
+    validate_mission_spec,
+)
+from .runtime import PlatformRuntime
+from .rx.events import collect_connect_events, collect_packet_events
+from .rx.logging import rx_log_record, rx_log_text
+from .rx.packets import PacketPipeline
+from .rx.pipeline import RxPipeline, RxResult
+from .rx.rendering import fallback_packet_rendering, render_packet
+from .rx.telemetry import extract_telemetry_fragments, ingest_packet_telemetry
+from .telemetry import (
+    DomainState,
+    EntryLoader,
+    MergePolicy,
+    TelemetryFragment,
+    TelemetryRouter,
+    lww_by_ts,
+)
+from .tx.commands import CommandRejected, PreparedCommand, frame_command, prepare_command
 
 __all__ = [
+    "CatalogProvider",
     "Cell",
     "ColumnDef",
     "CommandDraft",
@@ -39,13 +90,18 @@ __all__ = [
     "CommandRendering",
     "DEFAULT_PLATFORM_CONFIG_SPEC",
     "DetailBlock",
+    "DomainState",
     "EncodedCommand",
+    "EntryLoader",
     "EventOps",
     "FramedCommand",
+    "HttpOps",
     "IntegrityBlock",
+    "MergePolicy",
     "MissionConfigSpec",
     "MissionContext",
     "MissionPacket",
+    "MissionPreflightFn",
     "MissionSpec",
     "NormalizedPacket",
     "PacketEnvelope",
@@ -55,25 +111,32 @@ __all__ = [
     "PacketPipeline",
     "PacketRendering",
     "PlatformConfigSpec",
-    "PlatformRuntimeV2",
+    "PlatformRuntime",
     "PreparedCommand",
-    "RxPipelineV2",
+    "RxPipeline",
     "RxResult",
     "TelemetryDomainSpec",
     "TelemetryExtractor",
+    "TelemetryFragment",
     "TelemetryOps",
+    "TelemetryRouter",
+    "UiOps",
     "ValidationIssue",
     "apply_mission_config_update",
     "apply_platform_config_update",
-    "persist_mission_config",
-    "build_rx_log_record",
     "collect_connect_events",
     "collect_packet_events",
     "extract_telemetry_fragments",
-    "format_rx_text_lines",
+    "fallback_packet_rendering",
+    "frame_command",
     "ingest_packet_telemetry",
     "load_mission_spec",
     "load_mission_spec_from_split",
+    "lww_by_ts",
+    "persist_mission_config",
     "prepare_command",
+    "render_packet",
+    "rx_log_record",
+    "rx_log_text",
     "validate_mission_spec",
 ]

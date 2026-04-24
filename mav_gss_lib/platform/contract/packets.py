@@ -1,4 +1,4 @@
-"""Packet contracts for the platform v2 mission boundary.
+"""Packet contract — normalized/mission/envelope types plus mission PacketOps.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -8,8 +8,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Hashable, Protocol
 
+from ..telemetry import TelemetryFragment
 from .rendering import PacketRendering
-from .telemetry import TelemetryFragment
 
 
 @dataclass(frozen=True, slots=True)

@@ -56,7 +56,7 @@ def test_stations_strip_preserves_disk_value(tmp_path, monkeypatch):
     """A UI config save must not wipe the stations catalog from the persisted YAML."""
     import yaml
     from mav_gss_lib import config as cfg_module
-    from mav_gss_lib.platform.config_boundary import apply_platform_config_update
+    from mav_gss_lib.platform.config import apply_platform_config_update
 
     gss_path = tmp_path / "gss.yml"
     gss_path.write_text("stations:\n  host1: GS-7\ntx:\n  delay_ms: 500\n")

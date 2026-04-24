@@ -1,4 +1,4 @@
-"""Command pipeline helpers for platform v2.
+"""TX command runner — parse → validate → encode → render → frame.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -8,8 +8,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .commands import CommandDraft, CommandRendering, EncodedCommand, FramedCommand, ValidationIssue
-from .mission_api import MissionSpec
+from ..contract.commands import (
+    CommandDraft,
+    CommandRendering,
+    EncodedCommand,
+    FramedCommand,
+    ValidationIssue,
+)
+from ..contract.mission import MissionSpec
 
 
 @dataclass(frozen=True, slots=True)

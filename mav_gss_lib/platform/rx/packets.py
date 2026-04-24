@@ -1,4 +1,7 @@
-"""PacketPipeline for the platform v2 MissionSpec API.
+"""PacketPipeline — stateful RX packet processor.
+
+Drives mission `PacketOps.normalize / parse / classify` and layers platform
+state on top: sequencing, timestamps, duplicate-window, rate counters.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -10,8 +13,8 @@ from collections import OrderedDict, deque
 from datetime import datetime
 from typing import Any
 
-from .mission_api import MissionSpec
-from .packets import PacketEnvelope, PacketFlags
+from ..contract.mission import MissionSpec
+from ..contract.packets import PacketEnvelope, PacketFlags
 
 DUP_WINDOW = 1.0
 

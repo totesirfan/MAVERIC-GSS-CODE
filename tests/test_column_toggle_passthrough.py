@@ -21,12 +21,12 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 class TestColumnDefToggleSerializes(unittest.TestCase):
     def test_platform_columndef_serializes_toggle_when_set(self):
-        from mav_gss_lib.platform.rendering import ColumnDef
+        from mav_gss_lib.platform.contract.rendering import ColumnDef
         col = ColumnDef(id="frame", label="frame", width="w-[72px]", toggle="showFrame")
         self.assertEqual(col.to_json().get("toggle"), "showFrame")
 
     def test_platform_columndef_omits_toggle_when_unset(self):
-        from mav_gss_lib.platform.rendering import ColumnDef
+        from mav_gss_lib.platform.contract.rendering import ColumnDef
         col = ColumnDef(id="time", label="time")
         self.assertNotIn("toggle", col.to_json())
 

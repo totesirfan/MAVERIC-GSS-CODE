@@ -1,12 +1,12 @@
 import pytest
 
 from mav_gss_lib.config import load_split_config
-from mav_gss_lib.platform.command_pipeline import CommandRejected
-from mav_gss_lib.platform.runtime import PlatformRuntimeV2
+from mav_gss_lib.platform.tx.commands import CommandRejected
+from mav_gss_lib.platform.runtime import PlatformRuntime
 
 
 def test_runtime_v2_loads_echo_and_processes_rx_and_tx(tmp_path):
-    runtime = PlatformRuntimeV2.from_split(
+    runtime = PlatformRuntime.from_split(
         {"logs": {"dir": str(tmp_path)}},
         "echo_v2",
         {},
@@ -22,7 +22,7 @@ def test_runtime_v2_loads_echo_and_processes_rx_and_tx(tmp_path):
 
 
 def test_runtime_v2_loads_balloon_and_registers_telemetry_domains(tmp_path):
-    runtime = PlatformRuntimeV2.from_split(
+    runtime = PlatformRuntime.from_split(
         {"logs": {"dir": str(tmp_path)}},
         "balloon_v2",
         {},
@@ -40,7 +40,7 @@ def test_runtime_v2_loads_balloon_and_registers_telemetry_domains(tmp_path):
 
 
 def test_runtime_v2_rejects_tx_for_non_commandable_mission(tmp_path):
-    runtime = PlatformRuntimeV2.from_split(
+    runtime = PlatformRuntime.from_split(
         {"logs": {"dir": str(tmp_path)}},
         "balloon_v2",
         {},
@@ -54,7 +54,7 @@ def test_runtime_v2_loads_maveric_and_prepares_command(tmp_path):
     platform_cfg, mission_id, mission_cfg = load_split_config()
     platform_cfg["logs"] = {"dir": str(tmp_path)}
 
-    runtime = PlatformRuntimeV2.from_split(platform_cfg, mission_id, mission_cfg)
+    runtime = PlatformRuntime.from_split(platform_cfg, mission_id, mission_cfg)
 
     rx = runtime.process_rx({"transmitter": "fixture"}, b"\x01\x02")
     tx = runtime.prepare_tx("ftdi_log hello")

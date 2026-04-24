@@ -1,4 +1,9 @@
-"""Top-level mission spec for the platform v2 architecture.
+"""Top-level mission spec — the single mission/platform boundary.
+
+A `MissionSpec` bundles the mission's packet/command/telemetry/event
+capabilities, its UI surface, its optional HTTP routers, its preflight
+hook, and its config-shape declaration. Missions build one at load time;
+the platform consumes it.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -7,15 +12,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Iterable, Protocol
-
-from fastapi import APIRouter
+from typing import Any, Callable, Iterable
 
 from .commands import CommandOps
 from .events import EventOps
+from .http import HttpOps
 from .packets import PacketOps
-from .rendering import ColumnDef, PacketRendering
 from .telemetry import TelemetryOps
+from .ui import UiOps
 
 
 # Typed loosely as `Iterable[Any]` to avoid a platform → preflight import
@@ -35,23 +39,6 @@ class MissionContext:
     platform_config: dict[str, Any]
     mission_config: dict[str, Any]
     data_dir: Path
-
-
-@dataclass(frozen=True, slots=True)
-class HttpOps:
-    routers: list[APIRouter] = field(default_factory=list)
-
-
-class UiOps(Protocol):
-    def packet_columns(self) -> list[ColumnDef]: ...
-
-    def tx_columns(self) -> list[ColumnDef]: ...
-
-    def render_packet(self, packet) -> PacketRendering: ...
-
-    def render_log_data(self, packet) -> dict[str, Any]: ...
-
-    def format_text_log(self, packet) -> list[str]: ...
 
 
 @dataclass(frozen=True, slots=True)

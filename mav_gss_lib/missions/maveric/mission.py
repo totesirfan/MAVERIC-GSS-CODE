@@ -20,7 +20,7 @@ from mav_gss_lib.missions.maveric.config_access import command_defs_name, image_
 from mav_gss_lib.missions.maveric.telemetry.ops import build_telemetry_ops
 from mav_gss_lib.missions.maveric.ui.ops import MavericUiOps
 from mav_gss_lib.platform import EventOps, MissionConfigSpec, MissionContext, MissionSpec
-from mav_gss_lib.platform.mission_api import HttpOps
+from mav_gss_lib.platform.contract.mission import HttpOps
 
 
 def build(ctx: MissionContext) -> MissionSpec:

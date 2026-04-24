@@ -9,7 +9,7 @@ import unittest
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from mav_gss_lib.platform import MissionConfigSpec  # noqa: E402
-from mav_gss_lib.platform.config_boundary import (  # noqa: E402
+from mav_gss_lib.platform.config import (  # noqa: E402
     apply_platform_config_update as _apply_platform_update,
 )
 

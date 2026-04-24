@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 from mav_gss_lib.config import get_rx_zmq_addr
 
 from ._atomics import AtomicStatus
-from mav_gss_lib.platform.logging import build_rx_log_record, format_rx_text_lines
+from mav_gss_lib.platform.rx.logging import rx_log_record, rx_log_text
 from mav_gss_lib.protocols.frame_detect import detect_frame_type, is_noise_frame
 from mav_gss_lib.transport import SUB_STATUS, init_zmq_sub, poll_monitor, receive_pdu, zmq_cleanup
 
@@ -134,7 +134,7 @@ class RxService:
                     continue  # gr-satellites noise — behave as if never received
                 result = self.runtime.platform.process_rx(meta, raw)
                 pkt = result.packet
-                record = build_rx_log_record(
+                record = rx_log_record(
                     self.runtime.mission, pkt, version,
                     operator=self.runtime.operator, station=self.runtime.station,
                 )
@@ -143,7 +143,7 @@ class RxService:
                         self.log.write_jsonl(record)
                         self.log.write_packet_v2(
                             pkt,
-                            text_lines=format_rx_text_lines(self.runtime.mission, pkt),
+                            text_lines=rx_log_text(self.runtime.mission, pkt),
                         )
                 except Exception as exc:
                     logging.warning("RX log write failed: %s", exc)

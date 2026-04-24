@@ -1,7 +1,7 @@
 from mav_gss_lib.platform import MissionSpec
-from mav_gss_lib.platform.logging import build_rx_log_record
-from mav_gss_lib.platform.packets import PacketEnvelope, PacketFlags
-from mav_gss_lib.platform.rendering import PacketRendering
+from mav_gss_lib.platform.rx.logging import rx_log_record
+from mav_gss_lib.platform.contract.packets import PacketEnvelope, PacketFlags
+from mav_gss_lib.platform.contract.rendering import PacketRendering
 
 
 class _Ui:
@@ -27,7 +27,7 @@ def test_rx_record_carries_identity():
         flags=PacketFlags(),
     )
     spec = MissionSpec(id="test", name="Test", packets=None, ui=_Ui(), config=None)
-    record = build_rx_log_record(
+    record = rx_log_record(
         spec, pkt, version="1.2.3",
         operator="irfan", station="GS-0",
     )

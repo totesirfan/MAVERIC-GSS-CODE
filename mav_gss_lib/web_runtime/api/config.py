@@ -22,7 +22,7 @@ from mav_gss_lib.config import (
     save_operator_config,
     split_to_persistable,
 )
-from mav_gss_lib.platform.config_boundary import (
+from mav_gss_lib.platform.config import (
     DEFAULT_PLATFORM_CONFIG_SPEC,
     apply_mission_config_update,
     apply_platform_config_update,

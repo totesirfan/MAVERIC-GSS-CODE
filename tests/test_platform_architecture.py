@@ -7,10 +7,10 @@ def test_platform_package_public_api_imports():
     import mav_gss_lib.platform as platform
 
     assert platform.MissionSpec
-    assert platform.PlatformRuntimeV2
-    assert platform.RxPipelineV2
+    assert platform.PlatformRuntime
+    assert platform.RxPipeline
     assert platform.prepare_command
-    assert platform.build_rx_log_record
+    assert platform.rx_log_record
 
 
 def test_platform_package_does_not_import_maveric():

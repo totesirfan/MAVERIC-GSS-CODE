@@ -1,8 +1,4 @@
-"""Platform v2 logging envelope helpers.
-
-This intentionally does not clean up the full historical JSON log schema.
-It defines the minimum stable v2 envelope so mission/platform cutover does
-not spread mission-specific fields through platform logging.
+"""RX log formatters — JSONL envelope + text lines for inbound packets.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -11,12 +7,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from .mission_api import MissionSpec
-from .packets import PacketEnvelope
-from .render_pipeline import format_text_log_safe, render_log_data_safe, render_packet_safe
+from ..contract.mission import MissionSpec
+from ..contract.packets import PacketEnvelope
+from .rendering import format_text_log_safe, render_log_data_safe, render_packet
 
 
-def build_rx_log_record(
+def rx_log_record(
     mission: MissionSpec,
     packet: PacketEnvelope,
     version: str,
@@ -24,9 +20,9 @@ def build_rx_log_record(
     operator: str = "",
     station: str = "",
 ) -> dict[str, Any]:
-    """Build a platform-owned RX JSONL envelope for v2 packets."""
+    """Build the platform-owned RX JSONL envelope for a packet."""
 
-    rendering = packet.rendering or render_packet_safe(mission, packet)
+    rendering = packet.rendering or render_packet(mission, packet)
     record: dict[str, Any] = {
         "v": version,
         "mission": mission.id,
@@ -54,7 +50,7 @@ def build_rx_log_record(
     return record
 
 
-def format_rx_text_lines(mission: MissionSpec, packet: PacketEnvelope) -> list[str]:
-    """Return mission text-log lines for a v2 packet with failure isolation."""
+def rx_log_text(mission: MissionSpec, packet: PacketEnvelope) -> list[str]:
+    """Return mission text-log lines for a packet with failure isolation."""
 
     return format_text_log_safe(mission, packet)

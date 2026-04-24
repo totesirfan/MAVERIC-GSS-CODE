@@ -1,4 +1,9 @@
-"""Config boundary helpers for platform v2.
+"""Platform + mission config update appliers.
+
+The allowlist specs live alongside (`.spec` for platform,
+`..contract.mission.MissionConfigSpec` for mission). This module holds the
+pure functions that merge an incoming update into an existing config,
+respecting those specs.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -6,31 +11,10 @@ Author:  Irfan Annuar - USC ISI SERC
 from __future__ import annotations
 
 import copy
-from dataclasses import dataclass, field
 from typing import Any
 
-from .mission_api import MissionConfigSpec
-
-
-@dataclass(frozen=True, slots=True)
-class PlatformConfigSpec:
-    """Platform `platform_cfg` update allowlist.
-
-    `apply_platform_config_update` uses this to decide which parts of an
-    incoming update it will actually write. Sections and general keys not
-    listed here (install-time state like `stations`, runtime-derived fields
-    like `version` / `build_sha`, stray mission-only keys that shouldn't
-    have made it into the platform bucket) are silently dropped.
-    """
-
-    editable_sections: frozenset[str] = field(default_factory=frozenset)
-    editable_general_keys: frozenset[str] = field(default_factory=frozenset)
-
-
-DEFAULT_PLATFORM_CONFIG_SPEC = PlatformConfigSpec(
-    editable_sections=frozenset({"tx", "rx"}),
-    editable_general_keys=frozenset({"log_dir", "generated_commands_dir"}),
-)
+from ..contract.mission import MissionConfigSpec
+from .spec import DEFAULT_PLATFORM_CONFIG_SPEC, PlatformConfigSpec
 
 
 def apply_platform_config_update(

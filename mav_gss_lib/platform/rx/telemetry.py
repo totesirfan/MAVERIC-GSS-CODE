@@ -1,4 +1,4 @@
-"""Telemetry extraction/ingest helpers for platform v2.
+"""Telemetry extract/ingest runners — drive mission TelemetryOps per packet.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -7,9 +7,9 @@ from __future__ import annotations
 
 import logging
 
-from .mission_api import MissionSpec
-from .packets import PacketEnvelope
-from .telemetry import TelemetryFragment, TelemetryRouter
+from ..contract.mission import MissionSpec
+from ..contract.packets import PacketEnvelope
+from ..telemetry import TelemetryFragment, TelemetryRouter
 
 
 def extract_telemetry_fragments(mission: MissionSpec, packet: PacketEnvelope) -> list[TelemetryFragment]:

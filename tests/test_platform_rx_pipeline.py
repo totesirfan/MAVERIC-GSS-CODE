@@ -1,5 +1,5 @@
 from mav_gss_lib.platform.loader import load_mission_spec
-from mav_gss_lib.platform.rx_pipeline import RxPipelineV2
+from mav_gss_lib.platform.rx.pipeline import RxPipeline
 from mav_gss_lib.platform.telemetry.router import TelemetryRouter
 
 
@@ -16,7 +16,7 @@ def test_rx_pipeline_v2_processes_echo_packet_without_telemetry(tmp_path):
         {"mission": {"id": "echo_v2", "config": {}}, "platform": {}},
         data_dir=tmp_path,
     )
-    rx = RxPipelineV2(spec, _router_for(spec, tmp_path))
+    rx = RxPipeline(spec, _router_for(spec, tmp_path))
 
     result = rx.process({"transmitter": "fixture"}, b"\x01\x02")
 
@@ -33,7 +33,7 @@ def test_rx_pipeline_v2_processes_balloon_packet_with_telemetry(tmp_path):
         {"mission": {"id": "balloon_v2", "config": {}}, "platform": {}},
         data_dir=tmp_path,
     )
-    rx = RxPipelineV2(spec, _router_for(spec, tmp_path))
+    rx = RxPipeline(spec, _router_for(spec, tmp_path))
 
     result = rx.process(
         {},
@@ -52,7 +52,7 @@ def test_rx_pipeline_v2_marks_unknown_balloon_packet(tmp_path):
         {"mission": {"id": "balloon_v2", "config": {}}, "platform": {}},
         data_dir=tmp_path,
     )
-    rx = RxPipelineV2(spec, _router_for(spec, tmp_path))
+    rx = RxPipeline(spec, _router_for(spec, tmp_path))
 
     result = rx.process({}, b'{"type":"status"}')
 

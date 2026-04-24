@@ -1,4 +1,4 @@
-from mav_gss_lib.platform.config_boundary import (
+from mav_gss_lib.platform.config import (
     apply_mission_config_update,
     persist_mission_config,
 )

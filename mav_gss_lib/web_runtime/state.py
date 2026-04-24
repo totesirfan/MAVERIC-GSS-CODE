@@ -33,7 +33,7 @@ from mav_gss_lib.config import (
 )
 from mav_gss_lib.constants import DEFAULT_MISSION_NAME
 from mav_gss_lib.identity import capture_host, capture_operator, capture_station
-from mav_gss_lib.platform import PlatformRuntimeV2
+from mav_gss_lib.platform import PlatformRuntime
 from ._atomics import AtomicStatus
 from .rx_service import RxService
 from .telemetry import reset_legacy_snapshots
@@ -83,7 +83,7 @@ class WebRuntime:
         self.operator = capture_operator()
         self.host = capture_host()
         self.station = capture_station(self.platform_cfg, self.host)
-        self.platform = PlatformRuntimeV2.from_split(
+        self.platform = PlatformRuntime.from_split(
             self.platform_cfg, self.mission_id, self.mission_cfg,
         )
         self.mission = self.platform.mission
