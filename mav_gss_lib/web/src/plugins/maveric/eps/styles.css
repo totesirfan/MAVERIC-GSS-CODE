@@ -600,49 +600,109 @@
   color: var(--text-primary); font-variant-numeric: tabular-nums;
   text-align: right;
 }
+/* Power Balance segments — dark translucent fill + full-colour 1 px
+   inset border + colored 4 px left-bar for kind identity. Each
+   segment is its own rounded card with 4 px gaps; text reads on a
+   consistent dark surface (not on a bright colored fill), so contrast
+   is predictable across every kind. Never wraps — sub-label
+   auto-hides via container query on segments too narrow to fit it. */
 .eps-page .pb-track {
-  height: 40px; display: flex; overflow: hidden;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid var(--border-subtle); border-radius: 2px;
+  height: 68px; display: flex; gap: 4px;
+  background: transparent; border: 0; padding: 0;
 }
 .eps-page .pb-seg {
-  display: flex; align-items: center; padding: 0 10px;
-  font: 500 12px/1 'JetBrains Mono', monospace;
-  letter-spacing: 0.02em;
-  color: #000; font-variant-numeric: tabular-nums;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  min-width: 0;
-}
-.eps-page .pb-seg + .pb-seg { border-left: 1px solid rgba(0, 0, 0, 0.35); }
-.eps-page .pb-seg-lines { display: flex; flex-direction: column; gap: 3px; line-height: 1.1; }
-.eps-page .pb-seg-lines .sub { font-size: 11px; opacity: 0.75; font-weight: 400; }
-.eps-page .pb-seg.solar      { background: var(--state-success); }
-.eps-page .pb-seg.solar-aux  { background: var(--state-active); }
-.eps-page .pb-seg.solar-idle { background: rgba(255, 255, 255, 0.04); color: var(--text-disabled); }
-.eps-page .pb-seg.ac         { background: var(--state-info); }
-.eps-page .pb-seg.vout-on    { background: var(--state-success); }
-.eps-page .pb-seg.rail       { background: var(--state-info); }
-/* Rail placeholder — HK has not arrived yet but the rail slot is
-   reserved (3V3 / 5V are always-on keep-alive). Min-width makes the
-   segment visible even when width:0% from scale; dashed top edge marks
-   it as "awaiting data" distinct from a real-zero measurement. */
-.eps-page .pb-seg.rail-idle {
-  min-width: 76px;
+  container-type: inline-size;
+  position: relative;
+  display: flex; align-items: center;
+  padding: 0 14px 0 18px;
+  border-radius: 4px;
+  font: 500 14px/1 'JetBrains Mono', monospace;
+  color: var(--text-primary);
   background: rgba(255, 255, 255, 0.03);
-  color: var(--text-disabled);
-  border-top: 1px dashed var(--border-strong);
+  font-variant-numeric: tabular-nums;
+  /* Soft floor — guarantees the main label line always fits. */
+  min-width: 116px;
+  overflow: hidden;
 }
+.eps-page .pb-seg::before {
+  content: ""; position: absolute;
+  left: 0; top: 8px; bottom: 8px; width: 4px;
+  border-radius: 2px;
+  background: var(--seg-accent, var(--text-disabled));
+}
+.eps-page .pb-seg-lines {
+  display: flex; flex-direction: column; gap: 5px; line-height: 1.15;
+  min-width: 0; max-width: 100%;
+}
+.eps-page .pb-seg-lines .main {
+  color: var(--text-primary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.eps-page .pb-seg-lines .sub {
+  font-size: 12px; color: var(--text-muted); font-weight: 400;
+  letter-spacing: 0.04em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  display: none;
+}
+/* Sub-label only appears on segments wide enough for the full two-line
+   label. Narrow segments gracefully drop it to the main line alone. */
+@container (min-width: 168px) {
+  .eps-page .pb-seg-lines .sub { display: block; }
+}
+.eps-page .pb-seg.solar      {
+  --seg-accent: var(--state-success);
+  background: rgba(60, 201, 142, 0.14);
+  box-shadow: inset 0 0 0 1px var(--state-success);
+}
+.eps-page .pb-seg.solar-aux  {
+  --seg-accent: var(--state-active);
+  background: rgba(48, 200, 224, 0.14);
+  box-shadow: inset 0 0 0 1px var(--state-active);
+}
+.eps-page .pb-seg.solar-idle {
+  --seg-accent: var(--text-disabled);
+  background: rgba(255, 255, 255, 0.025);
+  box-shadow: inset 0 0 0 1px var(--text-disabled);
+  color: var(--text-disabled);
+}
+.eps-page .pb-seg.ac         {
+  --seg-accent: var(--state-info);
+  background: rgba(90, 168, 240, 0.14);
+  box-shadow: inset 0 0 0 1px var(--state-info);
+}
+.eps-page .pb-seg.vout-on    {
+  --seg-accent: var(--state-success);
+  background: rgba(60, 201, 142, 0.14);
+  box-shadow: inset 0 0 0 1px var(--state-success);
+}
+.eps-page .pb-seg.rail       {
+  --seg-accent: var(--state-info);
+  background: rgba(90, 168, 240, 0.10);
+  box-shadow: inset 0 0 0 1px var(--state-info);
+}
+/* Rail placeholder — HK hasn't arrived yet. Same silhouette as live
+   rails but muted and with a dashed inset border to read as
+   "awaiting data" rather than a real-zero measurement. */
+.eps-page .pb-seg.rail-idle {
+  --seg-accent: var(--text-disabled);
+  background: rgba(255, 255, 255, 0.025);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+  color: var(--text-disabled);
+}
+.eps-page .pb-seg.rail-idle::before { background: var(--text-disabled); }
 .eps-page .pb-seg.deficit {
+  --seg-accent: var(--state-warning);
   background: repeating-linear-gradient(45deg,
-    rgba(232, 184, 58, 0.35) 0 4px, rgba(232, 184, 58, 0.15) 4px 8px);
+    rgba(232, 184, 58, 0.20) 0 6px, rgba(232, 184, 58, 0.06) 6px 12px);
+  box-shadow: inset 0 0 0 1px var(--state-warning);
   color: var(--state-warning);
-  border-left: 1px dashed var(--state-warning);
 }
 .eps-page .pb-seg.surplus {
+  --seg-accent: var(--state-success);
   background: repeating-linear-gradient(45deg,
-    rgba(60, 201, 142, 0.30) 0 4px, rgba(60, 201, 142, 0.12) 4px 8px);
+    rgba(60, 201, 142, 0.18) 0 6px, rgba(60, 201, 142, 0.06) 6px 12px);
+  box-shadow: inset 0 0 0 1px var(--state-success);
   color: var(--state-success);
-  border-left: 1px dashed var(--state-success);
 }
 .eps-page .pb-arrow {
   display: grid; grid-template-columns: 96px 1fr 96px;

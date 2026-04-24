@@ -145,10 +145,11 @@ function PowerBalanceCardInner({ fields }: Props) {
           </div>
           <div className="pb-track">
             {inSegs.map((s) => (
-              <span key={s.key} className={`pb-seg ${s.kind}`} style={{ width: `${(s.watts / scale) * 100}%` }}>
+              <span key={s.key} className={`pb-seg ${s.kind}`} style={{ width: `${(s.watts / scale) * 100}%` }}
+                    title={s.sub ? `${s.label} — ${s.sub}` : s.label}>
                 {s.label && (
                   <span className="pb-seg-lines">
-                    <span className={s.kind === 'ac' ? 'derived' : ''}>{s.label}</span>
+                    <span className={`main ${s.kind === 'ac' ? 'derived' : ''}`.trim()}>{s.label}</span>
                     {s.sub && <span className="sub">{s.sub}</span>}
                   </span>
                 )}
@@ -167,10 +168,11 @@ function PowerBalanceCardInner({ fields }: Props) {
           </div>
           <div className="pb-track">
             {outSegs.map((s) => (
-              <span key={s.key} className={`pb-seg ${s.kind}`} style={{ width: `${(s.watts / scale) * 100}%` }}>
+              <span key={s.key} className={`pb-seg ${s.kind}`} style={{ width: `${(s.watts / scale) * 100}%` }}
+                    title={s.sub ? `${s.label} — ${s.sub}` : s.label}>
                 {s.label && (
                   <span className="pb-seg-lines">
-                    <span>{s.label}</span>
+                    <span className="main">{s.label}</span>
                     {s.sub && <span className="sub">{s.sub}</span>}
                   </span>
                 )}
