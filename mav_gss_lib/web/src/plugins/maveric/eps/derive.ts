@@ -182,6 +182,41 @@ export function alarmState(
 }
 
 /**
+ * Classify a solar panel's state via sibling comparison.
+ *   GEN   — PSINn ≥ 100 mW (actively producing).
+ *   DEAD  — a sibling is GEN AND VSINn < 0.5 V AND PSINn < 10 mW.
+ *           Rationale: a shaded-but-healthy panel still shows open-circuit
+ *           voltage (~2–3 V); only a broken panel reads dark. The sibling
+ *           check prevents false-DEAD during eclipse when everyone is quiet.
+ *   IDLE  — otherwise (eclipse, partial shadow, or uncertain).
+ */
+export type SolarPanelState = 'gen' | 'idle' | 'dead'
+
+const SOLAR_ACTIVE_W = 0.10
+const SOLAR_DEAD_V = 0.5
+const SOLAR_DEAD_W = 0.01
+
+export function classifySolarPanel(
+  fields: Partial<EpsFields>,
+  n: 1 | 2 | 3,
+): SolarPanelState {
+  const pKey = `PSIN${n}` as keyof EpsFields
+  const vKey = `VSIN${n}` as keyof EpsFields
+  const psin = fields[pKey]
+  const vsin = fields[vKey]
+  const p = isFiniteNumber(psin) ? psin : 0
+  const v = isFiniteNumber(vsin) ? vsin : 0
+  if (p >= SOLAR_ACTIVE_W) return 'gen'
+  const others: Array<1 | 2 | 3> = ([1, 2, 3] as const).filter((k) => k !== n)
+  const anySiblingGen = others.some((k) => {
+    const s = fields[`PSIN${k}` as keyof EpsFields]
+    return isFiniteNumber(s) && s >= SOLAR_ACTIVE_W
+  })
+  if (anySiblingGen && v < SOLAR_DEAD_V && p < SOLAR_DEAD_W) return 'dead'
+  return 'idle'
+}
+
+/**
  * Freshness tiers for Cadence captions. Thresholds match GNC (30 min / 12 h)
  * — pass-cadence calibrated, not tight-seconds.
  */
