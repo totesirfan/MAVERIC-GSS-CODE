@@ -1,9 +1,10 @@
 """RX WebSocket endpoint — /ws/rx packet fan-out.
 
 On connect, sends mission packet-column definitions, replays the in-memory
-packet backlog, and emits any mission-plugin replay events. Thereafter the
-client receives live packet/status/telemetry frames published by
-``RxService.broadcast_loop``.
+packet backlog, replays per-domain telemetry snapshots so plugin dashboards
+(EPS, GNC) repopulate across a browser reload, and emits any mission-plugin
+replay events. Thereafter the client receives live packet/status/telemetry
+frames published by ``RxService.broadcast_loop``.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -37,6 +38,9 @@ async def ws_rx(websocket: WebSocket) -> None:
             await websocket.send_text(json.dumps({"type": "packet", "data": pkt_json}))
         except Exception:
             return
+
+    for msg in runtime.telemetry.replay():
+        await websocket.send_text(json.dumps(msg))
 
     for msg in collect_connect_events(runtime.mission):
         await websocket.send_text(json.dumps(msg))

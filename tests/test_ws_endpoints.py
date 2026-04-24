@@ -105,6 +105,33 @@ class TestWsRxHandshake(unittest.TestCase):
             # Removed after disconnect
             self.assertEqual(len(runtime.rx.clients), 0)
 
+    def test_connect_replays_telemetry_snapshots(self):
+        """EPS/GNC dashboards repopulate after a browser reload because
+        /ws/rx replays persisted telemetry snapshots on connect.
+        Regression guard for a bug where TelemetryRouter.replay() was
+        defined but never wired into the handshake."""
+        app = _build_app()
+        runtime = app.state.runtime
+        runtime.telemetry.replay.return_value = [
+            {"type": "telemetry", "domain": "eps",
+             "changes": {"V_BUS": {"v": 7.4, "t": 1_700_000_000_000}},
+             "replay": True},
+            {"type": "telemetry", "domain": "gnc",
+             "changes": {"GNC_MODE": {"v": 2, "t": 1_700_000_000_000}},
+             "replay": True},
+        ]
+        with TestClient(app) as client:
+            url = f"/ws/rx?token={runtime.session_token}"
+            with client.websocket_connect(url) as ws:
+                self.assertEqual(ws.receive_json()["type"], "columns")
+                eps_msg = ws.receive_json()
+                gnc_msg = ws.receive_json()
+        self.assertEqual(eps_msg["domain"], "eps")
+        self.assertTrue(eps_msg["replay"])
+        self.assertEqual(eps_msg["changes"]["V_BUS"]["v"], 7.4)
+        self.assertEqual(gnc_msg["domain"], "gnc")
+        self.assertTrue(gnc_msg["replay"])
+
 
 class TestWsTxHandshake(unittest.TestCase):
     def test_connect_sends_queue_update_and_history(self):
