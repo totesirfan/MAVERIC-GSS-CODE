@@ -83,7 +83,7 @@ export function ProgressPanel({
 
   return (
     <div
-      className="rounded-lg border overflow-hidden shrink-0"
+      className="rounded-md border overflow-hidden shrink-0"
       style={{
         borderColor: colors.borderSubtle,
         backgroundColor: colors.bgPanel,
@@ -91,13 +91,22 @@ export function ProgressPanel({
       }}
     >
       <div
-        className="flex items-center gap-2 px-3 py-1.5 border-b"
-        style={{ borderColor: colors.borderSubtle }}
+        className="flex items-center gap-2 px-3 border-b"
+        style={{
+          borderColor: colors.borderSubtle,
+          minHeight: 34,
+          paddingTop: 6,
+          paddingBottom: 6,
+        }}
       >
         <Grid3x3 className="size-3.5" style={{ color: colors.dim }} />
         <span
-          className="text-[11px] font-bold uppercase tracking-wider"
-          style={{ color: colors.value }}
+          className="font-bold uppercase"
+          style={{
+            color: colors.value,
+            fontSize: 14,
+            letterSpacing: '0.02em',
+          }}
         >
           Progress
         </span>

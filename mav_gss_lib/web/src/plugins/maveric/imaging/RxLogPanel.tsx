@@ -27,7 +27,7 @@ export function RxLogPanel({ packets, columns, receiving }: RxLogPanelProps) {
 
   return (
     <div
-      className="flex flex-col flex-1 min-h-0 rounded-lg border overflow-hidden shadow-panel"
+      className="flex flex-col flex-1 min-h-0 rounded-md border overflow-hidden shadow-panel"
       style={{
         borderColor: receiving ? `${colors.success}55` : colors.borderSubtle,
         backgroundColor: colors.bgPanel,
@@ -35,15 +35,25 @@ export function RxLogPanel({ packets, columns, receiving }: RxLogPanelProps) {
       }}
     >
       <div
-        className={`flex items-center justify-between px-3 py-1.5 border-b shrink-0 ${receiving ? 'animate-sweep-green' : ''}`}
+        className={`flex items-center justify-between px-3 border-b shrink-0 ${receiving ? 'animate-sweep-green' : ''}`}
         style={{
           borderColor: colors.borderSubtle,
           backgroundColor: receiving ? `${colors.success}08` : 'transparent',
           transition: 'background-color 160ms ease',
+          minHeight: 34,
+          paddingTop: 6,
+          paddingBottom: 6,
         }}
       >
         <div className="flex items-center gap-2">
-          <span className="text-xs font-bold tracking-wide uppercase" style={{ color: colors.value }}>
+          <span
+            className="font-bold uppercase"
+            style={{
+              color: colors.value,
+              fontSize: 14,
+              letterSpacing: '0.02em',
+            }}
+          >
             Imaging RX Log
           </span>
           {receiving ? (

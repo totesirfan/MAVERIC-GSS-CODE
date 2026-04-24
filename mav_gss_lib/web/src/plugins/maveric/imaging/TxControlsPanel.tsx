@@ -157,7 +157,7 @@ export function TxControlsPanel({
 
   return (
     <div
-      className="rounded-lg border overflow-hidden flex flex-col flex-1 min-h-0"
+      className="rounded-md border overflow-hidden flex flex-col flex-1 min-h-0"
       style={{
         borderColor: colors.borderSubtle,
         backgroundColor: colors.bgPanel,
@@ -166,13 +166,22 @@ export function TxControlsPanel({
     >
       {/* Header — title + Route + Target chips */}
       <div
-        className="flex items-center gap-2 px-3 py-1.5 border-b flex-wrap"
-        style={{ borderColor: colors.borderSubtle }}
+        className="flex items-center gap-2 px-3 border-b flex-wrap"
+        style={{
+          borderColor: colors.borderSubtle,
+          minHeight: 34,
+          paddingTop: 6,
+          paddingBottom: 6,
+        }}
       >
         <Send className="size-3.5" style={{ color: colors.dim }} />
         <span
-          className="text-[11px] font-bold uppercase tracking-wider"
-          style={{ color: colors.value }}
+          className="font-bold uppercase"
+          style={{
+            color: colors.value,
+            fontSize: 14,
+            letterSpacing: '0.02em',
+          }}
         >
           Imaging TX Controls
         </span>
