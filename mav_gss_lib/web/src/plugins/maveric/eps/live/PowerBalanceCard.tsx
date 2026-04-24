@@ -91,19 +91,20 @@ function PowerBalanceCardInner({ fields }: Props) {
   if (hasP3V3) {
     outSegs.push({
       key: 'p3v3', kind: 'rail', watts: finite(fields.P3V3),
-      label: `3V3 ${finite(fields.P3V3).toFixed(2)} W`,
-      sub: `${(finite(fields.I3V3) * 1000).toFixed(0)} mA`,
+      label: `3V3 · ${finite(fields.P3V3).toFixed(2)} W`,
+      sub: `HOT RAIL · ${(finite(fields.I3V3) * 1000).toFixed(0)} mA`,
     })
   } else {
-    outSegs.push({ key: 'p3v3', kind: 'rail-idle', watts: 0, label: '3V3', sub: '— W' })
+    outSegs.push({ key: 'p3v3', kind: 'rail-idle', watts: 0, label: '3V3', sub: 'HOT RAIL · — W' })
   }
   if (hasP5V0) {
     outSegs.push({
       key: 'p5v0', kind: 'rail', watts: finite(fields.P5V0),
-      label: `5V ${finite(fields.P5V0).toFixed(2)} W`,
+      label: `5V · ${finite(fields.P5V0).toFixed(2)} W`,
+      sub: `HOT RAIL · ${(finite(fields.I5V0) * 1000).toFixed(0)} mA`,
     })
   } else {
-    outSegs.push({ key: 'p5v0', kind: 'rail-idle', watts: 0, label: '5V', sub: '— W' })
+    outSegs.push({ key: 'p5v0', kind: 'rail-idle', watts: 0, label: '5V', sub: 'HOT RAIL · — W' })
   }
   if (epsBoard > 0.01) outSegs.push({
     key: 'eps-board', kind: 'solar-idle', watts: epsBoard,
