@@ -143,7 +143,7 @@ async def api_log_entries(
             if normalized is None:
                 continue
 
-            # Apply cmd filter — RX and TX use v2 cell-shaped _rendering.row.cmd.
+            # Apply cmd filter — RX and TX use cell-shaped _rendering.row.cmd.
             if cmd:
                 row_cmd = ""
                 r = normalized.get("_rendering")

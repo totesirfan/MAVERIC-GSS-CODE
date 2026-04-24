@@ -2,7 +2,7 @@
 
 The plugin system lets missions provide standalone tool pages beyond the core
 RX/TX dashboard. Plugins are mission-scoped, convention-discovered, and
-lazy-loaded. Backend hooks are wired through the platform v2 `MissionSpec`
+lazy-loaded. Backend hooks are wired through the `MissionSpec`
 contract — missions expose capabilities, the platform invokes them.
 
 ## What Plugins Are
@@ -175,7 +175,7 @@ state use three mission-owned `MissionSpec` capabilities, all wired by
 - **`TelemetryOps`** — declarative telemetry domains + extractors driving the
   platform `TelemetryRouter`.
 
-No mission code is imported from `mav_gss_lib/web_runtime/`; the platform
+No mission code is imported from `mav_gss_lib/server/`; the platform
 reads the capabilities off the live `MissionSpec`.
 
 ### HTTP Router Mounting (`HttpOps`)
@@ -186,7 +186,7 @@ Missions declare plugin REST endpoints as FastAPI routers and hang them off
 ```python
 # mav_gss_lib/missions/maveric/mission.py
 from mav_gss_lib.missions.maveric.imaging import ImageAssembler, get_imaging_router
-from mav_gss_lib.platform.mission_api import HttpOps
+from mav_gss_lib.platform import HttpOps
 
 def build(ctx: MissionContext) -> MissionSpec:
     image_assembler = ImageAssembler(image_dir(ctx.mission_config))
@@ -210,7 +210,7 @@ without a MissionSpec rebuild when `/api/config` edits land.
 startup:
 
 ```python
-# mav_gss_lib/web_runtime/app.py
+# mav_gss_lib/server/app.py
 if runtime.mission.http is not None:
     for router in runtime.mission.http.routers:
         app.include_router(router)
@@ -403,7 +403,7 @@ every backend extension point:
 MAVERIC ships EPS and GNC telemetry plugin pages backed by the platform
 telemetry router, not mission-specific REST routers:
 
-- **Backend state** — `mav_gss_lib/web_runtime/telemetry/router.py` registers
+- **Backend state** — `mav_gss_lib/server/telemetry/router.py` registers
   mission-declared domains from `MissionSpec.telemetry`. Current MAVERIC
   domains are `eps`, `gnc`, and `spacecraft`; snapshots persist under
   `<log_dir>/.telemetry/<domain>.json`.

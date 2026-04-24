@@ -1,4 +1,4 @@
-"""MAVERIC UiOps implementation for platform v2.
+"""MAVERIC UiOps implementation.
 
 Author:  Irfan Annuar - USC ISI SERC
 """

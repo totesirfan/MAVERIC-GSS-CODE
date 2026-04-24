@@ -1,4 +1,4 @@
-"""Mission-neutral rendering contracts for platform v2.
+"""Mission-neutral rendering contracts .
 
 Author:  Irfan Annuar - USC ISI SERC
 """

@@ -1,1 +1,1 @@
-"""Balloon fixture mission for the platform v2 MissionSpec API."""
+"""Balloon fixture mission for the MissionSpec API."""

@@ -6,7 +6,7 @@ metadata; this subpackage turns that into a fully parsed, classified
 
 Modules
 -------
-- `ops.py`       — `MavericPacketOps`, the platform-v2 boundary.
+- `ops.py`       — `MavericPacketOps`, the platform boundary.
   Drives `normalize` → `parse` → `classify` and stamps duplicate /
   uplink-echo / unknown-packet flags.
 - `parser.py`    — frame detection (CSP / AX.25 / ASM+Golay), outer-

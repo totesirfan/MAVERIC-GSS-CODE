@@ -1,4 +1,4 @@
-"""Minimal non-MAVERIC fixture mission for platform v2.
+"""Minimal non-MAVERIC fixture mission.
 
 Echo proves a mission can run without nodes, ptypes, routing, CSP/AX.25,
 telemetry domains, custom routers, or mission-specific frontend pages —

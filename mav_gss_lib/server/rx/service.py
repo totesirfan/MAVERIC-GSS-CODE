@@ -141,7 +141,7 @@ class RxService:
                 try:
                     if self.log:
                         self.log.write_jsonl(record)
-                        self.log.write_packet_v2(
+                        self.log.write_packet(
                             pkt,
                             text_lines=rx_log_text(self.runtime.mission, pkt),
                         )

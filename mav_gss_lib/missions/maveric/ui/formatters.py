@@ -198,7 +198,6 @@ def unwrap_typed_arg_for_display(typed_arg: dict) -> Any:
 # ORDER IS LOAD-BEARING. Both rendering.py and log_format.py dispatch
 # through these in this order. First match wins.
 
-
 def is_nvg_sensor(value: Any) -> bool:
     return isinstance(value, dict) and "sensor_id" in value and "values" in value
 
@@ -264,7 +263,6 @@ def is_generic_dict(value: Any) -> bool:
 # name as left gutter) is legitimately different from both compact
 # strings and name/value dicts, and unifying would force the dispatch
 # into lowest-common-denominator output.
-
 
 def _nvg_sensor_compact(v: dict, unit: str) -> str:
     return f"{v.get('display', '')} (status={v.get('status')})"

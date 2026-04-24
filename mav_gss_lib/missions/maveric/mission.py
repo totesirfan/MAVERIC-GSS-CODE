@@ -1,4 +1,4 @@
-"""MAVERIC MissionSpec entry point for platform v2.
+"""MAVERIC MissionSpec entry point .
 
 Author:  Irfan Annuar - USC ISI SERC
 """

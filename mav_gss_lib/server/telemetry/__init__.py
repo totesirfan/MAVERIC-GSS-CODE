@@ -9,11 +9,11 @@ _LEGACY_V1_FILES = (".eps_snapshot.json", ".gnc_snapshot.json")
 
 
 def reset_legacy_snapshots(log_dir: str | Path) -> list[str]:
-    """Remove pre-v2 snapshot files from <log_dir>.
+    """Remove pre-split-state snapshot files from <log_dir>.
 
     Returns the list of paths that were removed, for logging.
     Intended to run exactly once per host on first startup after the
-    v2 upgrade; idempotent (a clean host returns []).
+    split-state upgrade; idempotent (a clean host returns []).
     """
     removed: list[str] = []
     for name in _LEGACY_V1_FILES:

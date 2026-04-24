@@ -100,7 +100,7 @@ maveric/
 ## Config shape
 
 At runtime MAVERIC's `mission_cfg` carries these keys under `mission.config`
-in the native v2 split shape:
+in the native split-state shape:
 
 | Key | Source | Operator-editable? |
 |-----|--------|---------------------|

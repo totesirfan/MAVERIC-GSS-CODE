@@ -1,4 +1,4 @@
-"""Command contracts for the platform v2 mission boundary.
+"""Command contracts for the mission boundary.
 
 Author:  Irfan Annuar - USC ISI SERC
 """

@@ -85,7 +85,7 @@ def test_maveric_v2_rx_pipeline_extracts_eps_hk_telemetry(tmp_path):
     assert result.packet.flags.is_unknown is False
     assert result.packet_message["data"]["_rendering"]["row"]["cmd"]["value"] == "eps_hk"
     assert len(result.packet.telemetry) == 48
-    # Native v2: fragments live on the envelope only. No `mission_payload["fragments"]`.
+    # Fragments live on the envelope only. No `mission_payload["fragments"]`.
     assert "fragments" not in result.packet.mission_payload
 
     by_key = {fragment.key: fragment for fragment in result.packet.telemetry}

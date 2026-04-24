@@ -1,4 +1,4 @@
-"""MAVERIC TelemetryOps implementation for platform v2.
+"""MAVERIC TelemetryOps implementation.
 
 Author:  Irfan Annuar - USC ISI SERC
 """

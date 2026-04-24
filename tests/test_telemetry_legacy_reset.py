@@ -1,4 +1,4 @@
-"""reset_legacy_snapshots helper: remove pre-v2 flat snapshot files once.
+"""reset_legacy_snapshots helper: remove pre-split-state snapshot files once.
 
 Idempotent on a clean host (second call returns []). Missing log_dir,
 stray non-json files, and read-only files all exercised.

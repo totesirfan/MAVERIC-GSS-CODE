@@ -1,4 +1,4 @@
-"""Mission-owned packet event contracts for platform v2.
+"""Mission-owned packet event contracts .
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -17,7 +17,6 @@ class PacketEventSource(Protocol):
     def on_packet(self, packet: PacketEnvelope) -> Iterable[dict[str, Any]]: ...
 
     def on_client_connect(self) -> Iterable[dict[str, Any]]: ...
-
 
 @dataclass(frozen=True, slots=True)
 class EventOps:

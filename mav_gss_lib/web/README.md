@@ -2,7 +2,7 @@
 
 This directory contains the React/Vite operator console for MAVERIC GSS.
 
-It is not a standalone app. It is the frontend for the FastAPI runtime under `mav_gss_lib/web_runtime/`. The current built frontend lives in `dist/` (committed) and is served directly by the Python backend — no separate deploy step.
+It is not a standalone app. It is the frontend for the FastAPI runtime under `mav_gss_lib/server/`. The current built frontend lives in `dist/` (committed) and is served directly by the Python backend — no separate deploy step.
 
 ## What lives here
 
@@ -151,7 +151,7 @@ Verified in `src/App.tsx`:
 
 ## Runtime contract
 
-The frontend talks to the FastAPI backend in `mav_gss_lib/web_runtime/` over a fixed set of HTTP and WebSocket endpoints. Everything the UI renders should come from these — no packet parsing or command framing happens in React.
+The frontend talks to the FastAPI backend in `mav_gss_lib/server/` over a fixed set of HTTP and WebSocket endpoints. Everything the UI renders should come from these — no packet parsing or command framing happens in React.
 
 WebSocket endpoints:
 
@@ -162,7 +162,7 @@ WebSocket endpoints:
 | `/ws/session` | Session identity, new-session and rename events |
 | `/ws/preflight` | Preflight check state and updater progress |
 
-HTTP endpoints (see `mav_gss_lib/web_runtime/api/`):
+HTTP endpoints (see `mav_gss_lib/server/api/`):
 
 | Path | Purpose |
 |---|---|
@@ -189,7 +189,7 @@ HTTP endpoints (see `mav_gss_lib/web_runtime/api/`):
 Boundaries:
 
 - Packet parsing and protocol truth belong in `mav_gss_lib/missions/<mission>/adapter.py`
-- Backend packet shaping belongs in `mav_gss_lib/web_runtime/rx_service.py` and `tx_service.py`
+- Backend packet shaping belongs in `mav_gss_lib/server/rx/service.py` and `tx_service.py`
 - React components render the normalized packet, queue, and config models they receive — they do not decode wire formats
 - Mission-scoped UI (TX builders, plugin pages) lives under `src/plugins/<mission>/` and is discovered by `src/plugins/registry.ts` via `import.meta.glob`
 - Mission-scoped providers live in `src/plugins/<mission>/providers.ts` and are composed by `MissionProviders`

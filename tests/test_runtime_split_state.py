@@ -162,7 +162,7 @@ class TestBackendHasNoFlatCfgReads(unittest.TestCase):
                         break
         self.assertEqual(offenders, [], "\n".join(offenders))
 
-    def test_web_runtime_class_has_no_cfg_attribute(self):
+    def test_webruntime_class_has_no_cfg_attribute(self):
         """Constructing a WebRuntime must not silently materialize a `cfg`
         attribute. A regression here indicates someone re-added the flat
         projection without updating the primary-state contract."""

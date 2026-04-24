@@ -1,4 +1,4 @@
-"""MAVERIC PacketOps implementation for platform v2.
+"""MAVERIC PacketOps implementation.
 
 Author:  Irfan Annuar - USC ISI SERC
 """

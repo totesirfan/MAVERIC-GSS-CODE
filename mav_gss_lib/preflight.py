@@ -75,7 +75,7 @@ def run_preflight(cfg: dict | None = None,
             longer branches on mission id.
         mission_id: Active mission id. When None, falls back to
             `cfg.general.mission` (legacy) or `mission.id` when a MissionSpec
-            is provided. Preferred in v2 callers since `platform_cfg` does
+            is provided. Preferred in newer callers since `platform_cfg` does
             not carry `general.mission`.
         lib_dir: Library directory for path resolution. Defaults to mav_gss_lib/.
         operator, host, station: Inject identity captured elsewhere (e.g. from

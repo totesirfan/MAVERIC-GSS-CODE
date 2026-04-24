@@ -36,7 +36,6 @@ class TelemetryDomainSpec:
 class TelemetryExtractor(Protocol):
     def extract(self, packet: PacketEnvelope) -> Iterable[TelemetryFragment]: ...
 
-
 @dataclass(frozen=True, slots=True)
 class TelemetryOps:
     domains: dict[str, TelemetryDomainSpec] = field(default_factory=dict)

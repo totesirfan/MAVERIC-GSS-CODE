@@ -8,7 +8,7 @@ records alongside every send.
 
 Modules
 -------
-- `ops.py`     — `MavericCommandOps`, the platform-v2 boundary.
+- `ops.py`     — `MavericCommandOps`, the platform boundary.
   Captures live references to `mission_config` and `platform_config`
   so `/api/config` edits (e.g. AX.25 callsigns, CSP routing, uplink
   mode) apply without a MissionSpec rebuild. Coordinates

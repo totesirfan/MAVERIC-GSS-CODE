@@ -89,14 +89,14 @@ class WebRuntime:
         self.mission = self.platform.mission
 
         log_dir = self.log_dir
-        # v2 upgrade path: if pre-v2 flat snapshot files are still on
+        # Telemetry upgrade path: if pre-split snapshot files are still on
         # disk from a prior incarnation, remove them once and log the
         # removal. Operators see the WARNING on startup; dashboards
         # will be blank until the next live packet arrives.
         removed = reset_legacy_snapshots(log_dir)
         if removed:
             logging.warning(
-                "telemetry v2 upgrade: removed %d legacy snapshot file(s): %s. "
+                "telemetry upgrade: removed %d legacy snapshot file(s): %s. "
                 "Dashboards will show empty state until the next live packet arrives.",
                 len(removed), ", ".join(removed),
             )

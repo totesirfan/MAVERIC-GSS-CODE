@@ -1,6 +1,6 @@
 # Telemetry — Known Architectural Smells
 
-Short, honest list of things that aren't quite right in the v2 telemetry
+Short, honest list of things that aren't quite right in the telemetry
 pipeline as it stands today. None are bugs. Each is a place where a future
 change would naturally improve the code, or where a refactor was deliberately
 scoped out. Keep this file current as items are fixed or new ones appear.
@@ -124,7 +124,7 @@ renderer-mode map.
 
 ---
 
-## 7. `platform` (`web_runtime`) domain has no catalog for non-mission domains
+## 7. `platform` (`server`) domain has no catalog for non-mission domains
 
 **Where:** `TELEMETRY_MANIFEST` in any mission. The platform telemetry router
 serves `/api/telemetry/{domain}/catalog` for any domain the mission registers
@@ -143,10 +143,10 @@ accumulates canonical keys of its own (it shouldn't).
 
 ## Invariants that currently hold (keep them holding)
 
-- **Zero `from mav_gss_lib.missions` imports in `mav_gss_lib/web_runtime/`.**
+- **Zero `from mav_gss_lib.missions` imports in `mav_gss_lib/server/`.**
   Platform never depends on mission code.
 - **Zero hardcoded domain names (`"eps"`, `"gnc"`, `"spacecraft"`, `"maveric"`)
-  in `mav_gss_lib/web_runtime/`.** Domains are mission-declared.
+  in `mav_gss_lib/server/`.** Domains are mission-declared.
 - **Catalog is the single source of truth for canonical key vocabulary** per
   domain that has one. Current telemetry tests (`test_telemetry_api.py`,
   `test_telemetry_router.py`, `test_telemetry_state.py`, and

@@ -1,4 +1,4 @@
-"""Native MAVERIC v2 RX packet view.
+"""Native MAVERIC RX packet view.
 
 `MavericRxPacket` is the internal view MAVERIC rendering / log formatting /
 telemetry extraction operate on. It wraps a platform `PacketEnvelope` and

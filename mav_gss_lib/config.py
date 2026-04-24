@@ -3,7 +3,7 @@ mav_gss_lib.config -- Shared Configuration Loader
 
 Reads gss.yml from the mav_gss_lib package directory and returns split
 runtime state `(platform_cfg, mission_id, mission_cfg)`. Operator files may
-be stored either in the legacy flat shape or the native v2
+be stored either in the legacy flat shape or the native split-state
 `{platform, mission}` shape; both are accepted. Mission-specific defaults
 are seeded by the active mission's own `build(ctx)` at MissionSpec load time
 (see e.g. `missions/maveric/defaults.py`). Falls back to hardcoded platform

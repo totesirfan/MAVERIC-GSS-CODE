@@ -1,8 +1,8 @@
-"""Mission-owned framing covers the platform v2 TX boundary.
+"""Mission-owned framing covers the platform TX boundary.
 
 Verifies:
 - Platform TX path delegates to mission.commands.frame() — no CSP/AX.25
-  imports remain in the web_runtime backend.
+  imports remain in the server backend.
 - MAVERIC framer reads ax25/csp from the live mission_config reference so
   /api/config updates take effect without a MissionSpec rebuild.
 - Echo-style missions with passthrough framing work through the same
@@ -29,25 +29,35 @@ class TestBackendHasNoFramingImports(unittest.TestCase):
         r"import\s+mav_gss_lib\.protocols\.(?:ax25|csp|golay)"
     )
 
-    def test_web_runtime_does_not_import_protocol_framing(self):
+    def test_server_does_not_import_protocol_framing(self):
         root = pathlib.Path(__file__).resolve().parent.parent / "mav_gss_lib"
+        server_dir = root / "server"
+        assert server_dir.is_dir(), f"expected {server_dir} to exist"
         offenders: list[str] = []
-        for py in (root / "web_runtime").rglob("*.py"):
+        scanned = 0
+        for py in server_dir.rglob("*.py"):
+            scanned += 1
             text = py.read_text()
             for lineno, line in enumerate(text.splitlines(), start=1):
                 if self.BANNED_PATTERN.search(line):
                     offenders.append(f"{py.relative_to(root.parent)}:{lineno}: {line.strip()}")
+        assert scanned > 0, f"scanned 0 files under {server_dir} — guardrail would false-green"
         self.assertEqual(offenders, [], "\n".join(offenders))
 
-    def test_web_runtime_does_not_reference_runtime_csp_or_ax25(self):
+    def test_server_does_not_reference_runtime_csp_or_ax25(self):
         root = pathlib.Path(__file__).resolve().parent.parent / "mav_gss_lib"
+        server_dir = root / "server"
+        assert server_dir.is_dir(), f"expected {server_dir} to exist"
         pattern = re.compile(r"runtime\.(csp|ax25)\b|\.csp\s*=|\.ax25\s*=")
         offenders: list[str] = []
-        for py in (root / "web_runtime").rglob("*.py"):
+        scanned = 0
+        for py in server_dir.rglob("*.py"):
+            scanned += 1
             text = py.read_text()
             for lineno, line in enumerate(text.splitlines(), start=1):
                 if pattern.search(line):
                     offenders.append(f"{py.relative_to(root.parent)}:{lineno}: {line.strip()}")
+        assert scanned > 0, f"scanned 0 files under {server_dir} — guardrail would false-green"
         self.assertEqual(offenders, [], "\n".join(offenders))
 
 

@@ -1,4 +1,4 @@
-"""MAVERIC CommandOps implementation for platform v2.
+"""MAVERIC CommandOps implementation.
 
 Author:  Irfan Annuar - USC ISI SERC
 """

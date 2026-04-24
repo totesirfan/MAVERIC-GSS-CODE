@@ -57,7 +57,7 @@ class NodeTable:
 def init_nodes(cfg: dict) -> NodeTable:
     """Build a NodeTable from mission config.
 
-    Accepts both the native v2 mission-config shape and the older merged
+    Accepts both the native split-state mission-config shape and the older merged
     flat config shape used by some tests/helpers.
     """
     node_names = {int(k): v for k, v in cfg["nodes"].items()}

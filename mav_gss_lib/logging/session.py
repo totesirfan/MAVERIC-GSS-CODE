@@ -1,4 +1,4 @@
-"""RX session log — JSONL + text entries for inbound platform v2 packets.
+"""RX session log — JSONL + text entries for inbound platform packets.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -17,8 +17,8 @@ class SessionLog(_BaseLog):
                          mission_name=mission_name,
                          station=station, operator=operator, host=host)
 
-    def write_packet_v2(self, packet, text_lines=None):
-        """Write one platform v2 RX packet entry."""
+    def write_packet(self, packet, text_lines=None):
+        """Write one platform RX packet entry."""
         lines = []
         label = f"#{packet.seq}"
         extras = f"{packet.frame_type}  {len(packet.raw)}B -> {len(packet.payload)}B"

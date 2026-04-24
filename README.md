@@ -108,7 +108,7 @@ cp mav_gss_lib/missions/maveric/commands.example.yml mav_gss_lib/missions/maveri
 python3 MAV_WEB.py
 ```
 
-`MAV_WEB.py` serves the dashboard on `http://127.0.0.1:8080` (constants in `mav_gss_lib/web_runtime/state.py`) and auto-opens the default browser. The server exits roughly two seconds after the last RX and TX WebSocket client disconnects (`SHUTDOWN_DELAY` in `mav_gss_lib/web_runtime/shutdown.py`).
+`MAV_WEB.py` serves the dashboard on `http://127.0.0.1:8080` (constants in `mav_gss_lib/server/state.py`) and auto-opens the default browser. The server exits roughly two seconds after the last RX and TX WebSocket client disconnects (`SHUTDOWN_DELAY` in `mav_gss_lib/server/shutdown.py`).
 
 The GNU Radio flowgraph must be running before launching `MAV_WEB.py`. The runtime connects to it with two ZMQ sockets:
 
@@ -140,7 +140,7 @@ The platform sits between the operator and GNU Radio. RX traffic arrives as PMT-
 ```mermaid
 flowchart LR
     Op([Operator]):::op --> UI[React dashboard<br/>Vite + Tailwind]
-    UI <--> RT[FastAPI runtime<br/>web_runtime/*]
+    UI <--> RT[FastAPI runtime<br/>server/*]
     RT -- ZMQ PUB<br/>PMT PDU --> GR[GNU Radio<br/>MAV_DUPLEX flowgraph]
     GR -- ZMQ SUB<br/>PMT PDU --> RT
     GR <--> Radio[USRP B210]
@@ -156,22 +156,22 @@ Top-level platform modules:
 |----------------------------------|----------------------------------------------------------------------|
 | `MAV_WEB.py`                     | Entrypoint. Bootstraps dependencies, builds the FastAPI app, runs Uvicorn. |
 | `mav_gss_lib/config.py`          | Split-state loader (`load_split_config` → `(platform_cfg, mission_id, mission_cfg)`). Single-sources `general.version` from `mav_gss_lib/web/package.json`. |
-| `mav_gss_lib/platform/`          | Platform v2 API (`MissionSpec`, `MissionContext`, capability protocols, pipelines, `PlatformRuntimeV2`, `load_mission_spec_from_split`). |
+| `mav_gss_lib/platform/`          | Platform API (`MissionSpec`, `MissionContext`, capability protocols, pipelines, `PlatformRuntime`, `load_mission_spec_from_split`). |
 | `mav_gss_lib/protocols/`         | Framing toolkit (AX.25 / CSP / CRC / Golay / frame detect) — consumed only by mission packages. |
 | `mav_gss_lib/transport.py`       | ZMQ PUB/SUB setup, PMT PDU send/receive, socket monitoring. |
-| `mav_gss_lib/logging.py`         | Dual-output session logging (JSONL + formatted text). |
+| `mav_gss_lib/logging/`         | Dual-output session logging (JSONL + formatted text). |
 | `mav_gss_lib/identity.py`        | Operator / host / station capture (`capture_operator`, `capture_host`, `capture_station`). |
-| `mav_gss_lib/updater.py`         | Runtime dependency bootstrap and self-update flow. |
+| `mav_gss_lib/updater/`         | Runtime dependency bootstrap and self-update flow. |
 | `mav_gss_lib/preflight.py`       | Environment-check backend used by `scripts/preflight.py` and the web preflight screen. |
 | `mav_gss_lib/constants.py`       | Platform string constants (default mission, default ZMQ addresses). |
 | `mav_gss_lib/textutil.py`        | Text formatting helpers. |
 
-Web runtime (`mav_gss_lib/web_runtime/`):
+Web runtime (`mav_gss_lib/server/`):
 
 | Module                | Role                                                                  |
 |-----------------------|-----------------------------------------------------------------------|
 | `app.py`              | FastAPI factory, lifespan, static mount, `MissionSpec.http` router mount. |
-| `state.py`            | `WebRuntime` container (split config + `PlatformRuntimeV2` + `MissionSpec`), `HOST`, `PORT`, `MAX_PACKETS`, `MAX_HISTORY`, `MAX_QUEUE`, `Session`. |
+| `state.py`            | `WebRuntime` container (split config + `PlatformRuntime` + `MissionSpec`), `HOST`, `PORT`, `MAX_PACKETS`, `MAX_HISTORY`, `MAX_QUEUE`, `Session`. |
 | `shutdown.py`         | `SHUTDOWN_DELAY`, delayed-shutdown task scheduling.                   |
 | `rx_service.py`       | ZMQ SUB receiver thread and async broadcast loop; drives `platform.process_rx` and fans mission `EventOps` messages out on `/ws/rx`. |
 | `tx_service.py`       | TX queue, send loop, history, persistence, guard confirmation; calls mission `CommandOps.frame(encoded)` for wire bytes. |
@@ -229,21 +229,51 @@ mav_gss_lib/
     constants.py                    Platform-wide constants
     identity.py                     Operator / host / station capture
     transport.py                    ZMQ PUB/SUB + PMT PDU
-    logging.py                      Session logs (JSONL + text)
     preflight.py                    Shared preflight-check library
-    updater.py                      Self-update bootstrap
     textutil.py                     Text helpers
     gss.example.yml                 Public-safe station config template
 
-    platform/                       Platform v2 API (mission-agnostic)
-        mission_api.py              MissionSpec, MissionContext, UiOps, HttpOps
-        commands.py / packets.py / rendering.py / telemetry.py / events.py
-                                    Capability protocols + types
-        *_pipeline.py               Execution pipelines (command/packet/rendering/...)
-        runtime.py                  PlatformRuntimeV2.from_split(...)
+    logging/                        Session logs (JSONL + text)
+        _base.py                    _BaseLog — writer thread, rotation, banner
+        session.py                  SessionLog (RX)
+        tx.py                       TXLog (TX)
+
+    updater/                        Self-updater + pre-import bootstrap
+        bootstrap.py                bootstrap_dependencies (pre-FastAPI)
+        check.py                    check_for_updates
+        apply.py                    apply_update
+        status.py                   UpdateStatus + Commit + Phase + exceptions
+        _helpers.py                 git + subprocess helpers
+
+    platform/                       Mission/platform boundary + runners
+        runtime.py                  PlatformRuntime.from_split(...)
         loader.py                   load_mission_spec_from_split
-        logging.py                  build_rx_log_record, format_rx_text_lines
-        config_boundary.py          PlatformConfigSpec + split-update appliers
+        contract/                   What missions implement (Protocols + types)
+            mission.py              MissionSpec, MissionContext, MissionConfigSpec
+            ui.py                   UiOps
+            http.py                 HttpOps
+            packets.py              PacketOps + envelope types
+            commands.py             CommandOps + draft/encoded/framed types
+            telemetry.py            TelemetryOps + extractor/domain types
+            events.py               EventOps + PacketEventSource
+            rendering.py            Cell + ColumnDef + PacketRendering
+        rx/                         Inbound runners
+            packets.py              PacketPipeline
+            telemetry.py            extract + ingest helpers
+            events.py               collect_* event builders
+            rendering.py            render_packet + fallback
+            logging.py              rx_log_record + rx_log_text
+            pipeline.py             RxPipeline + RxResult
+        tx/                         Outbound runners
+            commands.py             prepare_command + frame_command
+        config/                     Platform config-update boundary
+            spec.py                 PlatformConfigSpec
+            updates.py              apply_*_config_update + persist_mission_config
+        telemetry/                  Runtime telemetry types
+            fragment.py             TelemetryFragment
+            policy.py               MergePolicy + lww_by_ts
+            state.py                EntryLoader + DomainState
+            router.py               TelemetryRouter
 
     protocols/                      Framing toolkit (consumed only by missions)
         ax25.py                     AX.25 HDLC framing (Mode 6)
@@ -270,7 +300,17 @@ mav_gss_lib/
         echo_v2/                    Minimal fixture mission (round-trip echo)
         balloon_v2/                 Telemetry-only fixture mission
 
-    web_runtime/                    FastAPI runtime (see table above)
+    server/                         FastAPI backend
+        app.py                      create_app + lifespan
+        state.py                    WebRuntime container
+        shutdown.py, security.py    Lifecycle + auth middleware
+        ws/                         All WebSocket handlers
+            rx.py, tx.py, session.py, preflight.py, update.py
+        rx/service.py               RX thread + broadcast loop
+        tx/                         Service, queue, actions
+        api/                        REST endpoints
+        telemetry/api.py            /api/telemetry/{domain}/catalog
+
     web/                            React + Vite + TypeScript frontend
         src/                        UI source (components/, hooks/, state/, lib/, plugins/)
         dist/                       Production build (committed)
@@ -289,7 +329,7 @@ tools/
 
 Two config inputs drive the runtime:
 
-- `mav_gss_lib/gss.yml` — operator station config in native v2 split shape: ZMQ addresses, log directory, TX delay, uplink mode, station catalog, active mission id, and mission-editable overrides under `mission.config.*` (for MAVERIC: `ax25.*`, `csp.*`, `imaging.thumb_prefix`). Gitignored. Copy from `mav_gss_lib/gss.example.yml`. If the file is missing, the runtime falls back to built-in defaults.
+- `mav_gss_lib/gss.yml` — operator station config in native split-state shape: ZMQ addresses, log directory, TX delay, uplink mode, station catalog, active mission id, and mission-editable overrides under `mission.config.*` (for MAVERIC: `ax25.*`, `csp.*`, `imaging.thumb_prefix`). Gitignored. Copy from `mav_gss_lib/gss.example.yml`. If the file is missing, the runtime falls back to built-in defaults.
 - `mav_gss_lib/missions/<name>/commands.example.yml` — tracked, public-safe command schema template documenting `tx_args` and `rx_args`. The operational `commands.yml` is gitignored for security and must be supplied locally. Without it the server starts but cannot validate or send commands.
 
 Mission identity constants (nodes, ptypes, mission name, UI titles, command schema filename) and mission-declared defaults live in each mission package's own code (e.g. `mav_gss_lib/missions/maveric/defaults.py`), seeded into `mission_cfg` by `build(ctx)` at startup. Operator values in `gss.yml` always win. There is no separate mission-metadata YAML file.
@@ -317,7 +357,7 @@ def build(ctx: MissionContext) -> MissionSpec: ...
 - `http: HttpOps` — FastAPI routers auto-mounted at startup (optional).
 - `preflight` — mission-specific preflight checks (optional).
 
-Set `mission.id` in `gss.yml` to select the active package. The default is `maveric`; `echo_v2` and `balloon_v2` are fixture missions that exercise the boundary. See `docs/plugin-system.md` for the plugin side; `mav_gss_lib/platform/mission_api.py` and the MAVERIC package are the authoritative reference for the contract.
+Set `mission.id` in `gss.yml` to select the active package. The default is `maveric`; `echo_v2` and `balloon_v2` are fixture missions that exercise the boundary. See `docs/plugin-system.md` for the plugin side; `mav_gss_lib/platform/contract/mission.py` and the MAVERIC package are the authoritative reference for the contract.
 
 ## Web UI development
 
@@ -345,10 +385,10 @@ Representative targeted runs by area:
 
 ```bash
 python3 -m unittest tests.test_ops_protocol_core          # framing + CRC + KISS + CSP + AX.25 + Golay
-python3 -m unittest tests.test_platform_v2_architecture   # v2 boundary guardrails (no runtime.cfg, no protocols under web_runtime)
+python3 -m unittest tests.test_platform_architecture      # platform boundary guardrails (no runtime.cfg, no protocols under server)
 python3 -m unittest tests.test_mission_owned_framing      # mission CommandOps.frame contract
 python3 -m unittest tests.test_telemetry_router           # platform telemetry router + persistence + replay
-python3 -m unittest tests.test_ops_web_runtime            # web runtime wiring
+python3 -m unittest tests.test_ops_server            # server wiring
 python3 -m unittest tests.test_api_config_get_contract    # /api/config flat-projection contract
 python3 -m unittest tests.test_identity                   # operator + host + station capture
 ```
@@ -362,8 +402,8 @@ Tests that require the full gr-satellites flowgraph are gated behind `MAVERIC_FU
 | [`docs/user-guide.md`](docs/user-guide.md) | Operator | Pass-day walkthrough: setup, launch, UI, commanding, telemetry, logs, troubleshooting. |
 | [`docs/mission-config-files.md`](docs/mission-config-files.md) | Operator | Placement of the two gitignored local files (`gss.yml`, `commands.yml`). |
 | [`docs/plugin-system.md`](docs/plugin-system.md) | Mission author | Plugin pages, FastAPI routers, event sources, telemetry domains. |
-| [`docs/adding-a-mission.md`](docs/adding-a-mission.md) | Mission author | Pointer to the platform v2 `MissionSpec` contract sources. |
-| [`docs/maintainer_handoff.md`](docs/maintainer_handoff.md) | Maintainer | Pointer to the v2 runtime entry points and guardrail tests. |
+| [`docs/adding-a-mission.md`](docs/adding-a-mission.md) | Mission author | Pointer to the `MissionSpec` contract sources. |
+| [`docs/maintainer_handoff.md`](docs/maintainer_handoff.md) | Maintainer | Pointer to the runtime entry points and guardrail tests. |
 | [`docs/telemetry-known-smells.md`](docs/telemetry-known-smells.md) | Maintainer | Known telemetry architecture tradeoffs and invariants. |
 
 ## About MAVERIC

@@ -119,7 +119,7 @@ class TestBroadcastLoopSuppressesNoise(unittest.TestCase):
 
         self.runtime.mission.events.sources[:] = [_SpySource()]
 
-        # Spy on the SessionLog so we can assert write_jsonl / write_packet_v2
+        # Spy on the SessionLog so we can assert write_jsonl / write_packet
         # are not called for filtered noise. Using a real truthy object (not
         # None) is required — the live broadcast_loop guards writes with
         # `if self.log:`, so a None value would silently pass the suppression
@@ -132,7 +132,7 @@ class TestBroadcastLoopSuppressesNoise(unittest.TestCase):
             def write_jsonl(self, record) -> None:
                 self.jsonl_calls.append(record)
 
-            def write_packet_v2(self, pkt, text_lines=None) -> None:
+            def write_packet(self, pkt, text_lines=None) -> None:
                 self.packet_calls.append((pkt, text_lines))
 
         self.spy_log = _SpyLog()

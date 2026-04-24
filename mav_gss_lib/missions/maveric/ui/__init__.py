@@ -9,7 +9,7 @@ consume.
 
 Modules
 -------
-- `ops.py`        — `MavericUiOps`, the platform-v2 boundary. Exposes
+- `ops.py`        — `MavericUiOps`, the platform boundary. Exposes
   `packet_columns`, `tx_columns`, `render_packet`, `render_log_data`,
   and `format_text_log`.
 - `rendering.py`  — per-packet layout: column definitions and

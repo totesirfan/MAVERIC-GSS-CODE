@@ -1,4 +1,4 @@
-"""Direct tests for web_runtime._broadcast.broadcast_safe."""
+"""Direct tests for server._broadcast.broadcast_safe."""
 
 import asyncio
 import sys

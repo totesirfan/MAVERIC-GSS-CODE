@@ -1,4 +1,4 @@
-"""Tests for web_runtime.security auth helpers."""
+"""Tests for server.security auth helpers."""
 
 import asyncio
 import sys

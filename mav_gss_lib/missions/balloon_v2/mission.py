@@ -1,4 +1,4 @@
-"""Non-space fixture mission for platform v2.
+"""Non-space fixture mission.
 
 Balloon proves the platform can support a mission with no nodes, ptypes,
 spacecraft routing, CSP, AX.25, or command schema.
