@@ -182,6 +182,38 @@ export function alarmState(
 }
 
 /**
+ * Freshness tiers for Cadence captions. Thresholds match GNC (30 min / 12 h)
+ * — pass-cadence calibrated, not tight-seconds.
+ */
+export type Freshness = 'fresh' | 'stale' | 'expired' | 'empty'
+
+const FRESH_CUTOFF_MS = 30 * 60 * 1000
+const STALE_CUTOFF_MS = 12 * 60 * 60 * 1000
+
+export function classifyFreshness(
+  t: number | null | undefined,
+  now: number,
+): Freshness {
+  if (!isFiniteNumber(t)) return 'empty'
+  const age = now - t
+  if (age < FRESH_CUTOFF_MS) return 'fresh'
+  if (age < STALE_CUTOFF_MS) return 'stale'
+  return 'expired'
+}
+
+/** Format a ms age as "N s" / "N min" / "N h" / "N d". */
+export function formatAge(ageMs: number | null | undefined): string {
+  if (!isFiniteNumber(ageMs) || ageMs < 0) return '—'
+  const s = Math.floor(ageMs / 1000)
+  if (s < 60) return `${s} s`
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m} min`
+  const h = Math.floor(m / 60)
+  if (h < 48) return `${h} h`
+  return `${Math.floor(h / 24)} d`
+}
+
+/**
  * Derive AC input power via energy conservation on the bus node.
  *   P_BUS = ΣPSIN + P_AC + P_bat_discharge − P_bat_charge
  * Rearranged: P_AC = P_BUS − ΣPSIN − (V_BAT × −I_BAT)
