@@ -39,7 +39,7 @@ function VoutStripInner({ fields }: Props) {
         </div>
         <span className="card-sub" style={{ color: 'var(--text-disabled)' }}>
           <span style={{ color: 'var(--state-success)' }}>{onCount} ON</span>
-          {' · '}{offCount} OFF · load {totalLoadW.toFixed(2)} W
+          {' · '}{offCount} OFF · <span className="derived" title="Σ POUT1..6 (derived)">{totalLoadW.toFixed(2)} W</span>
         </span>
       </div>
       <div className="vout-strip">
