@@ -298,7 +298,8 @@ class TestLogWriterBatchesFlushes(unittest.TestCase):
     def test_idle_writer_flushes_within_cadence(self):
         """A single write followed by silence must reach disk within ~_FLUSH_EVERY_S."""
         import tempfile, time
-        from mav_gss_lib.logging import SessionLog, _BaseLog
+        from mav_gss_lib.logging import SessionLog
+        from mav_gss_lib.logging._base import _BaseLog
 
         with tempfile.TemporaryDirectory() as tmp:
             log = SessionLog(tmp, "tcp://127.0.0.1:0", "0.0.0")

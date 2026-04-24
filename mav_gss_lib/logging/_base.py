@@ -1,9 +1,10 @@
-"""
-mav_gss_lib.logging -- Session Logging
+"""Shared base class for RX/TX session logs.
 
-File-based logging for RX and TX sessions. Both produce JSONL
-(machine-readable) in logs/json/ and formatted text (human-readable)
-in logs/text/, sharing the same visual style via _BaseLog.
+`_BaseLog` owns the file I/O contract: background writer thread, JSONL +
+text file pair, session-header banner, hex-dump and separator formatting,
+new-session swap (preflight + commit), atomic rename, and close-on-empty
+cleanup. `SessionLog` (RX) and `TXLog` (TX) extend this with the packet-
+and command-specific formatting.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -17,14 +18,13 @@ import threading
 from datetime import datetime
 
 from mav_gss_lib.constants import DEFAULT_MISSION_NAME
-from mav_gss_lib.textutil import clean_text
 
 TS_FULL = "%Y-%m-%d %H:%M:%S %Z"   # Full timestamp with timezone
 
 # Line width for text logs
 LOG_LINE_WIDTH = 80
-SEP_CHAR = "\u2500"      # ─
-HEADER_CHAR = "\u2550"   # ═
+SEP_CHAR = "─"
+HEADER_CHAR = "═"
 
 
 def _format_session_header(mission_name: str, version: str, mode: str, zmq_addr: str,
@@ -67,10 +67,6 @@ def _compose_log_paths(log_dir: str, prefix: str, tag: str,
     )
 
 
-# =============================================================================
-#  BASE LOG
-# =============================================================================
-
 class _BaseLog:
     """Shared JSONL + text log infrastructure.
 
@@ -91,7 +87,7 @@ class _BaseLog:
         self._station = station
         self._operator = operator
         self._host = host
-        self._q_lock = threading.Lock()  # guards _q replacement during new_session
+        self._q_lock = threading.Lock()
         os.makedirs(os.path.join(log_dir, "text"), exist_ok=True)
         os.makedirs(os.path.join(log_dir, "json"), exist_ok=True)
         self._open_files()
@@ -100,10 +96,6 @@ class _BaseLog:
         """Update the ZMQ endpoint embedded in subsequent session headers."""
         self._zmq_addr = zmq_addr
 
-    # Flush cadence for _writer_loop. Idle cadence is enforced by the
-    # queue.get() timeout, not by elapsed-time arithmetic — so an idle
-    # writer thread still flushes pending writes every _FLUSH_EVERY_S
-    # seconds. The sentinel / drain path always flushes before returning.
     _FLUSH_EVERY_N = 64
     _FLUSH_EVERY_S = 0.5
 
@@ -173,8 +165,6 @@ class _BaseLog:
             self._text_f = open(new_text, "a")
             self._jsonl_f = open(new_jsonl, "a")
 
-    # -- Shared helpers -------------------------------------------------------
-
     def _write_text(self, text):
         with self._q_lock:
             self._q.put(("text", text))
@@ -197,7 +187,6 @@ class _BaseLog:
         if not data:
             return []
         hex_str = data.hex(" ")
-        # 16 bytes = 47 chars of hex ("xx " * 15 + "xx")
         chunk_w = 47
         lines = []
         offset = 0
@@ -209,7 +198,7 @@ class _BaseLog:
                 first = False
             else:
                 lines.append(f"  {'':12}{chunk}")
-            offset += chunk_w + 1  # +1 for the space between chunks
+            offset += chunk_w + 1
         return lines
 
     def write_jsonl(self, record):
@@ -241,11 +230,7 @@ class _BaseLog:
         self._writer.start()
 
     def prepare_new_session(self, tag=""):
-        """Open new log files WITHOUT closing old ones (prepare phase).
-
-        Returns a dict with new file handles and paths. On failure,
-        cleans up any partially created files and raises.
-        """
+        """Open new log files WITHOUT closing old ones (prepare phase)."""
         tag      = re.sub(r'[^\w\-.]', '_', tag.strip()).strip('_') if tag else ""
         station  = re.sub(r'[^\w\-.]', '_', self._station.strip()).strip('_') if self._station else ""
         operator = re.sub(r'[^\w\-.]', '_', self._operator.strip()).strip('_') if self._operator else ""
@@ -286,26 +271,18 @@ class _BaseLog:
         }
 
     def commit_new_session(self, prepared):
-        """Swap to new file handles from *prepared* dict (commit phase).
-
-        Sends sentinel to old writer thread, joins it, closes old files,
-        auto-deletes empty old files, swaps to new handles, and starts a
-        new writer thread.
-        """
+        """Swap to new file handles from *prepared* dict (commit phase)."""
         old_jsonl = self.jsonl_path
         old_text = self.text_path
-        # Stop old writer thread
         with self._q_lock:
             self._q.put(self._SENTINEL)
         self._writer.join(timeout=5.0)
         if self._writer.is_alive():
-            # Writer didn't stop — close prepared files and abort
             prepared["text_f"].close()
             prepared["jsonl_f"].close()
             raise RuntimeError("old writer thread did not stop within timeout — commit aborted")
         self._text_f.close()
         self._jsonl_f.close()
-        # Auto-delete empty old session files
         try:
             if os.path.isfile(old_jsonl) and os.path.getsize(old_jsonl) == 0:
                 os.remove(old_jsonl)
@@ -313,7 +290,6 @@ class _BaseLog:
                     os.remove(old_text)
         except OSError:
             pass
-        # Swap to new handles
         self.text_path = prepared["text_path"]
         self.jsonl_path = prepared["jsonl_path"]
         self._text_f = prepared["text_f"]
@@ -369,7 +345,6 @@ class _BaseLog:
         if not self._writer.is_alive():
             self._jsonl_f.close()
             self._text_f.close()
-        # Auto-delete empty session files on exit
         try:
             if os.path.isfile(self.jsonl_path) and os.path.getsize(self.jsonl_path) == 0:
                 os.remove(self.jsonl_path)
@@ -377,113 +352,3 @@ class _BaseLog:
                     os.remove(self.text_path)
         except OSError:
             pass
-
-
-# =============================================================================
-#  RX SESSION LOG
-# =============================================================================
-
-class SessionLog(_BaseLog):
-    """RX session log — JSONL + text."""
-
-    def __init__(self, log_dir, zmq_addr, version="", mission_name=DEFAULT_MISSION_NAME,
-                 *, station: str = "", operator: str = "", host: str = ""):
-        super().__init__(log_dir, "downlink", version, "RX Monitor", zmq_addr,
-                         mission_name=mission_name,
-                         station=station, operator=operator, host=host)
-
-    def write_packet_v2(self, packet, text_lines=None):
-        """Write one platform v2 RX packet entry."""
-        lines = []
-        label = f"#{packet.seq}"
-        extras = f"{packet.frame_type}  {len(packet.raw)}B -> {len(packet.payload)}B"
-        if packet.flags.is_duplicate:
-            extras += "  [DUP]"
-        if packet.flags.is_uplink_echo:
-            extras += "  [UL]"
-        lines.append(self._separator(label, extras))
-        if packet.flags.is_uplink_echo:
-            lines.append("  UPLINK ECHO")
-
-        for warning in packet.warnings:
-            lines.append(self._field("WARNING", warning))
-
-        lines.extend(text_lines or [])
-        lines.extend(self._hex_lines(packet.raw, "HEX"))
-
-        try:
-            text = packet.raw.decode("utf-8", errors="ignore").strip()
-        except Exception:
-            text = ""
-        if text:
-            lines.append(self._field("ASCII", text))
-
-        self._write_entry(lines)
-
-
-# =============================================================================
-#  TX SESSION LOG
-# =============================================================================
-
-class TXLog(_BaseLog):
-    """TX session log — JSONL + text."""
-
-    def __init__(self, log_dir, zmq_addr, version="", mission_name=DEFAULT_MISSION_NAME,
-                 *, station: str = "", operator: str = "", host: str = ""):
-        super().__init__(log_dir, "uplink", version, "TX Dashboard", zmq_addr,
-                         mission_name=mission_name,
-                         station=station, operator=operator, host=host)
-
-    def write_mission_command(self, n, display, mission_payload,
-                              raw_cmd, payload,
-                              *, frame_label="", log_fields=None, log_text=None,
-                              operator="", station=""):
-        """Write one mission-built TX command entry.
-
-        `frame_label`, `log_fields`, and `log_text` are provided by the
-        mission's framer (platform.FramedCommand). The platform writes the
-        envelope (separator, command title, RAW CMD / FULL HEX / ASCII dumps,
-        JSONL metadata); mission banner lines are inserted verbatim; mission
-        metadata is merged into the JSONL record.
-        """
-        title = display.get("title", "?")
-        subtitle = display.get("subtitle", "")
-        log_fields = dict(log_fields or {})
-        log_text = list(log_text or [])
-
-        lines = [self._separator(f"#{n}", subtitle)]
-        if frame_label:
-            lines.append(self._field("MODE", frame_label))
-        lines.append(self._field("COMMAND", title))
-        for block in display.get("detail_blocks", []):
-            for field in block.get("fields", []):
-                lines.append(self._field(field["name"].upper(), str(field["value"])))
-        lines.extend(log_text)
-        lines.extend(self._hex_lines(raw_cmd, "RAW CMD"))
-        lines.extend(self._hex_lines(payload, "FULL HEX"))
-        ascii_text = clean_text(raw_cmd)
-        if ascii_text:
-            lines.append(self._field("ASCII", ascii_text))
-
-        self._write_entry(lines)
-
-        rec = {
-            "n": n, "ts": datetime.now().astimezone().isoformat(),
-            "type": "mission_cmd",
-            "operator": operator, "station": station,
-            "display": display,
-            "mission_payload": mission_payload,
-            "raw_hex": raw_cmd.hex(), "raw_len": len(raw_cmd),
-            "hex": payload.hex(), "len": len(payload),
-        }
-        if frame_label:
-            rec["frame_label"] = frame_label
-        # Legacy JSONL field — preserve `uplink_mode` for replay compatibility
-        # when the mission populates it.
-        if "uplink_mode" in log_fields:
-            rec["uplink_mode"] = log_fields["uplink_mode"]
-        for key, value in log_fields.items():
-            if key in ("uplink_mode",):
-                continue
-            rec[key] = value
-        self.write_jsonl(rec)
