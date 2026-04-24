@@ -178,6 +178,33 @@ export function alarmState(
 }
 
 /**
+ * Derive AC input power via energy conservation on the bus node.
+ *   P_BUS = ΣPSIN + P_AC + P_bat_discharge − P_bat_charge
+ * Rearranged: P_AC = P_BUS − ΣPSIN − (V_BAT × −I_BAT)
+ *
+ * Discharge (I_BAT<0): battery adds to sources → subtract from P_BUS.
+ * Charge   (I_BAT>0): battery is a sink → add back.
+ *
+ * Returns null when V_BUS / I_BUS are not measured yet.
+ */
+export function derivePAC(
+  fields: EpsFields | Partial<EpsFields> | null | undefined,
+): number | null {
+  if (!fields) return null
+  const { V_BUS, I_BUS, V_BAT, I_BAT, PSIN1, PSIN2, PSIN3 } = fields as Partial<EpsFields>
+  if (!isFiniteNumber(V_BUS) || !isFiniteNumber(I_BUS)) return null
+  const pBus = V_BUS * I_BUS
+  const pSin = (isFiniteNumber(PSIN1) ? PSIN1 : 0)
+    + (isFiniteNumber(PSIN2) ? PSIN2 : 0)
+    + (isFiniteNumber(PSIN3) ? PSIN3 : 0)
+  let batTerm = 0
+  if (isFiniteNumber(V_BAT) && isFiniteNumber(I_BAT)) {
+    batTerm = V_BAT * -I_BAT
+  }
+  return pBus - pSin - batTerm
+}
+
+/**
  * Format a current in amps as `NN mA` (below 1 A) or `X.XX A` (at or above 1 A).
  * Negative values render with U+2212 to match the codebase convention.
  */
