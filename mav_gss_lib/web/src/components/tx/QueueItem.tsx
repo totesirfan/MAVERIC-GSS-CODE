@@ -1,6 +1,9 @@
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { GripVertical, Shield, ShieldCheck, Trash2, Copy, ArrowUpToLine, ArrowDownToLine } from 'lucide-react'
+import {
+  GripVertical, Shield, ShieldCheck, Trash2, Copy, ArrowUpToLine,
+  ArrowDownToLine, RotateCcw,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { colors } from '@/lib/colors'
@@ -11,15 +14,28 @@ import {
   ContextMenuRoot, ContextMenuTrigger, ContextMenuContent,
   ContextMenuItem, ContextMenuSeparator,
 } from '@/components/shared/ContextMenu'
-import type { TxQueueCmd, TxColumnDef } from '@/lib/types'
+import type { TxQueueCmd, TxHistoryItem, TxColumnDef, TxRowStatus } from '@/lib/types'
+
+const TERMINAL: TxRowStatus[] = ['complete', 'failed', 'timed_out']
+const isTerminal = (s: TxRowStatus) => TERMINAL.includes(s)
+
+function railColor(status: TxRowStatus, guard: boolean, isGuarding: boolean): string {
+  if (isGuarding) return colors.warning
+  if (status === 'sending') return colors.info
+  if (status === 'released') return colors.warning
+  if (status === 'accepted') return colors.success
+  if (status === 'complete') return colors.success
+  if (status === 'failed') return colors.danger
+  if (status === 'timed_out') return colors.dim
+  return guard ? colors.warning : colors.borderStrong
+}
 
 interface QueueItemProps {
-  item: TxQueueCmd
-  index: number
+  item: TxQueueCmd | TxHistoryItem
+  status: TxRowStatus
+  index: number            // queue index (pending) or 0 placeholder (terminal)
   sortId: string
   expanded: boolean
-  isNext: boolean
-  isSending: boolean
   isGuarding: boolean
   flash?: boolean
   compact?: boolean
@@ -30,49 +46,64 @@ interface QueueItemProps {
   onDuplicate: (index: number) => void
   onMoveToTop: (index: number) => void
   onMoveToBottom: (index: number) => void
+  onRequeue?: (item: TxHistoryItem) => void
 }
 
-export function QueueItem({ item, index, sortId, expanded, isNext, isSending, isGuarding, flash, compact, visibleColumns, onSelect, onToggleGuard, onDelete, onDuplicate, onMoveToTop, onMoveToBottom }: QueueItemProps) {
+export function QueueItem({
+  item, status, index, sortId, expanded, isGuarding, flash, compact,
+  visibleColumns, onSelect, onToggleGuard, onDelete, onDuplicate,
+  onMoveToTop, onMoveToBottom, onRequeue,
+}: QueueItemProps) {
+  const terminal = isTerminal(status)
+  const pending = status === 'pending' || status === 'sending'
+
   const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: sortId })
+    attributes, listeners, setNodeRef, transform, transition, isDragging,
+  } = useSortable({ id: sortId, disabled: !pending })
 
   const display = item.display ?? { title: '?', row: {}, detail_blocks: [] }
+  const num = 'num' in item ? item.num : ('n' in item ? item.n : 0)
+  const guard = 'guard' in item ? item.guard : false
+  const size = item.size
 
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.5 : 1,
+    opacity: isDragging ? 0.5 : (terminal ? 0.6 : 1),
   }
 
-  const borderColor = isGuarding ? colors.warning : isSending ? colors.info : item.guard ? colors.warning : colors.borderStrong
+  const borderColor = railColor(status, guard, isGuarding)
+  const pulseClass =
+    status === 'sending' ? 'animate-slide-in' :
+    status === 'released' ? 'animate-pulse-warning' : ''
 
   return (
     <ContextMenuRoot>
       <ContextMenuTrigger>
         <div
           ref={setNodeRef}
+          data-follow-id={sortId}
           style={{
             ...style,
             ...(compact ? {} : { borderLeftColor: borderColor }),
-            backgroundColor: isSending ? `${colors.info}08` : undefined,
+            backgroundColor: status === 'sending' ? `${colors.info}08` : undefined,
           }}
-          className={`color-transition rounded-md text-xs ${compact ? '' : 'border-l-2'} mb-0.5 hover:bg-white/[0.03] ${isSending ? 'animate-slide-in' : ''} ${flash ? 'animate-slide-in' : ''}`}
+          className={`color-transition rounded-md text-xs ${compact ? '' : 'border-l-2'} mb-0.5 hover:bg-white/[0.03] ${pulseClass} ${flash ? 'animate-slide-in' : ''}`}
         >
-          {/* Main row */}
           <div className="flex items-center gap-1.5 px-1.5 py-1.5 cursor-pointer" onClick={onSelect}>
             {!compact && (
-              <span {...attributes} {...listeners} className="cursor-grab shrink-0 p-0.5 rounded hover:bg-white/[0.06]"
-                onClick={(e) => e.stopPropagation()}>
-                <GripVertical className="size-3.5" style={{ color: colors.dim }} />
-              </span>
+              pending ? (
+                <span {...attributes} {...listeners}
+                  className={`${col.grip} cursor-grab shrink-0 p-0.5 rounded hover:bg-white/[0.06] flex items-center justify-center`}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <GripVertical className="size-3.5" style={{ color: colors.dim }} />
+                </span>
+              ) : (
+                <span className={`${col.grip} shrink-0`} aria-hidden="true" />
+              )
             )}
-            <span className={`${col.num} text-right shrink-0 tabular-nums`} style={{ color: colors.dim }}>{item.num}</span>
+            <span className={`${col.num} text-right shrink-0 tabular-nums`} style={{ color: colors.dim }}>{num}</span>
             {visibleColumns.length > 0 ? (
               visibleColumns.map(c => {
                 const cell = display.row?.[c.id]
@@ -99,37 +130,40 @@ export function QueueItem({ item, index, sortId, expanded, isNext, isSending, is
             {!compact && isGuarding && (
               <Badge className="text-[11px] px-1.5 py-0 h-5 shrink-0 animate-pulse-warning" style={{ backgroundColor: `${colors.warning}22`, color: colors.warning }}>GUARD</Badge>
             )}
-            {!compact && isSending && !isGuarding && (
+            {!compact && status === 'sending' && !isGuarding && (
               <Badge className="text-[11px] px-1.5 py-0 h-5 shrink-0 animate-pulse-text" style={{ backgroundColor: `${colors.infoFill}`, color: colors.info }}>SENDING</Badge>
             )}
-            {!compact && isNext && !isSending && !isGuarding && (
+            {!compact && status === 'pending' && index === 0 && !isGuarding && (
               <Badge className="text-[11px] px-1.5 py-0 h-5 shrink-0" style={{ backgroundColor: `${colors.label}22`, color: colors.label }}>NEXT</Badge>
             )}
-            {!compact && item.guard && !isSending && !isGuarding && !isNext && (
+            {!compact && status === 'pending' && guard && index !== 0 && (
               <Badge className="text-[11px] px-1.5 py-0 h-5 shrink-0" style={{ backgroundColor: `${colors.warning}22`, color: colors.warning }}>GUARD</Badge>
             )}
             {!compact && (
-              <span className={`${col.size} text-right shrink-0 tabular-nums`} style={{ color: colors.dim }}>{item.size}B</span>
+              <span className={`${col.size} text-right shrink-0 tabular-nums`} style={{ color: colors.dim }}>{size}B</span>
             )}
-            <div className="flex items-center gap-0.5 shrink-0 ml-1">
-              {!compact && (
-                <Button variant="ghost" size="icon" className="size-6 rounded-md btn-feedback"
-                  onClick={(e) => { e.stopPropagation(); onToggleGuard(index) }}
-                  title={item.guard ? 'Remove guard' : 'Add guard'}>
-                  {item.guard
-                    ? <ShieldCheck className="size-3.5" style={{ color: colors.warning }} />
-                    : <Shield className="size-3.5" style={{ color: colors.dim }} />
-                  }
-                </Button>
-              )}
-              <Button variant="ghost" size="icon" className="size-6 rounded-md btn-feedback"
-                onClick={(e) => { e.stopPropagation(); onDelete(index) }} title="Delete">
-                <Trash2 className="size-3.5" style={{ color: colors.dim }} />
-              </Button>
-            </div>
+            {!compact && (
+              pending ? (
+                <div className={`${col.actions} flex items-center gap-0.5 shrink-0 ml-1 justify-end`}>
+                  <Button variant="ghost" size="icon" className="size-6 rounded-md btn-feedback"
+                    onClick={(e) => { e.stopPropagation(); onToggleGuard(index) }}
+                    title={guard ? 'Remove guard' : 'Add guard'}>
+                    {guard
+                      ? <ShieldCheck className="size-3.5" style={{ color: colors.warning }} />
+                      : <Shield className="size-3.5" style={{ color: colors.dim }} />
+                    }
+                  </Button>
+                  <Button variant="ghost" size="icon" className="size-6 rounded-md btn-feedback"
+                    onClick={(e) => { e.stopPropagation(); onDelete(index) }} title="Delete">
+                    <Trash2 className="size-3.5" style={{ color: colors.dim }} />
+                  </Button>
+                </div>
+              ) : (
+                <span className={`${col.actions} shrink-0 ml-1`} aria-hidden="true" />
+              )
+            )}
           </div>
 
-          {/* Expanded detail */}
           {expanded && (
             <div className="px-3 pb-2 pt-1 ml-6 space-y-2 animate-slide-in" style={{ borderTop: `1px solid ${colors.borderSubtle}` }}>
               {display.detail_blocks?.map((block, i) => (
@@ -146,30 +180,48 @@ export function QueueItem({ item, index, sortId, expanded, isNext, isSending, is
               ))}
               <div className="flex items-center gap-2 text-xs">
                 <span style={{ color: colors.sep }}>Size:</span>
-                <span style={{ color: colors.value }}>{item.size}B</span>
+                <span style={{ color: colors.value }}>{size}B</span>
               </div>
-              {item.guard && <div style={{ color: colors.warning }} className="text-[11px]">Guarded — requires confirmation</div>}
+              {pending && guard && <div style={{ color: colors.warning }} className="text-[11px]">Guarded — requires confirmation</div>}
             </div>
           )}
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent>
-        <ContextMenuItem icon={item.guard ? Shield : ShieldCheck} onSelect={() => onToggleGuard(index)}>
-          {item.guard ? 'Remove Guard' : 'Add Guard'}
-        </ContextMenuItem>
-        <ContextMenuItem icon={Copy} onSelect={() => onDuplicate(index)}>
-          Duplicate
-        </ContextMenuItem>
-        <ContextMenuItem icon={ArrowUpToLine} onSelect={() => onMoveToTop(index)}>
-          Move to Top
-        </ContextMenuItem>
-        <ContextMenuItem icon={ArrowDownToLine} onSelect={() => onMoveToBottom(index)}>
-          Move to Bottom
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem icon={Trash2} onSelect={() => onDelete(index)} destructive>
-          Delete
-        </ContextMenuItem>
+        {pending ? (
+          <>
+            <ContextMenuItem icon={guard ? Shield : ShieldCheck} onSelect={() => onToggleGuard(index)}>
+              {guard ? 'Remove Guard' : 'Add Guard'}
+            </ContextMenuItem>
+            <ContextMenuItem icon={Copy} onSelect={() => onDuplicate(index)}>
+              Duplicate
+            </ContextMenuItem>
+            <ContextMenuItem icon={ArrowUpToLine} onSelect={() => onMoveToTop(index)}>
+              Move to Top
+            </ContextMenuItem>
+            <ContextMenuItem icon={ArrowDownToLine} onSelect={() => onMoveToBottom(index)}>
+              Move to Bottom
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem icon={Trash2} onSelect={() => onDelete(index)} destructive>
+              Delete
+            </ContextMenuItem>
+          </>
+        ) : (
+          <>
+            <ContextMenuItem icon={Copy} onSelect={() => {
+              const text = cellText(display.row?.cmd) || String(display.title ?? '?')
+              navigator.clipboard.writeText(text)
+            }}>
+              Copy Command
+            </ContextMenuItem>
+            {onRequeue && 'payload' in item && (
+              <ContextMenuItem icon={RotateCcw} onSelect={() => onRequeue(item as TxHistoryItem)}>
+                Re-queue
+              </ContextMenuItem>
+            )}
+          </>
+        )}
       </ContextMenuContent>
     </ContextMenuRoot>
   )

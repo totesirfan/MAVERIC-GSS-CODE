@@ -108,7 +108,7 @@ export function QueuePanel({
     <Collapsible
       open={open}
       onOpenChange={setOpen}
-      className="flex flex-col rounded-lg border overflow-hidden shadow-panel shrink-0"
+      className="flex flex-col rounded-md border overflow-hidden shadow-panel shrink-0"
       style={{
         borderColor: colors.borderSubtle,
         backgroundColor: colors.bgPanel,
@@ -116,8 +116,13 @@ export function QueuePanel({
     >
       {/* Panel header — also the collapsible trigger */}
       <CollapsibleTrigger
-        className="flex items-center gap-2 px-3 py-1.5 border-b shrink-0 w-full text-left hover:bg-white/[0.02] transition-colors outline-none"
-        style={{ borderColor: colors.borderSubtle }}
+        className="flex items-center gap-2 px-3 border-b shrink-0 w-full text-left hover:bg-white/[0.02] transition-colors outline-none"
+        style={{
+          borderColor: colors.borderSubtle,
+          minHeight: 34,
+          paddingTop: 6,
+          paddingBottom: 6,
+        }}
       >
         <ChevronDown
           className="size-3.5 transition-transform duration-200"
@@ -127,8 +132,12 @@ export function QueuePanel({
           }}
         />
         <span
-          className="text-xs font-bold tracking-wide uppercase"
-          style={{ color: colors.value }}
+          className="font-bold uppercase"
+          style={{
+            color: colors.value,
+            fontSize: 14,
+            letterSpacing: '0.02em',
+          }}
         >
           Imaging Queue
         </span>
@@ -189,16 +198,15 @@ export function QueuePanel({
                 {[...imagingRows].reverse().map((row, reverseIdx) => {
                   const displayNum = imagingRows.length - reverseIdx
                   const isSending = sending && row.absoluteIndex === 0
-                  const isNext = !sending && row.absoluteIndex === 0
+                  const status = isSending ? 'sending' : 'pending'
                   return (
                     <QueueItem
                       key={`img-${row.item.num}`}
                       item={{ ...row.item, num: displayNum }}
+                      status={status}
                       index={row.absoluteIndex}
                       sortId={`img-${row.item.num}`}
                       expanded={false}
-                      isNext={isNext}
-                      isSending={isSending}
                       isGuarding={false}
                       compact
                       visibleColumns={visibleColumns}
