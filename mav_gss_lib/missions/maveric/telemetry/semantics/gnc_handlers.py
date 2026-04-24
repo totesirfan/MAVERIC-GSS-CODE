@@ -117,10 +117,11 @@ def _handle_gnc_get_cnts(cmd: dict) -> dict[str, dict] | None:
     }
 
 
-def _walk_fast_frame(tokens: list[str]) -> "Iterator[tuple[str, str, list[str]]]":
-    """Yield `(module, register, values)` tuples from an mtq_get_fast stream.
+def _walk_paged_frame(tokens: list[str]) -> "Iterator[tuple[str, str, list[str]]]":
+    """Yield `(module, register, values)` tuples from a paged-frame stream.
 
-    The stream alternates `<module>,<register>` marker tokens and raw
+    Shared wire format across mtq_get_active / mtq_get_hk / mtq_get_param:
+    the stream alternates `<module>,<register>` marker tokens and raw
     value tokens. Each marker starts a new register; collect subsequent
     non-marker tokens until the next marker or end of stream.
     """
@@ -146,18 +147,32 @@ def _walk_fast_frame(tokens: list[str]) -> "Iterator[tuple[str, str, list[str]]]
         i = j
 
 
-def _handle_mtq_get_fast(cmd: dict) -> dict[str, dict] | None:
-    """Decode `mtq_get_fast` RES — 4-page fast-frame dump.
+def _handle_mtq_paged_regs(cmd: dict) -> dict[str, dict] | None:
+    """Decode a paged MTQ register-frame RES into a register snapshot.
+
+    Shared by three frame-type commands:
+
+      mtq_get_active (22 regs / pages 0-4) — flight-operations downlink
+        page 0: TIME, DATE, MTQ_USER, ACT_ERR, SEN_ERR
+        page 1: Q, LLA, FSS_TMP1, RATE, MAG
+        page 2: SV, MAG0_S, FSS0_SV, IMU0_S, IMU1_S
+        page 3: PWR_VOL_5V, PWR_CUR_5V, PWR_VOL_3V, PWR_CUR_3V, CONF
+        page 4: FSS0_PDSUM, MEAS_MAG_B, MEAS_IMU_B
+
+      mtq_get_hk (7 regs / pages 0-1) — LPPM 5 s housekeeping, beacon
+        page 0: STAT, MTQ, ADCS_TMP, CAL_MAG_B, CAL_IMU_B
+        page 1: RATE, MAG
+
+      mtq_get_param (18 regs / pages 0-3) — configuration parameters
+        page 0: POINTING_AXIS, TLE, MAG_MAT, MAG_VEC, MAG_INFO
+        page 1: MAG_STAT, FSS_STAT, IMU_STAT, FSS_INFO, IMU_INFO
+        page 2: MASS, INE_TEN, MAG0_ORIEN_BS, FSS0_ORIEN_BS, IMU0_ORIEN_BS
+        page 3: IMU1_ORIEN_BS, IMU_BIAS, NVM
 
     Wire per MAVERIC flight software: Status, Page, then a sequence of
     `<module>,<register>` markers each followed by that register's
-    payload values. Pages 0-2 carry 5 registers; page 3 carries 1.
-
-    Canonical register order across pages (MTQ_FAST_FRAME_REGS):
-      CONF, TIME, DATE, MTQ_USER, STAT,
-      ACT_ERR, SEN_ERR, Q, RATE, LLA,
-      ATT_ERROR, ATT_ERROR_RATE, SV, MAG, MTQ,
-      MTQ_USER
+    payload values. Last write wins for any register slot, so the GNC
+    snapshot stays coherent across frame types.
     """
     typed = cmd.get("typed_args") or []
     extras = cmd.get("extra_args") or []
@@ -171,7 +186,7 @@ def _handle_mtq_get_fast(cmd: dict) -> dict[str, dict] | None:
     tokens.extend(str(t) for t in extras)
 
     out: dict[str, dict] = {}
-    for module, register, values in _walk_fast_frame(tokens):
+    for module, register, values in _walk_paged_frame(tokens):
         decoded = decode_register(module, register, values)
         out[decoded.name] = decoded.to_dict()
     return out or None
@@ -185,12 +200,14 @@ def _handle_mtq_get_fast(cmd: dict) -> dict[str, dict] | None:
 # commands expose the same logical field they simply overwrite each
 # other (last write wins).
 COMMAND_HANDLERS: dict[str, Callable[[dict], dict[str, dict] | None]] = {
-    "mtq_get_1":     _handle_mtq_get_1,
-    "mtq_get_fast":  _handle_mtq_get_fast,
-    "nvg_get_1":     _handle_nvg_get_1,
-    "nvg_heartbeat": _handle_nvg_heartbeat,
-    "gnc_get_mode":  _handle_gnc_get_mode,
-    "gnc_get_cnts":  _handle_gnc_get_cnts,
+    "mtq_get_1":      _handle_mtq_get_1,
+    "mtq_get_active": _handle_mtq_paged_regs,
+    "mtq_get_hk":     _handle_mtq_paged_regs,
+    "mtq_get_param":  _handle_mtq_paged_regs,
+    "nvg_get_1":      _handle_nvg_get_1,
+    "nvg_heartbeat":  _handle_nvg_heartbeat,
+    "gnc_get_mode":   _handle_gnc_get_mode,
+    "gnc_get_cnts":   _handle_gnc_get_cnts,
 }
 
 

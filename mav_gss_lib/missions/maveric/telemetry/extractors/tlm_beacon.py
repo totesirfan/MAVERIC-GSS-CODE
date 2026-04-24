@@ -49,6 +49,14 @@ flight-software struct):
     uint16_t unexpected_detumble_count
     uint16_t sunspin_count
 
+``temp_adcs`` is a pre-converted float in °C.
+
+Known FSW-side issue: the ``mtq_dipole[3]`` block in bench captures
+sometimes comes through as ``[0.0, NaN, NaN]`` — it should be all
+zeros (MTQ commanded off) or all NaNs (MTQ uninitialised), never
+mixed. The decoder faithfully reflects the wire; the inconsistency
+is an FSW packing bug.
+
 ``eps_heartbeat`` and ``eps_mode`` are canonical ``eps`` domain keys
 (catalog entries in ``TELEMETRY_MANIFEST``). ``eps_heartbeat`` is the
 EPS subsystem heartbeat byte; ``eps_mode`` is the EPS operating-mode
@@ -110,7 +118,9 @@ def _gnc_counters(safe: int, detumble: int, sunspin: int) -> dict:
 
 
 def _adcs_tmp(celsius: float) -> dict:
-    """Beacon temp_adcs is already in °C; canonical shape matches RES ``_decode_adcs_tmp``."""
+    """Beacon ``temp_adcs`` is already in °C (pre-converted by FSW);
+    canonical shape matches RES ``_decode_adcs_tmp`` so beacon- and
+    RES-sourced ``ADCS_TMP`` fragments merge under one key."""
     return {"brdtmp": None, "celsius": float(celsius), "comm_fault": False}
 
 

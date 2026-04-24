@@ -12,8 +12,8 @@ Scope: v1 covers only the 9 registers the GNC dashboard consumes.
 Other registers decode to a generic typed value (array of ints/floats)
 so they still surface in raw views.
 
-Command-level dispatch (mtq_get_1, mtq_get_fast, gnc_get_*) lives in
-the sibling `handlers` module.
+Command-level dispatch (mtq_get_1, mtq_get_active / mtq_get_hk /
+mtq_get_param, gnc_get_*) lives in the sibling `handlers` module.
 """
 
 from __future__ import annotations
@@ -276,10 +276,21 @@ class RegisterDef:
 
 
 # Register catalog — mirrors the GNC team's authoritative Registers.csv.
-# Registers with custom `decode_extra`
-# callbacks unpack their bitfields / BCD / scaled units; all others
-# fall through to the generic float/int coercion pipeline and display
-# as arrays of typed values in the raw table.
+# Registers with custom `decode_extra` callbacks unpack their bitfields
+# / BCD / scaled units; all others fall through to the generic
+# float/int coercion pipeline and display as arrays of typed values in
+# the raw table.
+#
+# Frame membership (see _handle_mtq_paged_regs for the shared decoder):
+#   mtq_get_active — TIME, DATE, MTQ_USER, ACT_ERR, SEN_ERR, Q, LLA,
+#                    FSS_TMP1, RATE, MAG, SV, MAG0_S, FSS0_SV, IMU0_S,
+#                    IMU1_S, PWR_VOL_5V, PWR_CUR_5V, PWR_VOL_3V,
+#                    PWR_CUR_3V, CONF, FSS0_PDSUM, MEAS_MAG_B, MEAS_IMU_B
+#   mtq_get_hk     — STAT, MTQ, ADCS_TMP, CAL_MAG_B, CAL_IMU_B, RATE, MAG
+#   mtq_get_param  — POINTING_AXIS, TLE, MAG_MAT, MAG_VEC, MAG_INFO,
+#                    MAG_STAT, FSS_STAT, IMU_STAT, FSS_INFO, IMU_INFO,
+#                    MASS, INE_TEN, MAG0_ORIEN_BS, FSS0_ORIEN_BS,
+#                    IMU0_ORIEN_BS, IMU1_ORIEN_BS, IMU_BIAS, NVM
 #
 # Adding hardware assumptions is disallowed — only extend decoders when
 # the TensorADCS manual provides explicit bit layouts. Unknown bitfield
@@ -292,7 +303,6 @@ REGISTERS: dict[tuple[int, int], RegisterDef] = {
     (0, 6):   RegisterDef("DATE",           "uint8[4]", unit="",         notes="BCD YY/MM/DD/WD", decode_extra=_decode_date),
     (0, 14):  RegisterDef("POINTING_AXIS",  "float[3]", unit="",         notes="Target/sun tracking pointing axis"),
     (0, 17):  RegisterDef("TLE",            "char[140]", unit="",        notes="NORAD TLE, two-line set"),
-    (0, 100): RegisterDef("SV_USER",        "float[3]", unit="",         notes="Custom sun vector (unit)"),
     (0, 103): RegisterDef("MTQ_USER",       "float[3]", unit="A.m^2",    notes="Custom MTQ dipole"),
     (0, 128): RegisterDef("STAT",           "uint8[4]", unit="",         notes="Status + current mode", decode_extra=_decode_stat),
     (0, 129): RegisterDef("ACT_ERR",        "uint8[4]", unit="",         notes="Actuator errors", decode_extra=_decode_act_err),
@@ -300,14 +310,12 @@ REGISTERS: dict[tuple[int, int], RegisterDef] = {
     (0, 132): RegisterDef("Q",              "float[4]", unit="",         notes="Attitude quaternion Q0..Q3"),
     (0, 136): RegisterDef("RATE",           "float[3]", unit="rad/s",    notes="Attitude rate, body frame"),
     (0, 139): RegisterDef("LLA",            "float[3]", unit="",         notes="Lat (deg), Long (deg), Alt (km)"),
-    (0, 142): RegisterDef("ATT_ERROR",      "float[3]", unit="MRP",      notes="Attitude error (Modified Rodrigues)"),
-    (0, 145): RegisterDef("ATT_ERROR_RATE", "float[3]", unit="rad/s",    notes="Attitude error rate, body frame"),
     (0, 148): RegisterDef("ADCS_TMP",       "int16[2]", unit="deg_C",    notes="BRDTMP*150/32768", decode_extra=_decode_adcs_tmp),
     (0, 149): RegisterDef("PWR_VOL_5V",     "float",    unit="mV",       notes="5V bus voltage"),
     (0, 150): RegisterDef("PWR_CUR_5V",     "float",    unit="mA",       notes="5V bus current"),
     (0, 151): RegisterDef("PWR_VOL_3V",     "float",    unit="mV",       notes="3.3V bus voltage"),
-    # CSV line 21 labels reg 152 "PWR_CUR_5V" — likely a typo for
-    # PWR_CUR_3V (mirrors voltage pair). Using the corrected name.
+    # CSV labels reg 152 "PWR_CUR_5V" — a typo for PWR_CUR_3V (mirrors
+    # voltage pair). Using the corrected name.
     (0, 152): RegisterDef("PWR_CUR_3V",     "float",    unit="mA",       notes="3.3V bus current (CSV typo: listed as PWR_CUR_5V)"),
     (0, 153): RegisterDef("FSS_TMP1",       "int16[2]", unit="deg_C",    notes="FSS0/FSS1 temperature; Celsius = FSSxTMP * 0.03125", decode_extra=_decode_fss_tmp),
     (0, 156): RegisterDef("SV",             "float[3]", unit="",         notes="Sun vector in body frame (unit)"),
@@ -328,15 +336,12 @@ REGISTERS: dict[tuple[int, int], RegisterDef] = {
     (1, 44):  RegisterDef("IMU_STAT",       "uint8[4]", unit="",         notes="IMU status bitfield (bit layout TBD)"),
     (1, 45):  RegisterDef("IMU0_S",         "float[3]", unit="",         notes="IMU0 sensor axis indicator"),
     (1, 48):  RegisterDef("IMU1_S",         "float[3]", unit="",         notes="IMU1 sensor axis indicator"),
-    # MTQ commanded dipole — confirmed at (1, 78) per mtq_get_fast wire
+    # MTQ commanded dipole — confirmed at (1, 78) per paged-frame wire
     # capture, official Registers.csv, and GNC team. An earlier draft
     # CSV listed (1, 82); that entry was wrong and is not aliased.
     (1, 78):  RegisterDef("MTQ",            "float[3]", unit="A.m^2",    notes="Commanded MTQ dipole"),
-    # MEAS/CAL_MAG_B and MEAS/CAL_IMU_B are not explicitly documented
-    # with units in the manual section we have; leaving unit blank rather
-    # than guessing. Operator can see raw values; GNC can add units later.
-    (1, 130): RegisterDef("MEAS_MAG_B",     "float[3]", unit="",         notes="Measured magnetic field in body frame (unit TBD)"),
-    (1, 133): RegisterDef("CAL_MAG_B",      "float[3]", unit="",         notes="Calibrated magnetic field in body frame (unit TBD)"),
+    (1, 130): RegisterDef("MEAS_MAG_B",     "float[3]", unit="uT",       notes="Measured magnetic field in body frame"),
+    (1, 133): RegisterDef("CAL_MAG_B",      "float[3]", unit="uT",       notes="Calibrated magnetic field in body frame"),
     # CSV row labels reg 136 "MAS_IMU_B" — appears to be a typo for
     # MEAS_IMU_B, matching the MEAS_MAG_B pattern.
     (1, 136): RegisterDef("MEAS_IMU_B",     "float[3]", unit="",         notes="Measured IMU rate in body frame (CSV typo: listed as MAS_IMU_B; unit TBD)"),
@@ -344,16 +349,53 @@ REGISTERS: dict[tuple[int, int], RegisterDef] = {
 
     # ── Module 2 / Parameter ───────────────────────────────────────
     (2, 0):   RegisterDef("MASS",           "float",    unit="kg",       notes="Satellite mass, 10..25 kg"),
-    (2, 1):   RegisterDef("INE_TEN",        "float[9]", unit="",         notes="Inertia tensor"),
+    (2, 1):   RegisterDef("INE_TEN",        "float[9]", unit="kg.m^2",   notes="Inertia tensor in the ADCS frame, satellite deployed"),
     (2, 17):  RegisterDef("MAG_INFO",       "uint8[4]", unit="",         notes="Magnetometer config bitfield (bit layout TBD)"),
     (2, 18):  RegisterDef("MAG0_ORIEN_BS",  "float[4]", unit="",         notes="Magnetometer 0 orientation quaternion"),
-    (2, 22):  RegisterDef("MAG1_ORIEN_BS",  "float[4]", unit="",         notes="Magnetometer 1 orientation quaternion"),
     (2, 42):  RegisterDef("FSS_INFO",       "uint8[4]", unit="",         notes="FSS config bitfield (bit layout TBD)"),
     (2, 43):  RegisterDef("FSS0_ORIEN_BS",  "float[4]", unit="",         notes="FSS0 orientation quaternion"),
     (2, 67):  RegisterDef("IMU_INFO",       "uint8[4]", unit="",         notes="IMU config bitfield (bit layout TBD)"),
     (2, 68):  RegisterDef("IMU0_ORIEN_BS",  "float[4]", unit="",         notes="IMU0 orientation quaternion"),
     (2, 72):  RegisterDef("IMU1_ORIEN_BS",  "float[4]", unit="",         notes="IMU1 orientation quaternion"),
+    (2, 94):  RegisterDef("IMU_BIAS",       "float[3]", unit="",         notes="IMU bias vector"),
     (2, 255): RegisterDef("NVM",            "uint8[4]", unit="",         notes="Non-volatile memory status"),
+
+    # ── Module 3 / Controller-tuning parameters ────────────────────
+    # Not carried by mtq_get_active / mtq_get_hk / mtq_get_param
+    # frames; readable via mtq_get_1. Listed here so the decoder
+    # recognizes them instead of emitting UNKNOWN_3_*.
+    (3, 0):   RegisterDef("PID_KP",            "float",    unit="",      notes="PID proportional gain"),
+    (3, 1):   RegisterDef("PID_KD",            "float",    unit="",      notes="PID derivative gain"),
+    (3, 2):   RegisterDef("PID_KI",            "float",    unit="",      notes="PID integral gain"),
+    (3, 3):   RegisterDef("PID_INT_LIMIT",     "float",    unit="",      notes="PID integrator clamp"),
+    (3, 4):   RegisterDef("EKF_P",             "float[7]", unit="",      notes="EKF initial state covariance"),
+    (3, 11):  RegisterDef("EKF_Q",             "float[7]", unit="",      notes="EKF process noise covariance"),
+    (3, 18):  RegisterDef("EKF_R_MAG",         "float[3]", unit="",      notes="EKF magnetometer measurement noise"),
+    (3, 21):  RegisterDef("EKF_R_SUN",         "float[3]", unit="",      notes="EKF sun-sensor measurement noise"),
+    (3, 24):  RegisterDef("EKF_R_IMU",         "float[3]", unit="",      notes="EKF IMU measurement noise"),
+    (3, 27):  RegisterDef("EKF_R_STR",         "float[4]", unit="",      notes="EKF star-tracker measurement noise"),
+    (3, 31):  RegisterDef("MTQ_LIMIT",         "float[3]", unit="A.m^2", notes="MTQ dipole limit per axis"),
+    (3, 34):  RegisterDef("CMG_W_MASS",        "float",    unit="kg",    notes="CMG wheel mass"),
+    (3, 35):  RegisterDef("CMG_G_MASS",        "float",    unit="kg",    notes="CMG gimbal mass"),
+    (3, 36):  RegisterDef("CMG_W_INE",         "float[3]", unit="kg.m^2", notes="CMG wheel inertia"),
+    (3, 39):  RegisterDef("CMG_G_INE",         "float[3]", unit="kg.m^2", notes="CMG gimbal inertia"),
+    (3, 42):  RegisterDef("CMG_POS0_GB_B",     "float[3]", unit="m",     notes="CMG 0 gimbal-base position, body frame"),
+    (3, 45):  RegisterDef("CMG_POS1_GB_B",     "float[3]", unit="m",     notes="CMG 1 gimbal-base position, body frame"),
+    (3, 48):  RegisterDef("CMG_POS2_GB_B",     "float[3]", unit="m",     notes="CMG 2 gimbal-base position, body frame"),
+    (3, 51):  RegisterDef("CMG_POS3_GB_B",     "float[3]", unit="m",     notes="CMG 3 gimbal-base position, body frame"),
+    (3, 54):  RegisterDef("CMG_FRAM0_SPIN",    "float[3]", unit="",      notes="CMG 0 spin axis in body frame"),
+    (3, 57):  RegisterDef("CMG_FRAM1_SPIN",    "float[3]", unit="",      notes="CMG 1 spin axis in body frame"),
+    (3, 60):  RegisterDef("CMG_FRAM2_SPIN",    "float[3]", unit="",      notes="CMG 2 spin axis in body frame"),
+    (3, 63):  RegisterDef("CMG_FRAM3_SPIN",    "float[3]", unit="",      notes="CMG 3 spin axis in body frame"),
+    (3, 66):  RegisterDef("CMG_FRAM0_GIMBAL",  "float[3]", unit="",      notes="CMG 0 gimbal axis in body frame"),
+    (3, 69):  RegisterDef("CMG_FRAM1_GIMBAL",  "float[3]", unit="",      notes="CMG 1 gimbal axis in body frame"),
+    (3, 72):  RegisterDef("CMG_FRAM2_GIMBAL",  "float[3]", unit="",      notes="CMG 2 gimbal axis in body frame"),
+    (3, 75):  RegisterDef("CMG_FRAM3_GIMBAL",  "float[3]", unit="",      notes="CMG 3 gimbal axis in body frame"),
+    (3, 78):  RegisterDef("STEER_KE",          "float",    unit="",      notes="Steering gain"),
+    (3, 79):  RegisterDef("STEER_REF_W",       "float",    unit="rad/s", notes="Steering reference angular rate"),
+    (3, 80):  RegisterDef("STEER_WEIGHT",      "float[5]", unit="",      notes="Steering weighting vector"),
+    (3, 85):  RegisterDef("WHEEL_TOR_LIMIT",   "float",    unit="N.m",   notes="Wheel torque limit"),
+    (3, 86):  RegisterDef("GIMBAL_RATE_LIMIT", "float",    unit="rad/s", notes="Gimbal rate limit"),
 }
 
 
