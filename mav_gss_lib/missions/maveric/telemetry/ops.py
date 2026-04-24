@@ -14,7 +14,7 @@ from mav_gss_lib.missions.maveric.rx.packet import MavericRxPacket
 from mav_gss_lib.missions.maveric.telemetry import TELEMETRY_MANIFEST
 from mav_gss_lib.missions.maveric.telemetry.extractors import EXTRACTORS
 from mav_gss_lib.platform import PacketEnvelope, TelemetryDomainSpec, TelemetryOps
-from mav_gss_lib.web_runtime.telemetry import TelemetryFragment
+from mav_gss_lib.platform.telemetry import TelemetryFragment
 
 
 @dataclass(frozen=True, slots=True)

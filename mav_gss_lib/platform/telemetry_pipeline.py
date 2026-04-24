@@ -7,11 +7,9 @@ from __future__ import annotations
 
 import logging
 
-from mav_gss_lib.web_runtime.telemetry import TelemetryFragment
-from mav_gss_lib.web_runtime.telemetry.router import TelemetryRouter
-
 from .mission_api import MissionSpec
 from .packets import PacketEnvelope
+from .telemetry import TelemetryFragment, TelemetryRouter
 
 
 def extract_telemetry_fragments(mission: MissionSpec, packet: PacketEnvelope) -> list[TelemetryFragment]:

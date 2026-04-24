@@ -1,6 +1,6 @@
 from mav_gss_lib.platform.loader import load_mission_spec
 from mav_gss_lib.platform.rx_pipeline import RxPipelineV2
-from mav_gss_lib.web_runtime.telemetry.router import TelemetryRouter
+from mav_gss_lib.platform.telemetry.router import TelemetryRouter
 
 
 def _router_for(spec, tmp_path):

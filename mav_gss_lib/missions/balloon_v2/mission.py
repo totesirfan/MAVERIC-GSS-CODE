@@ -28,7 +28,7 @@ from mav_gss_lib.platform import (
     TelemetryDomainSpec,
     TelemetryOps,
 )
-from mav_gss_lib.web_runtime.telemetry import TelemetryFragment
+from mav_gss_lib.platform.telemetry import TelemetryFragment
 
 
 @dataclass(frozen=True, slots=True)

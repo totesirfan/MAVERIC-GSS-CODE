@@ -5,8 +5,8 @@ from mav_gss_lib.platform import MissionConfigSpec, MissionSpec, TelemetryDomain
 from mav_gss_lib.platform.loader import load_mission_spec
 from mav_gss_lib.platform.packet_pipeline import PacketPipeline
 from mav_gss_lib.platform.telemetry_pipeline import extract_telemetry_fragments, ingest_packet_telemetry
-from mav_gss_lib.web_runtime.telemetry import TelemetryFragment
-from mav_gss_lib.web_runtime.telemetry.router import TelemetryRouter
+from mav_gss_lib.platform.telemetry import TelemetryFragment
+from mav_gss_lib.platform.telemetry.router import TelemetryRouter
 from mav_gss_lib.missions.echo_v2.mission import EchoPacketOps, EchoUiOps
 
 

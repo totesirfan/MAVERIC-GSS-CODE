@@ -2,7 +2,7 @@
 
 from fastapi.testclient import TestClient
 
-from mav_gss_lib.web_runtime.telemetry.router import TelemetryRouter
+from mav_gss_lib.platform.telemetry.router import TelemetryRouter
 
 
 def test_runtime_has_telemetry_router():

@@ -6,13 +6,14 @@ Author:  Irfan Annuar - USC ISI SERC
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Iterable, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Protocol
 
-from mav_gss_lib.web_runtime.telemetry import TelemetryFragment
-from mav_gss_lib.web_runtime.telemetry.policy import MergePolicy, lww_by_ts
-from mav_gss_lib.web_runtime.telemetry.state import EntryLoader
+from .fragment import TelemetryFragment
+from .policy import MergePolicy, lww_by_ts
+from .state import EntryLoader
 
-from .packets import PacketEnvelope
+if TYPE_CHECKING:
+    from ..packets import PacketEnvelope
 
 CatalogProvider = Callable[[], Any]
 

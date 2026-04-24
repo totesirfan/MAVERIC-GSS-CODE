@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from mav_gss_lib.web_runtime.telemetry.router import TelemetryRouter
+from .telemetry import TelemetryRouter
 
 from .event_pipeline import collect_packet_events
 from .mission_api import MissionSpec

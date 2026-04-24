@@ -1,5 +1,5 @@
-from mav_gss_lib.web_runtime.telemetry import TelemetryFragment
-from mav_gss_lib.web_runtime.telemetry.state import DomainState
+from mav_gss_lib.platform.telemetry import TelemetryFragment
+from mav_gss_lib.platform.telemetry.state import DomainState
 
 
 def _f(k, v, t):

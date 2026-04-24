@@ -8,9 +8,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Hashable, Protocol
 
-from mav_gss_lib.web_runtime.telemetry import TelemetryFragment
-
 from .rendering import PacketRendering
+from .telemetry import TelemetryFragment
 
 
 @dataclass(frozen=True, slots=True)

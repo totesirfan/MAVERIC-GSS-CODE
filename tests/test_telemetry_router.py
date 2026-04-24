@@ -1,5 +1,5 @@
-from mav_gss_lib.web_runtime.telemetry import TelemetryFragment
-from mav_gss_lib.web_runtime.telemetry.router import TelemetryRouter
+from mav_gss_lib.platform.telemetry import TelemetryFragment
+from mav_gss_lib.platform.telemetry.router import TelemetryRouter
 
 
 def test_register_and_ingest(tmp_path):

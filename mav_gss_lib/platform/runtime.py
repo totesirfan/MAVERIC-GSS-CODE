@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from mav_gss_lib.web_runtime.telemetry.router import TelemetryRouter
+from .telemetry import TelemetryRouter
 
 from .command_pipeline import PreparedCommand, frame_command, prepare_command
 from .commands import EncodedCommand, FramedCommand

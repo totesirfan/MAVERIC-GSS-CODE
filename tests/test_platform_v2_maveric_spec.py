@@ -3,7 +3,7 @@ from mav_gss_lib.platform.command_pipeline import prepare_command
 from mav_gss_lib.platform.loader import load_mission_spec_from_split
 from mav_gss_lib.platform.packets import PacketEnvelope, PacketFlags
 from mav_gss_lib.platform.rx_pipeline import RxPipelineV2
-from mav_gss_lib.web_runtime.telemetry.router import TelemetryRouter
+from mav_gss_lib.platform.telemetry.router import TelemetryRouter
 
 
 EPS_HK_PAYLOAD_HEX = (

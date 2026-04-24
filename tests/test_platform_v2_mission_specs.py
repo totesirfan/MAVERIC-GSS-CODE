@@ -1,6 +1,6 @@
 from mav_gss_lib.platform import PacketEnvelope
 from mav_gss_lib.platform.loader import load_mission_spec
-from mav_gss_lib.web_runtime.telemetry import TelemetryFragment
+from mav_gss_lib.platform.telemetry import TelemetryFragment
 
 
 def test_echo_v2_loads_without_maveric_concepts(tmp_path):

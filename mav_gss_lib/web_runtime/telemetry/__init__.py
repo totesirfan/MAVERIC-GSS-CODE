@@ -1,7 +1,9 @@
+"""Server-side telemetry endpoints + one-shot legacy-snapshot cleanup.
+
+Type and router live in `mav_gss_lib.platform.telemetry`.
+"""
 import logging
 from pathlib import Path
-
-from .fragment import TelemetryFragment
 
 _LEGACY_V1_FILES = (".eps_snapshot.json", ".gnc_snapshot.json")
 
@@ -25,4 +27,4 @@ def reset_legacy_snapshots(log_dir: str | Path) -> list[str]:
     return removed
 
 
-__all__ = ["TelemetryFragment", "reset_legacy_snapshots"]
+__all__ = ["reset_legacy_snapshots"]

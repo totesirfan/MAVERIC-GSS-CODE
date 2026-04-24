@@ -7,7 +7,7 @@ carrying engineering-unit value + unit string.
 """
 from __future__ import annotations
 
-from mav_gss_lib.web_runtime.telemetry import TelemetryFragment
+from mav_gss_lib.platform.telemetry import TelemetryFragment
 
 from mav_gss_lib.missions.maveric.telemetry.semantics.eps import decode_eps_hk
 
