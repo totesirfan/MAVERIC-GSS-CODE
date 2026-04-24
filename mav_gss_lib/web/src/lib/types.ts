@@ -147,6 +147,43 @@ export interface GuardConfirm {
   display: CmdDisplay
 }
 
+// ---- Unified TX timeline ----
+// Per-row lifecycle. Only `pending` / `sending` / `complete` are reached
+// today; `released` / `accepted` / `failed` / `timed_out` are reserved for
+// the planned command-verification feature. Adding a state here does not
+// require any layout change.
+export type TxRowStatus =
+  | 'pending'
+  | 'sending'
+  | 'released'
+  | 'accepted'
+  | 'complete'
+  | 'failed'
+  | 'timed_out'
+
+export interface TxDisplayItem {
+  // Stable DOM/dnd-kit key. Pending: `q-<counter>`. Sent: `h-<TxHistoryItem.n>`.
+  uid: string
+  status: TxRowStatus
+  source: 'queue' | 'history'
+  // Queue index for queue items — used for delete/guard/duplicate/reorder.
+  queueIndex?: number
+  historyN?: number
+  item: TxQueueItem | TxHistoryItem
+}
+
+// Optimistic drag-reorder override: short-lived local reshuffle of the
+// pending segment, applied on top of the backend queue until the backend
+// echoes the reorder back. Keeps drag-and-drop snappy.
+export interface PendingReorderOverride {
+  // Array of queue indices in the desired new order (e.g. [2, 0, 1, 3]).
+  order: number[]
+  // Monotonic token bumped each time the override is installed. Cleared
+  // when `queue` length changes (i.e. backend echoed, or queue shrank
+  // from a send).
+  token: number
+}
+
 export interface TxCapabilities {
   mission_commands: boolean
 }
