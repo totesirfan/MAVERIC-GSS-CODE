@@ -314,7 +314,30 @@ parameter_types:
 
 parameters: {}
 
-bitfield_types: {}
+bitfield_types:
+  STAT_REG:
+    size_bits: 32
+    byte_order: little
+    entry_list:
+      - { name: MODE,            bits: [0, 6],   kind: enum, enum_ref: GncBootMode }
+      - { name: MODE_FLAG7,      bits: [7, 7],   kind: bool }
+      - { name: EKF,             bits: [8, 8],   kind: bool }
+      - { name: CUSSV,           bits: [9, 9],   kind: bool }
+      - { name: AME,             bits: [10, 10], kind: bool }
+      - { name: TUMB,            bits: [11, 11], kind: bool }
+      - { name: TGL,             bits: [12, 12], kind: bool }
+      - { name: SUN,             bits: [13, 13], kind: bool }
+      - { name: DES,             bits: [14, 14], kind: bool }
+      - { name: TLE,             bits: [15, 15], kind: bool }
+      - { name: byte2_raw,       bits: [16, 23], kind: uint }
+      - { name: GNSS_UP_TO_DATE, bits: [24, 24], kind: bool }
+      - { name: GNSS_OC,         bits: [25, 25], kind: bool }
+      - { name: OT,              bits: [26, 26], kind: bool }
+      - { name: OC,              bits: [27, 27], kind: bool }
+      - { name: UV,              bits: [28, 28], kind: bool }
+      - { name: WDT,             bits: [29, 29], kind: bool }
+      - { name: SERR,            bits: [30, 30], kind: bool }
+      - { name: HERR,            bits: [31, 31], kind: bool }
 
 sequence_containers: {}
 
