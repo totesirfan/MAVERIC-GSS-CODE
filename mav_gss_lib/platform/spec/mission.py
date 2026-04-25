@@ -72,9 +72,9 @@ class Mission:
     sequence_containers: Mapping[str, SequenceContainer]
     meta_commands: Mapping[str, MetaCommand]
 
-    nodes: Mapping[str, int] = field(default_factory=dict)
-    ptypes: Mapping[str, int] = field(default_factory=dict)
-    node_descriptions: Mapping[str, str] = field(default_factory=dict)
+    node_id_map: Mapping[str, int] = field(default_factory=dict)
+    ptype_id_map: Mapping[str, int] = field(default_factory=dict)
+    node_description_map: Mapping[str, str] = field(default_factory=dict)
     parse_warnings: tuple[ParseWarning, ...] = ()
 
     def declared_domains(self) -> frozenset[str]:

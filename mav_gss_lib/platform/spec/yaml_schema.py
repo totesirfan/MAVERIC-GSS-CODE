@@ -195,9 +195,9 @@ class MissionDocument(_Strict):
     name: str
     header: _Header
 
-    nodes: dict[str, int] = Field(default_factory=dict)
-    ptypes: dict[str, int] = Field(default_factory=dict)
-    node_descriptions: dict[str, str] = Field(default_factory=dict)
+    node_id_map: dict[str, int] = Field(default_factory=dict, alias="nodes")
+    ptype_id_map: dict[str, int] = Field(default_factory=dict, alias="ptypes")
+    node_description_map: dict[str, str] = Field(default_factory=dict, alias="node_descriptions")
 
     parameter_types: dict[str, _ParameterTypeYaml] = Field(default_factory=dict)
     parameters: dict[str, _Parameter] = Field(default_factory=dict)
