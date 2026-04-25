@@ -45,6 +45,9 @@ class EchoPacketOps(PacketOps):
     def classify(self, packet: MissionPacket) -> PacketFlags:
         return PacketFlags(is_unknown=False)
 
+    def match_verifiers(self, packet, open_instances, *, now_ms, rx_event_id=""):
+        return []
+
 
 @dataclass(frozen=True, slots=True)
 class EchoCommandOps(CommandOps):
@@ -67,6 +70,13 @@ class EchoCommandOps(CommandOps):
 
     def frame(self, encoded: EncodedCommand) -> FramedCommand:
         return FramedCommand(wire=encoded.raw, frame_label="RAW")
+
+    def correlation_key(self, encoded):
+        return ()  # empty tuple — no verification possible without a cmd_id
+
+    def verifier_set(self, encoded):
+        from mav_gss_lib.platform.tx.verifiers import VerifierSet
+        return VerifierSet(verifiers=())
 
     def render(self, encoded: EncodedCommand) -> CommandRendering:
         line = str(encoded.mission_payload.get("line", ""))

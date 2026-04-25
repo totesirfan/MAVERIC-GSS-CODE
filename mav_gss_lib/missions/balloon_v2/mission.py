@@ -49,6 +49,9 @@ class BalloonPacketOps(PacketOps):
         payload = packet.payload if isinstance(packet.payload, dict) else {}
         return PacketFlags(is_unknown=payload.get("type") != "beacon")
 
+    def match_verifiers(self, packet, open_instances, *, now_ms, rx_event_id=""):
+        return []
+
 
 @dataclass(frozen=True, slots=True)
 class BalloonTelemetryExtractor:
