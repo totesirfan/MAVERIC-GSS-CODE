@@ -312,6 +312,50 @@ parameter_types:
     byte_order: little
     description: "Spacecraft Unix-epoch ms timestamp (LE u64)"
 
+  BcdTime:
+    kind: int
+    size_bits: 32
+    signed: false
+    byte_order: little
+    calibrator:
+      python: "maveric.bcd_time"
+    description: "uint32 LE BCD time -> {hour, minute, second, display}"
+
+  BcdDate:
+    kind: int
+    size_bits: 32
+    signed: false
+    byte_order: little
+    calibrator:
+      python: "maveric.bcd_date"
+    description: "uint32 LE BCD date -> {year, month, day, weekday, display}"
+
+  AdcsTmp:
+    kind: int
+    size_bits: 32
+    signed: false
+    byte_order: little
+    calibrator:
+      python: "maveric.adcs_tmp"
+    description: "uint32 LE encoding int16[2]; produces ADCS temperature dict"
+
+  FssTmp:
+    kind: int
+    size_bits: 32
+    signed: false
+    byte_order: little
+    calibrator:
+      python: "maveric.fss_tmp"
+    description: "uint32 LE encoding int16[2]; produces dual-FSS temperature dict"
+
+  GncPlannerModeDict:
+    kind: int
+    size_bits: 8
+    signed: false
+    calibrator:
+      python: "maveric.gnc_planner_mode"
+    description: "u8 -> {mode, mode_name}; matches legacy gnc_get_mode response shape"
+
 parameters: {}
 
 bitfield_types:
