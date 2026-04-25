@@ -309,17 +309,17 @@ def packet_detail_blocks(pkt: "MavericRxPacket", nodes: "NodeTable") -> list[dic
 def tx_queue_columns() -> list[dict]:
     """Return column definitions for the TX queue/history list.
 
-    The `verifiers` column is reserved for per-command verifier ticks
-    (UPPM / LPPM / RES / TLM) from the planned command-verification
-    feature. Today every mission_cmd renders an empty cell there;
-    `hide_if_all=[""]` auto-hides the column so there is no visual
-    change. When MAVERIC starts populating cells, the column unhides
-    automatically — no frontend layout change is required.
+    The `verifiers` column is rendered client-side from the verification
+    WS stream (see components/tx/VerifierTickStrip.tsx). The backend's
+    per-row string value for this column stays empty, so hide_if_all
+    would always fire — the column is declared without hide_if_all so
+    the tick strip is visible on every row whether or not a registered
+    instance currently maps to it.
     """
     return [
         {"id": "dest",      "label": "dest",      "width": "w-[52px]"},
         {"id": "echo",      "label": "echo",      "width": "w-[52px]", "hide_if_all": ["NONE"]},
         {"id": "ptype",     "label": "type",      "width": "w-[52px]", "badge": True},
         {"id": "cmd",       "label": "id / args", "flex": True},
-        {"id": "verifiers", "label": "verify",    "width": "w-[60px]", "align": "right", "hide_if_all": [""]},
+        {"id": "verifiers", "label": "verify",    "width": "w-[60px]", "align": "right"},
     ]
