@@ -273,6 +273,32 @@ parameter_types:
       7: "Manual"
     description: "Full table copied from gnc_schema.MODE_NAMES"
 
+  BeaconCallsign:
+    kind: string
+    encoding: fixed
+    fixed_size_bytes: 7
+    description: "7-byte ASCII callsign at the head of the beacon"
+
+  Filename:
+    kind: string
+    encoding: null_terminated
+    description: "Camera/imaging filename (null-terminated when persisted)"
+
+  Tle:
+    kind: string
+    encoding: to_end
+    description: "Two-line element string (last entry, ascii_tokens)"
+
+  LogText:
+    kind: string
+    encoding: to_end
+    description: "Free-form FTDI log payload (rest-of-cursor)"
+
+  LcdArgs:
+    kind: string
+    encoding: to_end
+    description: "Trailing args to LCD display command"
+
 parameters: {}
 
 bitfield_types: {}
