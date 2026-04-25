@@ -24,6 +24,7 @@ interface CommandDef {
   tx_args?: CommandArg[]
   rx_only?: boolean
   guard?: boolean
+  deprecated?: boolean
 }
 
 type CommandSchema = Record<string, CommandDef>
@@ -81,7 +82,7 @@ export default function MavericTxBuilder({ onQueue, onClose, disabled }: Mission
 
   const dataFilteredCmds = useMemo(() => {
     if (!schema) return []
-    let entries = Object.entries(schema).filter(([, def]) => !def.rx_only)
+    let entries = Object.entries(schema).filter(([, def]) => !def.rx_only && !def.deprecated)
     if (destNode) {
       entries = entries.filter(([, def]) => !def.nodes || def.nodes.length === 0 || def.nodes.includes(destNode))
     }

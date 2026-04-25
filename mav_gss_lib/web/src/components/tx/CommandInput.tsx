@@ -1,7 +1,9 @@
-import { useState, useRef, useCallback, forwardRef } from 'react'
+import { useState, useRef, useCallback, useEffect, forwardRef } from 'react'
 import { CornerDownLeft } from 'lucide-react'
 import { Kbd } from '@/components/ui/kbd'
 import { colors } from '@/lib/colors'
+import { showToast } from '@/components/shared/StatusToast'
+import type { CommandSchemaItem } from '@/lib/types'
 
 interface CommandInputProps {
   onSubmit: (line: string) => void
@@ -11,22 +13,48 @@ interface CommandInputProps {
   placeholderOverride?: string
 }
 
+// Raw CLI supports two grammars: shortcut `<cmd_id> [args...]` (first token
+// is the cmd_id) and full `<dest> <cmd_id> [args...]` (second token). Look
+// up both against the schema so the deprecation warning fires for either.
+function findDeprecatedCmdId(line: string, schema: Record<string, CommandSchemaItem>): string | null {
+  const tokens = line.trim().split(/\s+/)
+  for (const t of [tokens[0], tokens[1]]) {
+    if (!t) continue
+    const k = t.toLowerCase()
+    if (schema[k]?.deprecated) return k
+  }
+  return null
+}
+
 export const CommandInput = forwardRef<HTMLTextAreaElement, CommandInputProps>(
   function CommandInput({ onSubmit, history, onHistoryPush, disabled, placeholderOverride }, ref) {
   const [value, setValue] = useState('')
   const [histIdx, setHistIdx] = useState(-1)
   const [focused, setFocused] = useState(false)
+  const [schema, setSchema] = useState<Record<string, CommandSchemaItem>>({})
   const internalRef = useRef<HTMLTextAreaElement>(null)
   const inputRef = (ref as React.RefObject<HTMLTextAreaElement | null>) ?? internalRef
 
+  useEffect(() => {
+    fetch('/api/schema')
+      .then((r) => r.json())
+      .then((data: Record<string, CommandSchemaItem>) => setSchema(data ?? {}))
+      .catch(() => {})
+  }, [])
+
   const submit = useCallback(() => {
     if (disabled) return
-    if (!value.trim()) return
-    onSubmit(value.trim())
-    onHistoryPush(value.trim())
+    const trimmed = value.trim()
+    if (!trimmed) return
+    const deprecatedCmd = findDeprecatedCmdId(trimmed, schema)
+    if (deprecatedCmd) {
+      showToast(`${deprecatedCmd} is deprecated`, 'warning', 'tx')
+    }
+    onSubmit(trimmed)
+    onHistoryPush(trimmed)
     setValue('')
     setHistIdx(-1)
-  }, [disabled, value, onSubmit, onHistoryPush])
+  }, [disabled, value, schema, onSubmit, onHistoryPush])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (disabled) return

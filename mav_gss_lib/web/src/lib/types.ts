@@ -198,6 +198,24 @@ export interface MissionBuilderProps {
   disabled?: boolean
 }
 
+// Shape of one entry from GET /api/schema. Mission-specific fields live in
+// the command definition YAML; only the platform-relevant surface is typed
+// here. `deprecated: true` in the schema triggers UX demotion (hidden from
+// the builder, warning toast on CLI submit).
+export interface CommandSchemaItem {
+  tx_args?: Array<{ name: string; type: string; important?: boolean; optional?: boolean }>
+  rx_args?: Array<{ name: string; type: string }>
+  variadic?: boolean
+  rx_only?: boolean
+  nodes?: string[]
+  dest?: string | number
+  echo?: string | number
+  ptype?: string | number
+  guard?: boolean
+  deprecated?: boolean
+  verifiers?: Record<string, unknown>
+}
+
 // ---- Config ----
 // Native split shape returned by GET /api/config and accepted by PUT /api/config.
 // Matches the backend WebRuntime primary state: {platform_cfg, mission_id, mission_cfg}.
