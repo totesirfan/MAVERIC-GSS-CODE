@@ -142,6 +142,63 @@ parameter_types:
     byte_order: little
     description: "Untyped 32-bit float"
 
+  vec3_rate:
+    kind: array
+    array_type_ref: rate_rad_s
+    dimension_list: [3]
+    unit: "rad/s"
+    description: "Body-frame angular rate vector"
+
+  vec3_mag:
+    kind: array
+    array_type_ref: mag_nT
+    dimension_list: [3]
+    unit: "nT"
+    description: "Body-frame magnetic field vector"
+
+  vec3_mtq:
+    kind: array
+    array_type_ref: mtq_dipole_Am2
+    dimension_list: [3]
+    unit: "A.m^2"
+    description: "Magnetorquer dipole vector"
+
+  vec3_f32:
+    kind: array
+    array_type_ref: f32_le
+    dimension_list: [3]
+    description: "Generic 3-float vector"
+
+  vec4_f32:
+    kind: array
+    array_type_ref: f32_le
+    dimension_list: [4]
+    description: "Generic 4-float vector (e.g., quaternion)"
+
+  mat3x3_f32:
+    kind: array
+    array_type_ref: f32_le
+    dimension_list: [9]
+    description: "Row-major 3x3 float matrix"
+
+  vec2_i16:
+    kind: array
+    array_type_ref: i16
+    dimension_list: [2]
+    description: "Two LE int16 values"
+
+  bytes4_u8:
+    kind: array
+    array_type_ref: u8
+    dimension_list: [4]
+    description: "Four raw bytes (used for bitfield-type inputs)"
+
+  bytes2_u8:
+    kind: array
+    array_type_ref: u8
+    dimension_list: [2]
+    description: "Two raw bytes"
+
 parameters: {}
 
 bitfield_types: {}
