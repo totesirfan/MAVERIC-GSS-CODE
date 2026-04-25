@@ -7,10 +7,12 @@ interface CommandInputProps {
   onSubmit: (line: string) => void
   history: string[]
   onHistoryPush: (cmd: string) => void
+  disabled?: boolean
+  placeholderOverride?: string
 }
 
 export const CommandInput = forwardRef<HTMLTextAreaElement, CommandInputProps>(
-  function CommandInput({ onSubmit, history, onHistoryPush }, ref) {
+  function CommandInput({ onSubmit, history, onHistoryPush, disabled, placeholderOverride }, ref) {
   const [value, setValue] = useState('')
   const [histIdx, setHistIdx] = useState(-1)
   const [focused, setFocused] = useState(false)
@@ -18,14 +20,16 @@ export const CommandInput = forwardRef<HTMLTextAreaElement, CommandInputProps>(
   const inputRef = (ref as React.RefObject<HTMLTextAreaElement | null>) ?? internalRef
 
   const submit = useCallback(() => {
+    if (disabled) return
     if (!value.trim()) return
     onSubmit(value.trim())
     onHistoryPush(value.trim())
     setValue('')
     setHistIdx(-1)
-  }, [value, onSubmit, onHistoryPush])
+  }, [disabled, value, onSubmit, onHistoryPush])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (disabled) return
     if (e.key === 'Enter' && !e.shiftKey && value.trim()) {
       e.preventDefault()
       submit()
@@ -40,7 +44,7 @@ export const CommandInput = forwardRef<HTMLTextAreaElement, CommandInputProps>(
       if (nextIdx < 0) { setHistIdx(-1); setValue('') }
       else { setHistIdx(nextIdx); setValue(history[nextIdx]) }
     }
-  }, [value, history, histIdx, submit])
+  }, [disabled, value, history, histIdx, submit])
 
   const hasText = value.trim().length > 0
   const showCursor = focused && !hasText
@@ -63,10 +67,11 @@ export const CommandInput = forwardRef<HTMLTextAreaElement, CommandInputProps>(
         <textarea
           ref={inputRef}
           className="flex-1 bg-transparent text-xs font-mono outline-none resize-none leading-5"
-          style={{ color: colors.value }}
-          placeholder="Type a command..."
+          style={disabled ? { color: colors.value, opacity: 0.5, cursor: 'not-allowed' } : { color: colors.value }}
+          placeholder={placeholderOverride ?? 'Type a command...'}
           value={value}
           rows={1}
+          disabled={disabled}
           onChange={(e) => { setValue(e.target.value); setHistIdx(-1) }}
           onKeyDown={handleKeyDown}
           onFocus={() => setFocused(true)}

@@ -191,6 +191,7 @@ export interface TxCapabilities {
 export interface MissionBuilderProps {
   onQueue: (payload: Record<string, unknown>) => void
   onClose: () => void
+  disabled?: boolean
 }
 
 // ---- Config ----

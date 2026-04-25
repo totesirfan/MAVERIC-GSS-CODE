@@ -28,7 +28,7 @@ interface CommandDef {
 
 type CommandSchema = Record<string, CommandDef>
 
-export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderProps) {
+export default function MavericTxBuilder({ onQueue, onClose, disabled }: MissionBuilderProps) {
   const [schema, setSchema] = useState<CommandSchema | null>(null)
   const [config, setConfig] = useState<GssConfig | null>(null)
   const [destNode, setDestNode] = useState<string | null>(null)
@@ -111,6 +111,7 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
   }
 
   function handleQueue() {
+    if (disabled) return
     if (!selectedCmd || !destNode) return
     onQueue({
       cmd_id: selectedCmd,
@@ -337,6 +338,8 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
           <code className="flex-1 text-[11px] font-mono truncate" style={{ color: colors.value }}>{preview}</code>
           <button
             onClick={handleQueue}
+            disabled={disabled}
+            title={disabled ? 'Send in progress — queueing paused' : undefined}
             className="flex items-center gap-1.5 shrink-0 transition-all duration-150 btn-feedback"
             style={{
               padding: '6px 16px',
@@ -346,7 +349,8 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
               color: colors.active,
               fontSize: '11px',
               fontWeight: 600,
-              cursor: 'pointer',
+              cursor: disabled ? 'not-allowed' : 'pointer',
+              opacity: disabled ? 0.5 : 1,
             }}
           >
             <CornerDownLeft className="size-3" />

@@ -13,6 +13,7 @@ interface ImportDialogProps {
   onClose: () => void
   onImported: () => void
   txColumns: TxColumnDef[]
+  disabled?: boolean
 }
 
 interface ImportFile {
@@ -37,7 +38,7 @@ interface PreviewItem {
 
 const springConfig = { type: 'spring' as const, stiffness: 500, damping: 30, mass: 0.8 }
 
-export function ImportDialog({ open, onClose, onImported, txColumns }: ImportDialogProps) {
+export function ImportDialog({ open, onClose, onImported, txColumns, disabled }: ImportDialogProps) {
   const [files, setFiles] = useState<ImportFile[]>([])
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [preview, setPreview] = useState<PreviewItem[]>([])
@@ -85,6 +86,7 @@ export function ImportDialog({ open, onClose, onImported, txColumns }: ImportDia
   }
 
   async function doImport() {
+    if (disabled) return
     if (!selectedFile) return
     setImporting(true)
     try {
@@ -257,9 +259,10 @@ export function ImportDialog({ open, onClose, onImported, txColumns }: ImportDia
                     </button>
                     <button
                       onClick={doImport}
-                      disabled={importing || preview.length === 0}
+                      disabled={disabled || importing || preview.length === 0}
                       className="text-xs px-4 py-1 rounded font-bold btn-feedback disabled:opacity-30"
                       style={{ backgroundColor: colors.success, color: colors.bgApp }}
+                      title={disabled ? 'Send in progress — queueing paused' : undefined}
                     >
                       {importing ? 'Importing...' : `Import ${preview.length} commands`}
                     </button>

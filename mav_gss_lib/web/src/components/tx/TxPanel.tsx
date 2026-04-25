@@ -179,7 +179,7 @@ export function TxPanel({
                   <MissionBuilder onQueue={queueTemplate} onClose={() => {
                     setShowBuilder(false)
                     setTimeout(() => mainCliRef.current?.focus(), 50)
-                  }} />
+                  }} disabled={sending} />
                 </Suspense>
               </div>
               <CollapsedCli
@@ -200,6 +200,8 @@ export function TxPanel({
                   history={cmdHistory}
                   onHistoryPush={pushHistory}
                   ref={mainCliRef}
+                  disabled={sending}
+                  placeholderOverride={sending ? 'Send in progress — queueing paused' : undefined}
                 />
               </div>
               {hasCommandBuilder && MissionBuilder && (
@@ -231,7 +233,7 @@ export function TxPanel({
       )}
 
       {/* Dialogs */}
-      <ImportDialog open={showImport} onClose={() => setShowImport(false)} onImported={() => {}} txColumns={txColumns} />
+      <ImportDialog open={showImport} onClose={() => setShowImport(false)} onImported={() => {}} txColumns={txColumns} disabled={sending} />
     </div>
   )
   /* eslint-enable react-hooks/static-components */
