@@ -83,6 +83,7 @@ from .telemetry import (
 )
 from .tx.commands import CommandRejected, PreparedCommand, frame_command, prepare_command
 from .tx.logging import tx_log_record
+from . import spec
 
 __all__ = [
     "CatalogProvider",
