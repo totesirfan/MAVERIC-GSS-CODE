@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import {
@@ -68,8 +69,9 @@ export function QueueItem({
   const guard = 'guard' in item ? item.guard : false
 
   // Join this row to a live verifier instance, if any. Backend stamps
-  // `event_id` on history rows via `_record_sent`; queue items have no
-  // event_id until sent, so `instance` is null for pending rows.
+  // `event_id` on history rows via `_record_sent` and on the still-queued
+  // sending item right after register (so the row can show pending dots
+  // mid-send). Pending rows have no event_id, so `instance` is null.
   const { verification } = useTx()
   const cmdEventId = (item as { event_id?: string }).event_id ?? ''
   const instance = cmdEventId ? (verification.get(cmdEventId) ?? null) : null
@@ -86,6 +88,26 @@ export function QueueItem({
   })()
   const effectiveTerminal = isTerminal(effectiveStatus)
 
+  // Tick clock every 500ms while this row has a live non-terminal instance,
+  // so the near-expiry pulse can fire without waiting for a WS update. Stops
+  // ticking once the instance reaches a terminal stage to avoid wasted renders.
+  const [nowMs, setNowMs] = useState(() => Date.now())
+  const liveInstance = !!instance && !effectiveTerminal
+  useEffect(() => {
+    if (!liveInstance) return
+    const id = window.setInterval(() => setNowMs(Date.now()), 500)
+    return () => window.clearInterval(id)
+  }, [liveInstance])
+
+  // Caution flash on the row whenever any pending verifier is past 80% of its
+  // CheckWindow (i.e., the dot itself would pulse). Operator gets a synced
+  // row-level warning before the verification times out.
+  const dotsCaution = !!instance && instance.verifier_set.verifiers.some(v => {
+    const o = instance.outcomes[v.verifier_id]
+    if (!o || o.state !== 'pending') return false
+    return (nowMs - instance.t0_ms) / v.check_window.stop_ms > 0.8
+  })
+
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -94,8 +116,9 @@ export function QueueItem({
 
   const borderColor = railColor(effectiveStatus, guard, isGuarding)
   const pulseClass =
-    effectiveStatus === 'sending' ? 'animate-slide-in' :
-    effectiveStatus === 'released' ? 'animate-pulse-warning' : ''
+    effectiveStatus === 'sending' ? '' :
+    (effectiveStatus === 'released' || dotsCaution) ? 'animate-pulse-warning' :
+    ''
 
   return (
     <ContextMenuRoot>
@@ -105,8 +128,8 @@ export function QueueItem({
           data-follow-id={sortId}
           style={{
             ...style,
-            ...(compact ? {} : { borderLeftColor: borderColor }),
-            backgroundColor: status === 'sending' ? `${colors.info}08` : undefined,
+            ...(compact ? {} : { borderLeftColor: borderColor, borderLeftWidth: status === 'sending' ? '4px' : undefined }),
+            backgroundColor: status === 'sending' ? `${colors.info}1F` : undefined,
           }}
           className={`color-transition rounded-md text-xs ${compact ? '' : 'border-l-2'} mb-0.5 hover:bg-white/[0.03] ${pulseClass} ${flash ? 'animate-slide-in' : ''}`}
         >
@@ -158,7 +181,7 @@ export function QueueItem({
               <Badge className="text-[11px] px-1.5 py-0 h-5 shrink-0 animate-pulse-warning" style={{ backgroundColor: `${colors.warning}22`, color: colors.warning }}>GUARD</Badge>
             )}
             {!compact && status === 'sending' && !isGuarding && (
-              <Badge className="text-[11px] px-1.5 py-0 h-5 shrink-0 animate-pulse-text" style={{ backgroundColor: `${colors.infoFill}`, color: colors.info }}>SENDING</Badge>
+              <Badge className="text-[11px] px-1.5 py-0 h-5 shrink-0 animate-pulse-text font-bold" style={{ backgroundColor: colors.info, color: colors.bgApp }}>SENDING</Badge>
             )}
             {!compact && status === 'pending' && index === 0 && !isGuarding && (
               <Badge className="text-[11px] px-1.5 py-0 h-5 shrink-0" style={{ backgroundColor: `${colors.label}22`, color: colors.label }}>NEXT</Badge>
