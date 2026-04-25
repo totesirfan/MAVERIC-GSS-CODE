@@ -101,6 +101,47 @@ parameter_types:
     unit: "°C"
     description: "Pre-scaled ADCS temperature reading (signed int16)"
 
+  rate_rad_s:
+    kind: float
+    size_bits: 32
+    byte_order: little
+    unit: "rad/s"
+    description: "Angular rate component"
+
+  mag_nT:
+    kind: float
+    size_bits: 32
+    byte_order: little
+    unit: "nT"
+    description: "Magnetometer field component"
+
+  mtq_dipole_Am2:
+    kind: float
+    size_bits: 32
+    byte_order: little
+    unit: "A.m^2"
+    description: "Magnetorquer dipole moment"
+
+  temp_C_f32:
+    kind: float
+    size_bits: 32
+    byte_order: little
+    unit: "°C"
+    description: "Generic float temperature"
+
+  battery_voltage_f32:
+    kind: float
+    size_bits: 32
+    byte_order: little
+    unit: "V"
+    description: "Battery voltage as float (PWR_VOL_5V/3V scalar)"
+
+  generic_f32:
+    kind: float
+    size_bits: 32
+    byte_order: little
+    description: "Untyped 32-bit float"
+
 parameters: {}
 
 bitfield_types: {}
