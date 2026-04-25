@@ -1,0 +1,113 @@
+"""Persist open instances. Restart resumes non-terminal ones; elapsed time
+past CheckWindow stop_ms marks the verifier window_expired retroactively.
+Terminal instances are dropped on persist (they live in the log).
+"""
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from mav_gss_lib.platform.tx.verifiers import (
+    CheckWindow, VerifierSpec, VerifierSet, VerifierOutcome, CommandInstance,
+    VerifierRegistry, serialize_instance, parse_instance,
+    write_instances, restore_instances,
+)
+
+
+def _sample_spec() -> VerifierSpec:
+    return VerifierSpec("uppm_ack", "received", CheckWindow(0, 10000), "UPPM", "info")
+
+
+def _sample_instance(stage="released") -> CommandInstance:
+    return CommandInstance(
+        instance_id="i1",
+        correlation_key=("mtq_set_1", "LPPM"),  # tuple; JSON-safe for persistence
+        t0_ms=1_000_000,
+        cmd_event_id="c1",
+        verifier_set=VerifierSet(verifiers=(_sample_spec(),)),
+        outcomes={"uppm_ack": VerifierOutcome.pending()},
+        stage=stage,
+    )
+
+
+class SerializeRoundTrip(unittest.TestCase):
+    def test_roundtrip(self):
+        inst = _sample_instance()
+        inst.outcomes["uppm_ack"] = VerifierOutcome.passed(matched_at_ms=500, match_event_id="e1")
+        line = serialize_instance(inst)
+        parsed = parse_instance(json.loads(line))
+        self.assertEqual(parsed.instance_id, inst.instance_id)
+        self.assertEqual(parsed.correlation_key, inst.correlation_key)
+        self.assertEqual(parsed.outcomes["uppm_ack"].matched_at_ms, 500)
+
+
+class WriteThrough(unittest.TestCase):
+    def test_rewrite_drops_terminals(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / ".pending_instances.jsonl"
+            reg = VerifierRegistry()
+            i1 = _sample_instance(stage="released")
+            i2 = _sample_instance(stage="complete")
+            i2.instance_id = "i2"
+            i2.correlation_key = ("com_ping", "UPPM")
+            reg.register(i1)
+            reg.register(i2)
+            write_instances(path, reg.open_instances())
+            lines = path.read_text().strip().splitlines()
+            self.assertEqual(len(lines), 1)  # terminal dropped
+            parsed = parse_instance(json.loads(lines[0]))
+            self.assertEqual(parsed.instance_id, "i1")
+
+
+class RestoreElapsed(unittest.TestCase):
+    def test_restore_marks_expired_windows(self):
+        """now_ms - t0_ms > stop_ms → verifier becomes window_expired."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / ".pending_instances.jsonl"
+            inst = _sample_instance()  # t0_ms=1_000_000, uppm_ack stop=10000
+            write_instances(path, [inst])
+            # Restart 12s later → the uppm_ack window has closed.
+            restored = restore_instances(path, now_ms=1_012_000)
+            self.assertEqual(len(restored), 1)
+            self.assertEqual(restored[0].outcomes["uppm_ack"].state, "window_expired")
+
+    def test_restore_preserves_pending_inside_window(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / ".pending_instances.jsonl"
+            inst = _sample_instance()
+            write_instances(path, [inst])
+            restored = restore_instances(path, now_ms=1_005_000)  # 5s in
+            self.assertEqual(restored[0].outcomes["uppm_ack"].state, "pending")
+
+    def test_restore_drops_terminal_after_expiry(self):
+        """If all windows would now be expired AND the instance had a
+        Complete or Failed already recorded, drop it (it's terminal)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / ".pending_instances.jsonl"
+            # Don't write terminals in the first place (write_instances drops them).
+            # But if an old file has one (crash mid-write), skip it on restore.
+            path.write_text(
+                json.dumps({
+                    "instance_id": "i1",
+                    "correlation_key": ["x", "LPPM"],
+                    "t0_ms": 1_000_000,
+                    "cmd_event_id": "c1",
+                    "verifier_set": {
+                        "verifiers": [
+                            {"verifier_id": "uppm_ack", "stage": "received",
+                             "check_window": {"start_ms": 0, "stop_ms": 10000},
+                             "display_label": "UPPM", "display_tone": "info"},
+                        ],
+                    },
+                    "outcomes": {
+                        "uppm_ack": {"state": "passed", "matched_at_ms": 1000, "match_event_id": "e1"},
+                    },
+                    "stage": "complete",
+                }) + "\n"
+            )
+            restored = restore_instances(path, now_ms=1_020_000)
+            self.assertEqual(len(restored), 0)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -211,3 +211,121 @@ class VerifierRegistry:
                     if now_ms >= deadline:
                         inst.outcomes[spec.verifier_id] = VerifierOutcome.window_expired()
                 inst.stage = _derive_stage(inst)
+
+
+# ─── Persistence ──────────────────────────────────────────────────────
+#
+# `.pending_instances.jsonl` format: one instance per line as a JSON object.
+# Rewrite-on-transition (simpler than append + gc); dozens of lines max,
+# sub-ms write cost.
+#
+# Terminal instances are dropped from the file (they're already in the log).
+# On restore, elapsed time since t0 computes window_expired retroactively
+# for any verifier whose check_window.stop_ms has passed.
+
+import json
+
+
+def serialize_instance(inst: CommandInstance) -> str:
+    obj = {
+        "instance_id": inst.instance_id,
+        "correlation_key": list(inst.correlation_key),
+        "t0_ms": inst.t0_ms,
+        "cmd_event_id": inst.cmd_event_id,
+        "verifier_set": {
+            "verifiers": [
+                {
+                    "verifier_id": v.verifier_id,
+                    "stage": v.stage,
+                    "check_window": {
+                        "start_ms": v.check_window.start_ms,
+                        "stop_ms": v.check_window.stop_ms,
+                    },
+                    "display_label": v.display_label,
+                    "display_tone": v.display_tone,
+                }
+                for v in inst.verifier_set.verifiers
+            ],
+        },
+        "outcomes": {
+            vid: {
+                "state": o.state,
+                "matched_at_ms": o.matched_at_ms,
+                "match_event_id": o.match_event_id,
+            }
+            for vid, o in inst.outcomes.items()
+        },
+        "stage": inst.stage,
+    }
+    return json.dumps(obj)
+
+
+def parse_instance(obj: dict) -> CommandInstance:
+    vs = VerifierSet(verifiers=tuple(
+        VerifierSpec(
+            verifier_id=v["verifier_id"],
+            stage=v["stage"],
+            check_window=CheckWindow(
+                start_ms=v["check_window"]["start_ms"],
+                stop_ms=v["check_window"]["stop_ms"],
+            ),
+            display_label=v["display_label"],
+            display_tone=v["display_tone"],
+        )
+        for v in obj["verifier_set"]["verifiers"]
+    ))
+    outcomes = {
+        vid: VerifierOutcome(
+            state=o["state"],
+            matched_at_ms=o.get("matched_at_ms"),
+            match_event_id=o.get("match_event_id"),
+        )
+        for vid, o in obj["outcomes"].items()
+    }
+    return CommandInstance(
+        instance_id=obj["instance_id"],
+        correlation_key=tuple(obj["correlation_key"]),
+        t0_ms=obj["t0_ms"],
+        cmd_event_id=obj["cmd_event_id"],
+        verifier_set=vs,
+        outcomes=outcomes,
+        stage=obj["stage"],
+    )
+
+
+def write_instances(path, instances: list[CommandInstance]) -> None:
+    """Atomic rewrite. Terminals are excluded (live in the log, not the registry)."""
+    import os as _os
+    lines = [serialize_instance(i) for i in instances if i.stage not in _TERMINAL]
+    tmp = str(path) + ".tmp"
+    with open(tmp, "w") as f:
+        f.write("\n".join(lines) + ("\n" if lines else ""))
+    _os.replace(tmp, str(path))
+
+
+def restore_instances(path, *, now_ms: int) -> list[CommandInstance]:
+    """Load open instances. For each, mark window_expired for any verifier
+    whose check_window.stop_ms has passed since t0. Drop terminals."""
+    from pathlib import Path as _Path
+    p = _Path(path)
+    if not p.exists():
+        return []
+    restored: list[CommandInstance] = []
+    for line in p.read_text().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            inst = parse_instance(json.loads(line))
+        except Exception:
+            continue
+        if inst.stage in _TERMINAL:
+            continue
+        for spec in inst.verifier_set.verifiers:
+            current = inst.outcomes.get(spec.verifier_id, VerifierOutcome.pending())
+            if current.state != "pending":
+                continue
+            if now_ms - inst.t0_ms >= spec.check_window.stop_ms:
+                inst.outcomes[spec.verifier_id] = VerifierOutcome.window_expired()
+        restored.append(inst)
+    return restored
