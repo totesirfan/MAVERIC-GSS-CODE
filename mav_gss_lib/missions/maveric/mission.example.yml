@@ -382,6 +382,16 @@ bitfield_types:
       - { name: STR1, bits: [25, 25], kind: bool }
       - { name: byte3_spare, bits: [26, 31], kind: uint }
 
+  CONF_REG:
+    size_bits: 32
+    byte_order: little
+    entry_list:
+      - { name: MODE,        bits: [0, 6],   kind: enum, enum_ref: GncBootMode }
+      - { name: CMD,         bits: [7, 7],   kind: bool }
+      - { name: byte1_raw,   bits: [8, 15],  kind: uint }
+      - { name: byte2_raw,   bits: [16, 23], kind: uint }
+      - { name: TARGET_ELEV, bits: [24, 31], kind: uint, unit: "deg" }
+
 sequence_containers: {}
 
 meta_commands: {}
