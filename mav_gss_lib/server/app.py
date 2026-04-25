@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING, AsyncIterator
 
 from fastapi import FastAPI
@@ -54,6 +55,12 @@ async def lifespan(app: FastAPI) -> "AsyncIterator[None]":
     runtime.tx.renumber_queue()
     if skipped:
         logging.warning("Dropped %d invalid queued item(s) during startup restore", skipped)
+
+    import time as _time
+    runtime.platform.restore_verifiers(
+        path=str(Path(runtime.log_dir) / ".pending_instances.jsonl"),
+        now_ms=int(_time.time() * 1000),
+    )
 
     tx_addr = get_tx_zmq_addr(runtime.platform_cfg)
     runtime.tx.restart_pub(tx_addr)
