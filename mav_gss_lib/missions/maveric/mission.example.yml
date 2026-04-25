@@ -535,4 +535,26 @@ sequence_containers:
       - { name: unexpected_detumble, type: u16 }
       - { name: sunspin,         type: u16 }
 
+  gnc_get_mode_res:
+    domain: gnc
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        cmd_id: gnc_get_mode
+        ptype: RES
+    entry_list:
+      - { name: gnc_mode, type: GncPlannerModeDict }
+
+  gnc_get_cnts_res:
+    domain: gnc
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        cmd_id: gnc_get_cnts
+        ptype: RES
+    entry_list:
+      - { name: unexpected_safe,     type: u32 }
+      - { name: unexpected_detumble, type: u32 }
+      - { name: sunspin,             type: u32 }
+
 meta_commands: {}
