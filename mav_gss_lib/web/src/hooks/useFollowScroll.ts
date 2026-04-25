@@ -12,15 +12,22 @@ interface UseFollowScrollArgs {
 
 interface UseFollowScrollResult {
   detached: boolean
+  /** 'up' if the target row is above the viewport, 'down' if below. */
+  direction: 'up' | 'down'
   jumpToCurrent: () => void
 }
 
 /**
- * Center-on-change with detach-on-manual-scroll.
+ * Center-on-change with detach-on-manual-scroll (spec §"Viewport follow-with-detach").
  *
  * - `target` change → smooth-scroll the matching row into vertical center.
- * - Manual user scroll (wheel or touchmove) during a programmatic scroll
- *   is suppressed via a RAF flag; genuine user scrolls set `detached=true`.
+ * - Listens to the container's `scroll` event, which fires for all causes —
+ *   wheel, touch, keyboard (Arrow / PgUp / PgDn / Home / End), and
+ *   programmatic. Programmatic scrolls (the auto-center call) are
+ *   suppressed via a RAF flag; everything else sets `detached=true`.
+ * - `direction` reports whether the chip should point ↑ or ↓ — based on
+ *   the target row's current vertical position relative to the visible
+ *   viewport. Updated on every container scroll.
  * - `jumpToCurrent()` re-centers and clears the detach.
  * - `resetKey` changing edge-wise re-attaches automatically (null→active).
  */
@@ -28,7 +35,21 @@ export function useFollowScroll({
   containerRef, target, resetKey,
 }: UseFollowScrollArgs): UseFollowScrollResult {
   const [detached, setDetached] = useState(false)
+  const [direction, setDirection] = useState<'up' | 'down'>('down')
   const suppressRef = useRef(false)
+
+  const updateDirection = useCallback(() => {
+    const c = containerRef.current
+    if (!c || !target) return
+    const el = c.querySelector<HTMLElement>(`[data-follow-id="${target}"]`)
+    if (!el) return
+    const cBox = c.getBoundingClientRect()
+    const eBox = el.getBoundingClientRect()
+    // Target row's center relative to the container's center.
+    const targetCenter = eBox.top + eBox.height / 2
+    const containerCenter = cBox.top + cBox.height / 2
+    setDirection(targetCenter < containerCenter ? 'up' : 'down')
+  }, [containerRef, target])
 
   const center = useCallback(() => {
     const c = containerRef.current
@@ -56,26 +77,33 @@ export function useFollowScroll({
     }
   }, [resetKey, center])
 
-  // Detach on real user scroll.
+  // Single `scroll` listener catches every scroll cause (wheel, touch,
+  // keyboard, programmatic). Programmatic scrolls fire while suppressRef
+  // is true and are filtered out; user-driven scrolls flip detached.
   useEffect(() => {
     const c = containerRef.current
     if (!c) return
-    const onUserScroll = () => {
-      if (suppressRef.current) return
-      setDetached(true)
+    const onScroll = () => {
+      if (!suppressRef.current) {
+        setDetached(true)
+      }
+      updateDirection()
     }
-    c.addEventListener('wheel', onUserScroll, { passive: true })
-    c.addEventListener('touchmove', onUserScroll, { passive: true })
+    c.addEventListener('scroll', onScroll, { passive: true })
     return () => {
-      c.removeEventListener('wheel', onUserScroll)
-      c.removeEventListener('touchmove', onUserScroll)
+      c.removeEventListener('scroll', onScroll)
     }
-  }, [containerRef])
+  }, [containerRef, updateDirection])
+
+  // Refresh direction whenever the target itself changes.
+  useEffect(() => {
+    updateDirection()
+  }, [target, updateDirection])
 
   const jumpToCurrent = useCallback(() => {
     setDetached(false)
     center()
   }, [center])
 
-  return { detached, jumpToCurrent }
+  return { detached, direction, jumpToCurrent }
 }

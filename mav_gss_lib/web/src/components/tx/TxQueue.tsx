@@ -5,7 +5,7 @@ import {
   type DragEndEvent,
 } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
-import { Trash2, Send, Timer, Save, ArrowDownToLine, History } from 'lucide-react'
+import { Trash2, Send, Timer, Save, ArrowDownToLine, ArrowUpToLine, History } from 'lucide-react'
 import { useTabActive } from '@/components/layout/TabActiveContext'
 import { useShortcuts, type Shortcut } from '@/hooks/useShortcuts'
 import { useFollowScroll } from '@/hooks/useFollowScroll'
@@ -81,7 +81,7 @@ export function TxQueue({
   const sendingItem = items.find(i => i.status === 'sending')
   const sendTargetUid = sendingItem?.uid ?? null
   const resetKey: 'idle' | 'active' = sendProgress === null ? 'idle' : 'active'
-  const { detached, jumpToCurrent } = useFollowScroll({
+  const { detached, direction, jumpToCurrent } = useFollowScroll({
     containerRef: scrollRef,
     target: sendTargetUid,
     resetKey,
@@ -249,10 +249,12 @@ export function TxQueue({
         {detached && sendTargetUid && (
           <button
             onClick={jumpToCurrent}
-            className="absolute top-2 right-3 flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium shadow-float btn-feedback"
+            className={`absolute ${direction === 'up' ? 'top-2' : 'bottom-2'} right-3 flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium shadow-float btn-feedback`}
             style={{ backgroundColor: colors.info, color: colors.bgApp, zIndex: 20 }}
           >
-            <ArrowDownToLine className="size-3" />
+            {direction === 'up'
+              ? <ArrowUpToLine className="size-3" />
+              : <ArrowDownToLine className="size-3" />}
             Jump to current
           </button>
         )}
