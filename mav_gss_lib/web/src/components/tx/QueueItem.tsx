@@ -115,9 +115,17 @@ export function QueueItem({
   }
 
   const borderColor = railColor(effectiveStatus, guard, isGuarding)
+  // Row pulse semantics match the verifier dots:
+  //   - terminal stage  → no pulse (settled)
+  //   - any pending dot past 80% elapsed → caution flash (yellow)
+  //   - sending OR live non-terminal verification → info flash (cyan/blue)
+  // Same 900ms cadence on both classes so the swap caution↔info doesn't
+  // skip a beat when a window crosses 80%.
+  const waitingForVerification = status === 'sending' || liveInstance
   const pulseClass =
-    effectiveStatus === 'sending' ? '' :
-    (effectiveStatus === 'released' || dotsCaution) ? 'animate-pulse-warning' :
+    effectiveTerminal ? '' :
+    dotsCaution ? 'animate-pulse-warning' :
+    waitingForVerification ? 'animate-pulse-info' :
     ''
 
   return (
@@ -129,7 +137,6 @@ export function QueueItem({
           style={{
             ...style,
             ...(compact ? {} : { borderLeftColor: borderColor, borderLeftWidth: status === 'sending' ? '4px' : undefined }),
-            backgroundColor: status === 'sending' ? `${colors.info}1F` : undefined,
           }}
           className={`color-transition rounded-md text-xs ${compact ? '' : 'border-l-2'} mb-0.5 hover:bg-white/[0.03] ${pulseClass} ${flash ? 'animate-slide-in' : ''}`}
         >

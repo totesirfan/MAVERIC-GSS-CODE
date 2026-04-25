@@ -150,6 +150,14 @@ body {
 }
 .animate-pulse-warning { animation: pulse-warning 900ms ease-in-out infinite; }
 
+/* Info — same 900ms cadence as warning, so swapping caution↔info on a row
+ * keeps the rhythm continuous when a verifier crosses 80% elapsed. */
+@keyframes pulse-info {
+  0%, 100% { background-color: rgba(90, 168, 240, 0.06); border-color: rgba(90, 168, 240, 0.25); }
+  50% { background-color: rgba(90, 168, 240, 0.18); border-color: rgba(90, 168, 240, 0.55); }
+}
+.animate-pulse-info { animation: pulse-info 900ms ease-in-out infinite; }
+
 /* Danger — 3 Hz (333ms), aggressive pulse */
 @keyframes pulse-danger {
   0%, 100% { background-color: rgba(240, 96, 96, 0.02); border-color: rgba(240, 96, 96, 0.15); }
