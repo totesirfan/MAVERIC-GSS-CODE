@@ -3,8 +3,9 @@ id: echo_v2
 name: "Echo Test"
 header: {version: "1.0.0", date: "2026-04-25"}
 
-nodes: {NONE: 0, NODE_A: 1}
-ptypes: {CMD: 1, RES: 2}
+extensions:
+  nodes: {NONE: 0, NODE_A: 1}
+  ptypes: {CMD: 1, RES: 2}
 
 parameter_types: {}
 

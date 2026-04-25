@@ -125,9 +125,7 @@ def _parse(
         bitfield_types=bitfield_types,
         sequence_containers=sequence_containers,
         meta_commands=meta_commands,
-        node_id_map=dict(doc.node_id_map),
-        ptype_id_map=dict(doc.ptype_id_map),
-        node_description_map=dict(doc.node_description_map),
+        extensions=dict(doc.extensions),
         parse_warnings=tuple(warnings),
     )
 

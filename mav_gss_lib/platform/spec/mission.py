@@ -1,15 +1,9 @@
-"""Mission root dataclass — the parser's output.
-
-`parse_warnings` carries non-fatal authoring warnings (container shadow,
-enum-slice truncation, etc.). Fatal issues raise `ParseError` instead.
-The platform loader logs each warning and forwards them to the
-`/ws/preflight` payload so operators see them at startup.
-"""
+"""Mission root dataclass — the parser's output."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Mapping
+from typing import Any, Mapping
 
 from .bitfield import BitfieldType
 from .commands import MetaCommand
@@ -62,6 +56,16 @@ class EnumSliceTruncation(ParseWarning):
 
 @dataclass(frozen=True, slots=True)
 class Mission:
+    """Parser output: the fully-validated mission database.
+
+    `extensions` carries arbitrary mission-specific data (e.g. MAVERIC's
+    node/ptype routing tables). The platform parser does not validate its
+    shape; it is an opaque pass-through to the mission's PacketCodec.
+
+    `parse_warnings` carries non-fatal authoring warnings. Fatal issues raise
+    `ParseError` instead.
+    """
+
     id: str
     name: str
     header: MissionHeader
@@ -72,9 +76,7 @@ class Mission:
     sequence_containers: Mapping[str, SequenceContainer]
     meta_commands: Mapping[str, MetaCommand]
 
-    node_id_map: Mapping[str, int] = field(default_factory=dict)
-    ptype_id_map: Mapping[str, int] = field(default_factory=dict)
-    node_description_map: Mapping[str, str] = field(default_factory=dict)
+    extensions: Mapping[str, Any] = field(default_factory=dict)
     parse_warnings: tuple[ParseWarning, ...] = ()
 
     def declared_domains(self) -> frozenset[str]:

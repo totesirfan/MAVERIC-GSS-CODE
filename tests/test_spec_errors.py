@@ -22,7 +22,6 @@ class TestErrorHierarchy(unittest.TestCase):
         self.assertTrue(issubclass(errors.ArgsTooLong, errors.SpecRuntimeError))
         self.assertTrue(issubclass(errors.CmdIdTooLong, errors.SpecRuntimeError))
         self.assertTrue(issubclass(errors.CrcMismatch, errors.SpecRuntimeError))
-        self.assertTrue(issubclass(errors.NodeIdOutOfRange, errors.SpecRuntimeError))
         self.assertTrue(issubclass(errors.NonJsonSafeArg, errors.SpecRuntimeError))
 
     def test_parse_error_carries_path_and_message(self):

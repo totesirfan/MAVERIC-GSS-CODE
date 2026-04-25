@@ -3,8 +3,9 @@ id: balloon_v2
 name: "Balloon"
 header: {version: "1.0.0", date: "2026-04-25"}
 
-nodes: {NONE: 0, GS: 1}
-ptypes: {CMD: 1, TLM: 5}
+extensions:
+  nodes: {NONE: 0, GS: 1}
+  ptypes: {CMD: 1, TLM: 5}
 
 parameter_types: {}
 

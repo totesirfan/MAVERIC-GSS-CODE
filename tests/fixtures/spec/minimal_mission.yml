@@ -6,8 +6,9 @@ header:
   date: "2026-04-25"
   description: "Smoke test"
 
-nodes:  {NONE: 0, GS: 1, NODE_A: 2}
-ptypes: {CMD: 1, RES: 2, TLM: 5}
+extensions:
+  nodes:  {NONE: 0, GS: 1, NODE_A: 2}
+  ptypes: {CMD: 1, RES: 2, TLM: 5}
 
 parameter_types:
   V_volts:

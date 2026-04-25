@@ -162,48 +162,6 @@ class CrcMismatch(SpecRuntimeError):
         super().__init__(f"CRC mismatch: expected={expected:#06x} actual={actual:#06x}")
 
 
-class NodeIdOutOfRange(SpecRuntimeError):
-    def __init__(self, name: str, value: int):
-        self.name = name
-        self.value = value
-        super().__init__(f"node {name!r} value {value} out of u8 range [0..255]")
-
-
-class PtypeIdOutOfRange(SpecRuntimeError):
-    def __init__(self, name: str, value: int):
-        self.name = name
-        self.value = value
-        super().__init__(f"ptype {name!r} value {value} out of u8 range [0..255]")
-
-
-class DuplicateNodeId(SpecRuntimeError):
-    def __init__(self, name_a: str, name_b: str, value: int):
-        self.name_a = name_a
-        self.name_b = name_b
-        self.value = value
-        super().__init__(f"nodes {name_a!r} and {name_b!r} share id {value}")
-
-
-class DuplicatePtypeId(SpecRuntimeError):
-    def __init__(self, name_a: str, name_b: str, value: int):
-        self.name_a = name_a
-        self.name_b = name_b
-        self.value = value
-        super().__init__(f"ptypes {name_a!r} and {name_b!r} share id {value}")
-
-
-class UnknownNodeId(SpecRuntimeError):
-    def __init__(self, value: int):
-        self.value = value
-        super().__init__(f"node byte {value:#04x} not in mission.nodes reverse map")
-
-
-class UnknownPtypeId(SpecRuntimeError):
-    def __init__(self, value: int):
-        self.value = value
-        super().__init__(f"ptype byte {value:#04x} not in mission.ptypes reverse map")
-
-
 class NonJsonSafeArg(SpecRuntimeError):
     def __init__(self, cmd_id: str, arg_name: str, value_type: type):
         self.cmd_id = cmd_id
