@@ -42,7 +42,64 @@ extensions:
     FTDI: "Bench FTDI test endpoint"
   gs_node: GS
 
-parameter_types: {}
+parameter_types:
+  V_milli_i16:
+    kind: int
+    size_bits: 16
+    signed: true
+    byte_order: little
+    calibrator:
+      polynomial: [0.0, 0.001]
+    unit: "V"
+    description: "Voltage in millivolts (LE int16); engineering = mV * 1e-3"
+
+  I_milli_i16:
+    kind: int
+    size_bits: 16
+    signed: true
+    byte_order: little
+    calibrator:
+      polynomial: [0.0, 0.001]
+    unit: "A"
+    description: "Current in milliamps (LE int16)"
+
+  P_milli_i16:
+    kind: int
+    size_bits: 16
+    signed: true
+    byte_order: little
+    calibrator:
+      polynomial: [0.0, 0.001]
+    unit: "W"
+    description: "Power in milliwatts (LE int16)"
+
+  TS_ADC_i16:
+    kind: int
+    size_bits: 16
+    signed: true
+    byte_order: little
+    calibrator:
+      polynomial: [0.0, 0.0976563]
+    unit: "%"
+    description: "EPS thermistor ADC reading (×0.0976563 %)"
+
+  T_DIE_i16:
+    kind: int
+    size_bits: 16
+    signed: true
+    byte_order: little
+    calibrator:
+      polynomial: [0.0, 0.5]
+    unit: "°C"
+    description: "EPS die temperature (×0.5 °C)"
+
+  T_RAW_i16:
+    kind: int
+    size_bits: 16
+    signed: true
+    byte_order: little
+    unit: "°C"
+    description: "Pre-scaled ADCS temperature reading (signed int16)"
 
 parameters: {}
 
