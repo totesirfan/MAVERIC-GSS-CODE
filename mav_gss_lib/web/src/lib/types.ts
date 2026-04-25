@@ -299,3 +299,39 @@ export interface UpdateProgress {
   status: 'pending' | 'running' | 'ok' | 'fail'
   detail?: string
 }
+
+// ---- Command verification ----
+
+export type VerifierStage = 'received' | 'accepted' | 'complete' | 'failed'
+export type VerifierState = 'pending' | 'passed' | 'failed' | 'window_expired'
+export type InstanceStage =
+  | 'released' | 'received' | 'accepted' | 'complete' | 'failed' | 'timed_out'
+
+export interface CheckWindow {
+  start_ms: number
+  stop_ms: number
+}
+
+export interface VerifierSpec {
+  verifier_id: string
+  stage: VerifierStage
+  check_window: CheckWindow
+  display_label: string
+  display_tone: 'info' | 'success' | 'warning' | 'danger' | 'neutral'
+}
+
+export interface VerifierOutcome {
+  state: VerifierState
+  matched_at_ms: number | null
+  match_event_id: string | null
+}
+
+export interface CommandInstance {
+  instance_id: string
+  correlation_key: Array<string | number>
+  t0_ms: number
+  cmd_event_id: string
+  verifier_set: { verifiers: VerifierSpec[] }
+  outcomes: Record<string, VerifierOutcome>
+  stage: InstanceStage
+}

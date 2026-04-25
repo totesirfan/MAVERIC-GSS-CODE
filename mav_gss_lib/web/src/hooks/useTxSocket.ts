@@ -3,6 +3,7 @@ import { createSocket } from '@/lib/ws'
 import type {
   TxQueueItem, TxQueueSummary, TxHistoryItem,
   SendProgress, GuardConfirm, CmdDisplay,
+  CommandInstance,
 } from '@/lib/types'
 
 interface SendingSnapshot {
@@ -21,6 +22,7 @@ export function useTxSocket() {
   const [guardConfirm, setGuardConfirm] = useState<GuardConfirm | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [connected, setConnected] = useState(false)
+  const [verification, setVerification] = useState<Map<string, CommandInstance>>(new Map())
   const socketRef = useRef<ReturnType<typeof createSocket> | null>(null)
   const queueRef = useRef<TxQueueItem[]>([])
 
@@ -98,6 +100,23 @@ export function useTxSocket() {
             setTimeout(() => setError(null), 5000)
             break
           }
+          case 'verification_update': {
+            const inst = (msg.instance ?? null) as CommandInstance | null
+            if (inst) {
+              setVerification(prev => {
+                const next = new Map(prev)
+                next.set(inst.cmd_event_id, inst)
+                return next
+              })
+            }
+            break
+          }
+          case 'verification_restore': {
+            // Initial snapshot sent on /ws/tx connect (all open instances at once).
+            const list = (msg.instances ?? []) as CommandInstance[]
+            setVerification(new Map(list.map(i => [i.cmd_event_id, i])))
+            break
+          }
         }
       },
       setConnected,
@@ -136,6 +155,7 @@ export function useTxSocket() {
 
   return {
     queue, summary, history, sendProgress, guardConfirm, error, connected,
+    verification,
     queueCommand,
     queueMissionCmd,
     deleteItem: useCallback((index: number) => send('delete', { index }), [send]),
