@@ -644,6 +644,22 @@ class TxService:
                 ctx.sent += result.sent_delta
                 if result.aborted:
                     break
+
+            # Last-item verification trail: hold `sending` true until the final
+            # command's verifier instance reaches terminal. Without this the
+            # TxBuilder collapse-to-progress block re-expands the moment the
+            # ZMQ publish completes (~100ms), well before the ~30s verification
+            # finishes. Gated on the periodic sweeper actually running so unit
+            # tests (which skip lifespan) don't hang.
+            if (not self.abort.is_set()
+                    and getattr(self.runtime, "verifier_sweep_task", None) is not None):
+                from mav_gss_lib.platform.tx.verifiers import _TERMINAL
+                if any(inst.stage not in _TERMINAL
+                       for inst in self.runtime.platform.verifiers.open_instances()):
+                    self.sending["waiting"] = True
+                    await self.send_queue_update()
+                    await self._wait_for_pending_verifications_clear()
+                    self.sending["waiting"] = False
         finally:
             await self._finalize_send(ctx.sent)
 
