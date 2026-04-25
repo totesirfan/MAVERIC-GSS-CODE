@@ -44,6 +44,9 @@ def _stub_runtime():
     rt.tx.send_queue_update = MagicMock(side_effect=_send_queue_update)
     rt.tx.run_send = MagicMock()
 
+    from mav_gss_lib.server.tx.service import AdmitResult
+    rt.tx.admit = MagicMock(return_value=(AdmitResult.ACCEPTED, {}))
+
     return rt
 
 
