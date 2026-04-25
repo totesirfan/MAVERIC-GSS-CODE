@@ -90,8 +90,13 @@ class MavericPacketOps(PacketOps):
             expected = f"res_from_{src_lower}"
         elif ptype_name == "NACK":
             expected = f"nack_{src_lower}"
+        elif ptype_name == "TLM":
+            # The TLM-as-completion override (e.g. eps_hk) registers a
+            # verifier_id of the form `tlm_<cmd_id>` via apply_override —
+            # match by cmd_id directly rather than by telemetry-fragment
+            # bridge.
+            expected = f"tlm_{cmd_id}"
         else:
-            # TLM matches via telemetry fragments (see Task 18), not raw packet.
             # CMD/FILE/other types produce no verifier transition.
             return []
 

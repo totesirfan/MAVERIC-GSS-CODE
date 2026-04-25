@@ -116,7 +116,9 @@ def apply_override(base: VerifierSet, *, override: dict[str, Any]) -> VerifierSe
       - {"complete": "none"}  → drop any CompleteVerifier
       - {"complete": {"kind": "comparison_list", "parameter": {"domain": D, "key": K},
                       "comparison": "value_change", "check_window": {"stop_ms": N}}}
-           → replace any CompleteVerifier with a single tlm_<domain>_<key> spec
+           → replace any CompleteVerifier with a single tlm_<domain>_<key> spec.
+             Matched in `MavericPacketOps.match_verifiers` when a TLM packet
+             with cmd_id == <domain>_<key> arrives.
 
     Other fields inherit from the base VerifierSet.
     """

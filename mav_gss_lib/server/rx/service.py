@@ -151,7 +151,6 @@ class RxService:
                 # rx_packet log write and any verifier match-event back-pointer.
                 from mav_gss_lib.platform._log_envelope import new_event_id
                 from mav_gss_lib.platform.tx.verifiers import (
-                    VerifierOutcome as _VerifierOutcome,
                     write_instances as _write_instances,
                 )
                 from pathlib import Path as _Path
@@ -198,47 +197,6 @@ class RxService:
                             logging.warning("cmd_verifier log failed: %s", exc)
                     # No per-apply broadcast — the post-sweep consume_dirty()
                     # below picks up this transition and broadcasts once.
-
-                # Telemetry → comparison-verifier bridge: any open instance with
-                # a tlm_<domain>_<key> complete-stage verifier passes when this
-                # packet carries a matching (domain, key) telemetry fragment.
-                telemetry_fragments = getattr(pkt, "telemetry", None) or []
-                for frag in telemetry_fragments:
-                    for inst in self.runtime.platform.verifiers.open_instances():
-                        for spec in inst.verifier_set.verifiers:
-                            if spec.stage != "complete" or not spec.verifier_id.startswith("tlm_"):
-                                continue
-                            parts = spec.verifier_id.split("_", 2)
-                            if len(parts) < 3:
-                                continue
-                            _, domain, key = parts
-                            frag_domain = getattr(frag, "domain", None)
-                            frag_key = getattr(frag, "key", None)
-                            if frag_domain != domain or frag_key != key:
-                                continue
-                            self.runtime.platform.verifiers.apply(
-                                inst.instance_id, spec.verifier_id,
-                                _VerifierOutcome.passed(
-                                    matched_at_ms=now_ms,
-                                    match_event_id=rx_event_id,
-                                ),
-                            )
-                            if self.runtime.tx.log:
-                                try:
-                                    self.runtime.tx.log.write_cmd_verifier({
-                                        "seq": rx_seq,
-                                        "cmd_event_id": inst.cmd_event_id,
-                                        "instance_id": inst.instance_id,
-                                        "stage": inst.stage,
-                                        "verifier_id": spec.verifier_id,
-                                        "outcome": "pass",
-                                        "elapsed_ms": now_ms - inst.t0_ms,
-                                        "match_event_id": rx_event_id,
-                                    })
-                                except Exception as exc:
-                                    logging.warning("cmd_verifier tlm log failed: %s", exc)
-                            # No per-apply broadcast — post-sweep consume_dirty()
-                            # below covers this transition.
 
                 # Sweep + persist after any apply (covers timed_out transitions).
                 self.runtime.platform.verifiers.sweep(now_ms=now_ms)
