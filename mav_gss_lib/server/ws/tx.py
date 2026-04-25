@@ -42,6 +42,7 @@ async def ws_tx(websocket: WebSocket) -> None:
             )
         )
         await websocket.send_text(json.dumps({"type": "history", "items": runtime.tx.history[-MAX_HISTORY:]}))
+        await runtime.tx.send_verification_restore(websocket)
     except Exception:
         return
 

@@ -164,6 +164,34 @@ class TxService:
         """Broadcast the current queue plus send-state snapshot."""
         await self.broadcast({"type": "queue_update", "items": self.queue_items_json(), "summary": self.queue_summary(), "sending": self.sending.copy()})
 
+    async def broadcast_verifier_instance(self, instance) -> None:
+        """Send a per-instance state snapshot to all /ws/tx clients.
+
+        Shape:
+          {"type": "verification_update",
+           "instance": {
+             "instance_id": ..., "correlation_key": [...],
+             "t0_ms": ..., "cmd_event_id": ...,
+             "stage": ..., "outcomes": {vid: {state, matched_at_ms, match_event_id}},
+             "verifier_set": {"verifiers": [{...}]}
+           }}
+        """
+        from mav_gss_lib.platform.tx.verifiers import serialize_instance
+        obj = json.loads(serialize_instance(instance))
+        await self.broadcast({"type": "verification_update", "instance": obj})
+
+    async def send_verification_restore(self, websocket) -> None:
+        """One-shot snapshot to a freshly connected /ws/tx client."""
+        from mav_gss_lib.platform.tx.verifiers import serialize_instance
+        instances = [
+            json.loads(serialize_instance(i))
+            for i in self.runtime.platform.verifiers.open_instances()
+        ]
+        await websocket.send_text(json.dumps({
+            "type": "verification_restore",
+            "instances": instances,
+        }))
+
     # ── run_send helpers ──────────────────────────────────────────────
 
     def _pop_unnumbered_note(self) -> None:
@@ -447,6 +475,9 @@ class TxService:
                 )
             except Exception as exc:
                 logging.warning("pending_instances write failed: %s", exc)
+
+        if instance is not None:
+            asyncio.create_task(self.broadcast_verifier_instance(instance))
 
         hist_entry = self._record_sent(item, raw_cmd, framed, event_id=tx_event_id)
 
