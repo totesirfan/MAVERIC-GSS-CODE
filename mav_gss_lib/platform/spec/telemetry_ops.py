@@ -1,7 +1,7 @@
 """build_declarative_telemetry_ops factory + DeclarativeWalkerExtractor.
 
-The extractor reads the already-unwrapped MaverPacket off
-PacketEnvelope.mission_payload.maver_packet — does NOT call
+The extractor reads the already-unwrapped WalkerPacket off
+PacketEnvelope.mission_payload.<packet_attr> — does NOT call
 packet_codec.unwrap. The mission's PacketOps.parse owns that single
 unwrap call (parse-once contract from spec §5.1).
 """
@@ -25,26 +25,34 @@ from .runtime import DeclarativeWalker
 
 class DeclarativeWalkerExtractor:
     """Adapter — wraps DeclarativeWalker into the platform
-    TelemetryExtractor protocol. Reads the already-unwrapped MaverPacket
+    TelemetryExtractor protocol. Reads the already-unwrapped WalkerPacket
     directly off PacketEnvelope.mission_payload; does NOT re-parse or
     re-CRC the envelope on every packet.
+
+    `packet_attr` is the attribute name the mission's PacketOps stashes
+    its parsed WalkerPacket under. Defaults to `walker_packet`; missions
+    may pass any name (e.g., MAVERIC's adapter passes `maver_packet`).
     """
 
-    __slots__ = ("_walker",)
+    __slots__ = ("_walker", "_packet_attr")
 
-    def __init__(self, walker: DeclarativeWalker) -> None:
+    def __init__(self, walker: DeclarativeWalker, *, packet_attr: str = "walker_packet") -> None:
         self._walker = walker
+        self._packet_attr = packet_attr
 
     def extract(self, packet: PacketEnvelope) -> Iterable[TelemetryFragment]:
-        wp = packet.mission_payload.maver_packet
+        wp = getattr(packet.mission_payload, self._packet_attr)
         return self._walker.extract(wp, packet.received_at_ms)
 
 
 def build_declarative_telemetry_ops(
-    mission: Mission, plugins: Mapping[str, Callable],
+    mission: Mission,
+    plugins: Mapping[str, Callable],
+    *,
+    packet_attr: str = "walker_packet",
 ) -> TelemetryOps:
     walker = DeclarativeWalker(mission, plugins)
-    extractor = DeclarativeWalkerExtractor(walker)
+    extractor = DeclarativeWalkerExtractor(walker, packet_attr=packet_attr)
     catalog_builder = CatalogBuilder(mission)
 
     domains: dict[str, TelemetryDomainSpec] = {}

@@ -20,7 +20,7 @@ class _MaverPacket:
 
 @dataclass
 class _MissionPayload:
-    maver_packet: object
+    walker_packet: object
 
 
 @dataclass
@@ -48,19 +48,37 @@ class TestBuildTelemetryOps(unittest.TestCase):
         cat = ops.domains["gnc"].catalog()
         self.assertIn("GNC_MODE", cat["params"])
 
-    def test_extractor_reads_maver_packet_from_envelope(self):
+    def test_extractor_reads_walker_packet_from_envelope(self):
         m = parse_yaml(FIXTURE, plugins={})
         ops = build_declarative_telemetry_ops(m, plugins={})
         ext = ops.extractors[0]
         packet = _PacketEnvelope(
             mission_payload=_MissionPayload(
-                maver_packet=_MaverPacket(args_raw=b"1", header={"cmd_id": "gnc_get_mode", "ptype": "RES"}),
+                walker_packet=_MaverPacket(args_raw=b"1", header={"cmd_id": "gnc_get_mode", "ptype": "RES"}),
             ),
             received_at_ms=42,
         )
         fragments = list(ext.extract(packet))
         self.assertEqual(len(fragments), 1)
         self.assertEqual(fragments[0].key, "GNC_MODE")
+
+    def test_extractor_honors_packet_attr_override(self):
+        """Missions can override the attribute name (e.g. MAVERIC's maver_packet)."""
+        @dataclass
+        class _CustomPayload:
+            custom_pkt: object
+
+        m = parse_yaml(FIXTURE, plugins={})
+        ops = build_declarative_telemetry_ops(m, plugins={}, packet_attr="custom_pkt")
+        ext = ops.extractors[0]
+        packet = _PacketEnvelope(
+            mission_payload=_CustomPayload(
+                custom_pkt=_MaverPacket(args_raw=b"1", header={"cmd_id": "gnc_get_mode", "ptype": "RES"}),
+            ),
+            received_at_ms=42,
+        )
+        fragments = list(ext.extract(packet))
+        self.assertEqual(len(fragments), 1)
 
 
 if __name__ == "__main__":
