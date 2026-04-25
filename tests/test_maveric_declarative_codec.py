@@ -293,5 +293,18 @@ class RoundTripParityTest(unittest.TestCase):
                 self.assertEqual(pkt.args_raw, args)
 
 
+from mav_gss_lib.platform.spec import PacketCodec
+
+
+class CodecSatisfiesProtocolTest(unittest.TestCase):
+    def test_isinstance_packet_codec(self) -> None:
+        codec = MaverPacketCodec(
+            extensions={
+                "nodes": {"GS": 6}, "ptypes": {"CMD": 1}, "gs_node": "GS",
+            }
+        )
+        self.assertIsInstance(codec, PacketCodec)
+
+
 if __name__ == "__main__":
     unittest.main()
