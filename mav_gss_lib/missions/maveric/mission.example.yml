@@ -199,6 +199,20 @@ parameter_types:
     dimension_list: [2]
     description: "Two raw bytes"
 
+  Quaternion:
+    kind: aggregate
+    member_list:
+      - name: q0
+        type: f32_le
+      - name: q1
+        type: f32_le
+      - name: q2
+        type: f32_le
+      - name: q3
+        type: f32_le
+    unit: "quaternion"
+    description: "Attitude quaternion (scalar-last by convention)"
+
 parameters: {}
 
 bitfield_types: {}
