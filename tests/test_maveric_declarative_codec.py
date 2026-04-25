@@ -109,5 +109,70 @@ class CompleteHeaderTest(unittest.TestCase):
         self.assertNotIn("src", h.fields)
 
 
+from mav_gss_lib.missions.maveric.wire_format import CommandFrame
+from mav_gss_lib.platform.spec.errors import ArgsTooLong
+
+
+class WrapTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.codec = MaverPacketCodec(
+            extensions={
+                "nodes": {"NONE": 0, "LPPM": 1, "GS": 6, "EPS": 2},
+                "ptypes": {"CMD": 1, "RES": 2, "ACK": 3, "TLM": 4, "FILE": 5},
+                "gs_node": "GS",
+            }
+        )
+
+    def _hdr(self, **overrides):
+        base = {
+            "src": "GS", "dest": "LPPM", "echo": "NONE", "ptype": "CMD",
+        }
+        base.update(overrides)
+        return CommandHeader(id="com_ping", fields=base)
+
+    def test_wrap_matches_legacy_command_frame_no_args(self) -> None:
+        wire = self.codec.wrap(self._hdr(), b"")
+        legacy = CommandFrame(
+            src=6, dest=1, echo=0, pkt_type=1, cmd_id="com_ping", args_str=""
+        ).to_bytes()
+        self.assertEqual(bytes(wire), bytes(legacy))
+
+    def test_wrap_matches_legacy_command_frame_with_args(self) -> None:
+        args = b"100 200"
+        hdr = self._hdr(dest="EPS", ptype="CMD")
+        hdr = CommandHeader(id="ppm_delay", fields=hdr.fields)
+        wire = self.codec.wrap(hdr, args)
+        legacy = CommandFrame(
+            src=6, dest=2, echo=0, pkt_type=1, cmd_id="ppm_delay",
+            args_str="100 200",
+        ).to_bytes()
+        self.assertEqual(bytes(wire), bytes(legacy))
+
+    def test_wrap_accepts_int_header_values(self) -> None:
+        hdr = CommandHeader(
+            id="com_ping",
+            fields={"src": 6, "dest": 1, "echo": 0, "ptype": 1},
+        )
+        wire = self.codec.wrap(hdr, b"")
+        self.assertEqual(wire[:4], bytes([6, 1, 0, 1]))
+
+    def test_wrap_raises_on_args_too_long(self) -> None:
+        with self.assertRaises(ArgsTooLong):
+            self.codec.wrap(self._hdr(), b"x" * 256)
+
+    def test_wrap_raises_on_unknown_node(self) -> None:
+        hdr = CommandHeader(
+            id="com_ping",
+            fields={"src": "GS", "dest": "BOGUS", "echo": "NONE", "ptype": "CMD"},
+        )
+        with self.assertRaises(UnknownNodeId):
+            self.codec.wrap(hdr, b"")
+
+    def test_wrap_appends_crc16_le(self) -> None:
+        wire = self.codec.wrap(self._hdr(), b"")
+        # CRC-16 last 2 bytes, little-endian
+        self.assertEqual(len(wire), 6 + len("com_ping") + 1 + 0 + 1 + 2)
+
+
 if __name__ == "__main__":
     unittest.main()
