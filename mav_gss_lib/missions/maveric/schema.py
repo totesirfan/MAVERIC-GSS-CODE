@@ -191,6 +191,10 @@ def load_command_defs(
                 "echo":     echo if echo is not None else 0,
                 "ptype":    ptype if ptype is not None else 1,
             }
+            if "verifiers" in spec:
+                defs[cmd_id.lower()]["verifiers"] = spec["verifiers"]
+            if "deprecated" in spec:
+                defs[cmd_id.lower()]["deprecated"] = bool(spec["deprecated"])
         return defs, None
     except (OSError, yaml.YAMLError, AttributeError):
         msg = f"Could not load {path} -- all commands will be unrecognized"
