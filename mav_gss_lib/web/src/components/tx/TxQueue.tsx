@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { motion } from 'framer-motion'
 import {
   DndContext, closestCenter,
   PointerSensor, useSensor, useSensors,
@@ -174,7 +173,6 @@ export function TxQueue({
               ))
             : <span className="flex-1">command</span>
           }
-          <span className={`${col.size} text-right`}>size</span>
           <span className={col.actions} />
         </div>
       )}
@@ -193,7 +191,7 @@ export function TxQueue({
                   if (it.source === 'queue' && it.item.type === 'delay') {
                     const delayActive = sendProgress !== null && sendProgress.waiting === true && it.queueIndex === 0
                     return (
-                      <motion.div key={it.uid} layout transition={{ duration: 0.15 }}>
+                      <div key={it.uid}>
                         <DelayItem
                           delayMs={it.item.delay_ms}
                           index={it.queueIndex!}
@@ -203,12 +201,12 @@ export function TxQueue({
                           onEditDelay={onEditDelay}
                           onDelete={onDelete}
                         />
-                      </motion.div>
+                      </div>
                     )
                   }
                   if (it.source === 'queue' && it.item.type === 'note') {
                     return (
-                      <motion.div key={it.uid} layout transition={{ duration: 0.15 }}>
+                      <div key={it.uid}>
                         <NoteItem
                           text={it.item.text}
                           index={it.queueIndex!}
@@ -216,14 +214,14 @@ export function TxQueue({
                           status={it.status}
                           onDelete={onDelete}
                         />
-                      </motion.div>
+                      </div>
                     )
                   }
                   const itemGuarding = isGuarding && it.status === 'sending'
                   const idx = it.queueIndex ?? 0
                   const handle = (it.item as TxQueueCmd | TxHistoryItem)
                   return (
-                    <motion.div key={it.uid} layout transition={{ duration: 0.15 }}>
+                    <div key={it.uid}>
                       <QueueItem
                         item={handle}
                         status={it.status}
@@ -240,7 +238,7 @@ export function TxQueue({
                         onMoveToBottom={onMoveToBottom}
                         onRequeue={onRequeue}
                       />
-                    </motion.div>
+                    </div>
                   )
                 })}
               </SortableContext>

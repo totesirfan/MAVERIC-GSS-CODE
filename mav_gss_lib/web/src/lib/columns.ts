@@ -12,7 +12,6 @@ export const col = {
   node:    'w-[52px]',  // compact mission label
   ptype:   'w-[52px]',  // compact mission badge
   flags:   'w-[72px]',  // CRC + UL + DUP badges
-  size:    'w-10',      // "1234B"
   grip:    'w-[22px]',  // drag handle
   actions: 'w-[60px]',  // buttons
 } as const

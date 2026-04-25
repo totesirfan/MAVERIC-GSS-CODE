@@ -66,7 +66,6 @@ export function QueueItem({
   const display = item.display ?? { title: '?', row: {}, detail_blocks: [] }
   const num = 'num' in item ? item.num : ('n' in item ? item.n : 0)
   const guard = 'guard' in item ? item.guard : false
-  const size = item.size
 
   // Join this row to a live verifier instance, if any. Backend stamps
   // `event_id` on history rows via `_record_sent`; queue items have no
@@ -168,9 +167,6 @@ export function QueueItem({
               <Badge className="text-[11px] px-1.5 py-0 h-5 shrink-0" style={{ backgroundColor: `${colors.warning}22`, color: colors.warning }}>GUARD</Badge>
             )}
             {!compact && (
-              <span className={`${col.size} text-right shrink-0 tabular-nums`} style={{ color: colors.dim }}>{size}B</span>
-            )}
-            {!compact && (
               pending ? (
                 <div className={`${col.actions} flex items-center gap-0.5 shrink-0 ml-1 justify-end`}>
                   <Button variant="ghost" size="icon" className="size-6 rounded-md btn-feedback"
@@ -206,10 +202,6 @@ export function QueueItem({
                   ))}
                 </div>
               ))}
-              <div className="flex items-center gap-2 text-xs">
-                <span style={{ color: colors.sep }}>Size:</span>
-                <span style={{ color: colors.value }}>{size}B</span>
-              </div>
               {pending && guard && <div style={{ color: colors.warning }} className="text-[11px]">Guarded — requires confirmation</div>}
               {instance && <VerifierDetailBlock instance={instance} now_ms={Date.now()} />}
             </div>
