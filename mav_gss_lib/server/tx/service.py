@@ -15,6 +15,7 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, NamedTuple
 
 from mav_gss_lib.platform import EncodedCommand, FramedCommand, tx_log_record
@@ -25,6 +26,12 @@ from .queue import QueueItem
 
 if TYPE_CHECKING:
     from ..state import WebRuntime
+
+
+class AdmitResult(Enum):
+    ACCEPTED = "accepted"
+    REJECTED_SEND_ACTIVE = "rejected_send_active"
+    REJECTED_WINDOW_OPEN = "rejected_window_open"
 
 
 class _RunResult(NamedTuple):
@@ -104,6 +111,44 @@ class TxService:
         """Summarize queue size, guard count, and rough execution time."""
         from . import queue as _tq
         return _tq.queue_summary(self.queue, self.runtime.tx_delay_ms)
+
+    def admit(self, item: dict) -> tuple[AdmitResult, dict]:
+        """Admission gate.
+
+        Rule 1: active send → reject all additions (incl. notes/delays;
+                the operator's current batch should run without interference).
+        Rule 2: mission_cmd + same (cmd_id, dest) as an open CheckWindow
+                instance → reject (temporal correlation invariant — responses
+                carry only cmd_id+src+ptype, args are not distinguishable).
+        Rule 3: accept.
+
+        Queue items are flat dicts: item["payload"] carries the mission
+        payload with cmd_id/dest keys directly (see server/tx/queue.py::
+        make_mission_cmd: `"payload": mission_payload.get("payload", payload)`).
+        `args` is present in the payload but deliberately ignored for keying.
+        """
+        if self.sending.get("active"):
+            return AdmitResult.REJECTED_SEND_ACTIVE, {}
+        if item.get("type") != "mission_cmd":
+            return AdmitResult.ACCEPTED, {}
+        payload = item.get("payload") or {}
+        cmd_id = payload.get("cmd_id", "")
+        dest = payload.get("dest", "")
+        key = (cmd_id, dest)
+        open_inst = self.runtime.platform.verifiers.lookup_open(key)
+        if open_inst is not None:
+            now_ms = int(time.time() * 1000)
+            elapsed = now_ms - open_inst.t0_ms
+            max_stop = max(
+                (v.check_window.stop_ms for v in open_inst.verifier_set.verifiers),
+                default=0,
+            )
+            remaining = max(max_stop - elapsed, 0)
+            return AdmitResult.REJECTED_WINDOW_OPEN, {
+                "cmd_id": cmd_id,
+                "remaining_ms": remaining,
+            }
+        return AdmitResult.ACCEPTED, {}
 
     def queue_items_json(self):
         """Project the current queue into the websocket/API JSON shape."""
