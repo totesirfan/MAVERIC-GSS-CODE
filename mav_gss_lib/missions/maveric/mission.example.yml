@@ -199,6 +199,24 @@ parameter_types:
     dimension_list: [2]
     description: "Two raw bytes"
 
+  vec2_u16:
+    kind: array
+    array_type_ref: u16
+    dimension_list: [2]
+    description: "Two LE uint16 values"
+
+  vec5_f32:
+    kind: array
+    array_type_ref: f32_le
+    dimension_list: [5]
+    description: "Generic 5-float vector"
+
+  vec7_f32:
+    kind: array
+    array_type_ref: f32_le
+    dimension_list: [7]
+    description: "Generic 7-float vector"
+
   Quaternion:
     kind: aggregate
     member_list:
@@ -556,5 +574,650 @@ sequence_containers:
       - { name: unexpected_safe,     type: u32 }
       - { name: unexpected_detumble, type: u32 }
       - { name: sunspin,             type: u32 }
+
+  # ── Task 33: mtq_get_1_res abstract parent + paged-frame consumers ──
+
+  mtq_get_1_res:
+    domain: gnc
+    layout: ascii_tokens
+    abstract: true
+    restriction_criteria:
+      packet:
+        cmd_id: mtq_get_1
+        ptype: RES
+    entry_list:
+      - { name: status,   type: u8, emit: false }
+      - { name: module,   type: u8, emit: false }
+      - { name: register, type: u8, emit: false }
+
+  mtq_get_active_res:
+    domain: gnc
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        cmd_id: mtq_get_active
+        ptype: RES
+    entry_list:
+      - { name: status, type: u8 }
+      - { name: page,   type: u8 }
+      - paged_frame_entry:
+          marker_separator: ","
+          dispatch_keys: [module, register]
+          base_container_ref: mtq_get_1_res
+          on_unknown_register: skip
+
+  mtq_get_hk_res:
+    domain: gnc
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        cmd_id: mtq_get_hk
+        ptype: RES
+    entry_list:
+      - { name: status, type: u8 }
+      - { name: page,   type: u8 }
+      - paged_frame_entry:
+          marker_separator: ","
+          dispatch_keys: [module, register]
+          base_container_ref: mtq_get_1_res
+          on_unknown_register: skip
+
+  mtq_get_param_res:
+    domain: gnc
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        cmd_id: mtq_get_param
+        ptype: RES
+    entry_list:
+      - { name: status, type: u8 }
+      - { name: page,   type: u8 }
+      - paged_frame_entry:
+          marker_separator: ","
+          dispatch_keys: [module, register]
+          base_container_ref: mtq_get_1_res
+          on_unknown_register: skip
+
+  # ── Task 34: GNC Module 0 (User) register containers ──
+  # Source: gnc_schema.py REGISTERS where module == 0
+  # Authoritative register numbers from source (plan table had errors).
+
+  reg_M0_CONF:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria:
+      parent_args: { module: 0, register: 4 }
+    entry_list:
+      - { name: CONF, type: CONF_REG }
+
+  reg_M0_TIME:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria:
+      parent_args: { module: 0, register: 5 }
+    entry_list:
+      - { name: TIME, type: BcdTime }
+
+  reg_M0_DATE:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria:
+      parent_args: { module: 0, register: 6 }
+    entry_list:
+      - { name: DATE, type: BcdDate }
+
+  reg_M0_POINTING_AXIS:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria:
+      parent_args: { module: 0, register: 14 }
+    entry_list:
+      - { name: POINTING_AXIS, type: vec3_f32 }
+
+  reg_M0_TLE:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria:
+      parent_args: { module: 0, register: 17 }
+    entry_list:
+      - { name: TLE, type: Tle }
+
+  reg_M0_MTQ_USER:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria:
+      parent_args: { module: 0, register: 103 }
+    entry_list:
+      - { name: MTQ_USER, type: vec3_f32 }
+
+  reg_M0_STAT:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria:
+      parent_args: { module: 0, register: 128 }
+    entry_list:
+      - { name: STAT, type: STAT_REG }
+
+  reg_M0_ACT_ERR:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria:
+      parent_args: { module: 0, register: 129 }
+    entry_list:
+      - { name: ACT_ERR, type: ACT_ERR_REG }
+
+  reg_M0_SEN_ERR:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria:
+      parent_args: { module: 0, register: 130 }
+    entry_list:
+      - { name: SEN_ERR, type: SEN_ERR_REG }
+
+  reg_M0_Q:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria:
+      parent_args: { module: 0, register: 132 }
+    entry_list:
+      - { name: Q, type: vec4_f32 }
+
+  reg_M0_RATE:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria:
+      parent_args: { module: 0, register: 136 }
+    entry_list:
+      - { name: RATE, type: vec3_rate }
+
+  reg_M0_LLA:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria:
+      parent_args: { module: 0, register: 139 }
+    entry_list:
+      - { name: LLA, type: vec3_f32 }
+
+  reg_M0_ADCS_TMP:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria:
+      parent_args: { module: 0, register: 148 }
+    entry_list:
+      - { name: ADCS_TMP, type: AdcsTmp }
+
+  reg_M0_PWR_VOL_5V:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria:
+      parent_args: { module: 0, register: 149 }
+    entry_list:
+      - { name: PWR_VOL_5V, type: battery_voltage_f32 }
+
+  reg_M0_PWR_CUR_5V:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria:
+      parent_args: { module: 0, register: 150 }
+    entry_list:
+      - { name: PWR_CUR_5V, type: f32_le }
+
+  reg_M0_PWR_VOL_3V:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria:
+      parent_args: { module: 0, register: 151 }
+    entry_list:
+      - { name: PWR_VOL_3V, type: battery_voltage_f32 }
+
+  reg_M0_PWR_CUR_3V:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria:
+      parent_args: { module: 0, register: 152 }
+    entry_list:
+      - { name: PWR_CUR_3V, type: f32_le }
+
+  reg_M0_FSS_TMP1:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria:
+      parent_args: { module: 0, register: 153 }
+    entry_list:
+      - { name: FSS_TMP1, type: FssTmp }
+
+  reg_M0_SV:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria:
+      parent_args: { module: 0, register: 156 }
+    entry_list:
+      - { name: SV, type: vec3_f32 }
+
+  reg_M0_MAG:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria:
+      parent_args: { module: 0, register: 159 }
+    entry_list:
+      - { name: MAG, type: vec3_mag }
+
+  # ── Task 35: GNC Module 1 (Sensor-Actuator) register containers ──
+  # Source: gnc_schema.py REGISTERS where module == 1
+  # Authoritative register numbers from source.
+
+  reg_M1_MAG_MAT:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 1, register: 0 } }
+    entry_list:
+      - { name: MAG_MAT, type: mat3x3_f32 }
+
+  reg_M1_MAG_VEC:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 1, register: 9 } }
+    entry_list:
+      - { name: MAG_VEC, type: vec3_f32 }
+
+  reg_M1_MAG_STAT:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 1, register: 12 } }
+    entry_list:
+      - { name: MAG_STAT, type: bytes4_u8 }
+
+  reg_M1_MAG0_S:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 1, register: 13 } }
+    entry_list:
+      - { name: MAG0_S, type: vec3_f32 }
+
+  reg_M1_FSS_STAT:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 1, register: 31 } }
+    entry_list:
+      - { name: FSS_STAT, type: bytes4_u8 }
+
+  reg_M1_FSS0_SV:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 1, register: 32 } }
+    entry_list:
+      - { name: FSS0_SV, type: vec2_u16 }
+
+  reg_M1_FSS0_PDSUM:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 1, register: 33 } }
+    entry_list:
+      - { name: FSS0_PDSUM, type: vec2_u16 }
+
+  reg_M1_IMU_STAT:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 1, register: 44 } }
+    entry_list:
+      - { name: IMU_STAT, type: bytes4_u8 }
+
+  reg_M1_IMU0_S:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 1, register: 45 } }
+    entry_list:
+      - { name: IMU0_S, type: vec3_f32 }
+
+  reg_M1_IMU1_S:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 1, register: 48 } }
+    entry_list:
+      - { name: IMU1_S, type: vec3_f32 }
+
+  reg_M1_MTQ:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 1, register: 78 } }
+    entry_list:
+      - { name: MTQ, type: vec3_mtq }
+
+  reg_M1_MEAS_MAG_B:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 1, register: 130 } }
+    entry_list:
+      - { name: MEAS_MAG_B, type: vec3_f32 }
+
+  reg_M1_CAL_MAG_B:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 1, register: 133 } }
+    entry_list:
+      - { name: CAL_MAG_B, type: vec3_f32 }
+
+  reg_M1_MEAS_IMU_B:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 1, register: 136 } }
+    entry_list:
+      - { name: MEAS_IMU_B, type: vec3_f32 }
+
+  reg_M1_CAL_IMU_B:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 1, register: 139 } }
+    entry_list:
+      - { name: CAL_IMU_B, type: vec3_f32 }
+
+  # ── Task 36: GNC Module 2 (Parameter) register containers ──
+  # Source: gnc_schema.py REGISTERS where module == 2
+  # Authoritative register numbers from source.
+
+  reg_M2_MASS:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 2, register: 0 } }
+    entry_list:
+      - { name: MASS, type: f32_le }
+
+  reg_M2_INE_TEN:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 2, register: 1 } }
+    entry_list:
+      - { name: INE_TEN, type: mat3x3_f32 }
+
+  reg_M2_MAG_INFO:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 2, register: 17 } }
+    entry_list:
+      - { name: MAG_INFO, type: bytes4_u8 }
+
+  reg_M2_MAG0_ORIEN_BS:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 2, register: 18 } }
+    entry_list:
+      - { name: MAG0_ORIEN_BS, type: vec4_f32 }
+
+  reg_M2_FSS_INFO:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 2, register: 42 } }
+    entry_list:
+      - { name: FSS_INFO, type: bytes4_u8 }
+
+  reg_M2_FSS0_ORIEN_BS:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 2, register: 43 } }
+    entry_list:
+      - { name: FSS0_ORIEN_BS, type: vec4_f32 }
+
+  reg_M2_IMU_INFO:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 2, register: 67 } }
+    entry_list:
+      - { name: IMU_INFO, type: bytes4_u8 }
+
+  reg_M2_IMU0_ORIEN_BS:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 2, register: 68 } }
+    entry_list:
+      - { name: IMU0_ORIEN_BS, type: vec4_f32 }
+
+  reg_M2_IMU1_ORIEN_BS:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 2, register: 72 } }
+    entry_list:
+      - { name: IMU1_ORIEN_BS, type: vec4_f32 }
+
+  reg_M2_IMU_BIAS:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 2, register: 94 } }
+    entry_list:
+      - { name: IMU_BIAS, type: vec3_f32 }
+
+  reg_M2_NVM:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 2, register: 255 } }
+    entry_list:
+      - { name: NVM, type: bytes4_u8 }
+
+  # ── Task 37: GNC Module 3 (Controller-tuning) register containers ──
+  # Source: gnc_schema.py REGISTERS where module == 3
+  # All 32 entries read from source file.
+
+  reg_M3_PID_KP:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 3, register: 0 } }
+    entry_list:
+      - { name: PID_KP, type: f32_le }
+
+  reg_M3_PID_KD:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 3, register: 1 } }
+    entry_list:
+      - { name: PID_KD, type: f32_le }
+
+  reg_M3_PID_KI:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 3, register: 2 } }
+    entry_list:
+      - { name: PID_KI, type: f32_le }
+
+  reg_M3_PID_INT_LIMIT:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 3, register: 3 } }
+    entry_list:
+      - { name: PID_INT_LIMIT, type: f32_le }
+
+  reg_M3_EKF_P:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 3, register: 4 } }
+    entry_list:
+      - { name: EKF_P, type: vec7_f32 }
+
+  reg_M3_EKF_Q:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 3, register: 11 } }
+    entry_list:
+      - { name: EKF_Q, type: vec7_f32 }
+
+  reg_M3_EKF_R_MAG:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 3, register: 18 } }
+    entry_list:
+      - { name: EKF_R_MAG, type: vec3_f32 }
+
+  reg_M3_EKF_R_SUN:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 3, register: 21 } }
+    entry_list:
+      - { name: EKF_R_SUN, type: vec3_f32 }
+
+  reg_M3_EKF_R_IMU:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 3, register: 24 } }
+    entry_list:
+      - { name: EKF_R_IMU, type: vec3_f32 }
+
+  reg_M3_EKF_R_STR:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 3, register: 27 } }
+    entry_list:
+      - { name: EKF_R_STR, type: vec4_f32 }
+
+  reg_M3_MTQ_LIMIT:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 3, register: 31 } }
+    entry_list:
+      - { name: MTQ_LIMIT, type: vec3_f32 }
+
+  reg_M3_CMG_W_MASS:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 3, register: 34 } }
+    entry_list:
+      - { name: CMG_W_MASS, type: f32_le }
+
+  reg_M3_CMG_G_MASS:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 3, register: 35 } }
+    entry_list:
+      - { name: CMG_G_MASS, type: f32_le }
+
+  reg_M3_CMG_W_INE:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 3, register: 36 } }
+    entry_list:
+      - { name: CMG_W_INE, type: vec3_f32 }
+
+  reg_M3_CMG_G_INE:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 3, register: 39 } }
+    entry_list:
+      - { name: CMG_G_INE, type: vec3_f32 }
+
+  reg_M3_CMG_POS0_GB_B:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 3, register: 42 } }
+    entry_list:
+      - { name: CMG_POS0_GB_B, type: vec3_f32 }
+
+  reg_M3_CMG_POS1_GB_B:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 3, register: 45 } }
+    entry_list:
+      - { name: CMG_POS1_GB_B, type: vec3_f32 }
+
+  reg_M3_CMG_POS2_GB_B:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 3, register: 48 } }
+    entry_list:
+      - { name: CMG_POS2_GB_B, type: vec3_f32 }
+
+  reg_M3_CMG_POS3_GB_B:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 3, register: 51 } }
+    entry_list:
+      - { name: CMG_POS3_GB_B, type: vec3_f32 }
+
+  reg_M3_CMG_FRAM0_SPIN:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 3, register: 54 } }
+    entry_list:
+      - { name: CMG_FRAM0_SPIN, type: vec3_f32 }
+
+  reg_M3_CMG_FRAM1_SPIN:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 3, register: 57 } }
+    entry_list:
+      - { name: CMG_FRAM1_SPIN, type: vec3_f32 }
+
+  reg_M3_CMG_FRAM2_SPIN:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 3, register: 60 } }
+    entry_list:
+      - { name: CMG_FRAM2_SPIN, type: vec3_f32 }
+
+  reg_M3_CMG_FRAM3_SPIN:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 3, register: 63 } }
+    entry_list:
+      - { name: CMG_FRAM3_SPIN, type: vec3_f32 }
+
+  reg_M3_CMG_FRAM0_GIMBAL:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 3, register: 66 } }
+    entry_list:
+      - { name: CMG_FRAM0_GIMBAL, type: vec3_f32 }
+
+  reg_M3_CMG_FRAM1_GIMBAL:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 3, register: 69 } }
+    entry_list:
+      - { name: CMG_FRAM1_GIMBAL, type: vec3_f32 }
+
+  reg_M3_CMG_FRAM2_GIMBAL:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 3, register: 72 } }
+    entry_list:
+      - { name: CMG_FRAM2_GIMBAL, type: vec3_f32 }
+
+  reg_M3_CMG_FRAM3_GIMBAL:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 3, register: 75 } }
+    entry_list:
+      - { name: CMG_FRAM3_GIMBAL, type: vec3_f32 }
+
+  reg_M3_STEER_KE:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 3, register: 78 } }
+    entry_list:
+      - { name: STEER_KE, type: f32_le }
+
+  reg_M3_STEER_REF_W:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 3, register: 79 } }
+    entry_list:
+      - { name: STEER_REF_W, type: f32_le }
+
+  reg_M3_STEER_WEIGHT:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 3, register: 80 } }
+    entry_list:
+      - { name: STEER_WEIGHT, type: vec5_f32 }
+
+  reg_M3_WHEEL_TOR_LIMIT:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 3, register: 85 } }
+    entry_list:
+      - { name: WHEEL_TOR_LIMIT, type: f32_le }
+
+  reg_M3_GIMBAL_RATE_LIMIT:
+    domain: gnc
+    base_container_ref: mtq_get_1_res
+    restriction_criteria: { parent_args: { module: 3, register: 86 } }
+    entry_list:
+      - { name: GIMBAL_RATE_LIMIT, type: f32_le }
 
 meta_commands: {}
