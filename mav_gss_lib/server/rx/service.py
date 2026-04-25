@@ -143,11 +143,115 @@ class RxService:
                     continue  # gr-satellites noise — behave as if never received
                 result = self.runtime.platform.process_rx(meta, raw)
                 pkt = result.packet
+
+                # Verifier matching: mission-private logic; newest-instance-wins.
+                # `pkt` is a PacketEnvelope (not a MissionPacket) — the mission's
+                # match_verifiers reads envelope.mission_payload["cmd"]. The
+                # rx_event_id is pre-allocated here so it is shared by both the
+                # rx_packet log write and any verifier match-event back-pointer.
+                from mav_gss_lib.platform._log_envelope import new_event_id
+                from mav_gss_lib.platform.tx.verifiers import (
+                    VerifierOutcome as _VerifierOutcome,
+                    write_instances as _write_instances,
+                )
+                from pathlib import Path as _Path
+
+                now_ms = int(time.time() * 1000)
+                rx_event_id = new_event_id()
+
+                try:
+                    transitions = self.runtime.mission.packets.match_verifiers(
+                        pkt,
+                        self.runtime.platform.verifiers.open_instances(),
+                        now_ms=now_ms,
+                        rx_event_id=rx_event_id,
+                    )
+                except Exception as exc:
+                    logging.warning("match_verifiers failed: %s", exc)
+                    transitions = []
+
+                # rx_seq used as the `seq` field on cmd_verifier events so the
+                # SQL archive can join verifier rows to the parent rx_packet by
+                # seq. Matches the envelope rule "telemetry inherits parent
+                # rx_packet seq".
+                rx_seq = getattr(pkt, "seq", 0)
+                for instance_id, verifier_id, outcome in transitions:
+                    inst = next(
+                        (i for i in self.runtime.platform.verifiers.open_instances()
+                         if i.instance_id == instance_id),
+                        None,
+                    )
+                    self.runtime.platform.verifiers.apply(instance_id, verifier_id, outcome)
+                    if inst and self.runtime.tx.log:
+                        try:
+                            self.runtime.tx.log.write_cmd_verifier({
+                                "seq": rx_seq,
+                                "cmd_event_id": inst.cmd_event_id,
+                                "instance_id": inst.instance_id,
+                                "stage": inst.stage,
+                                "verifier_id": verifier_id,
+                                "outcome": outcome.state,
+                                "elapsed_ms": (outcome.matched_at_ms or now_ms) - inst.t0_ms,
+                                "match_event_id": outcome.match_event_id,
+                            })
+                        except Exception as exc:
+                            logging.warning("cmd_verifier log failed: %s", exc)
+
+                # Telemetry → comparison-verifier bridge: any open instance with
+                # a tlm_<domain>_<key> complete-stage verifier passes when this
+                # packet carries a matching (domain, key) telemetry fragment.
+                telemetry_fragments = getattr(pkt, "telemetry", None) or []
+                for frag in telemetry_fragments:
+                    for inst in self.runtime.platform.verifiers.open_instances():
+                        for spec in inst.verifier_set.verifiers:
+                            if spec.stage != "complete" or not spec.verifier_id.startswith("tlm_"):
+                                continue
+                            parts = spec.verifier_id.split("_", 2)
+                            if len(parts) < 3:
+                                continue
+                            _, domain, key = parts
+                            frag_domain = getattr(frag, "domain", None)
+                            frag_key = getattr(frag, "key", None)
+                            if frag_domain != domain or frag_key != key:
+                                continue
+                            self.runtime.platform.verifiers.apply(
+                                inst.instance_id, spec.verifier_id,
+                                _VerifierOutcome.passed(
+                                    matched_at_ms=now_ms,
+                                    match_event_id=rx_event_id,
+                                ),
+                            )
+                            if self.runtime.tx.log:
+                                try:
+                                    self.runtime.tx.log.write_cmd_verifier({
+                                        "seq": rx_seq,
+                                        "cmd_event_id": inst.cmd_event_id,
+                                        "instance_id": inst.instance_id,
+                                        "stage": inst.stage,
+                                        "verifier_id": spec.verifier_id,
+                                        "outcome": "pass",
+                                        "elapsed_ms": now_ms - inst.t0_ms,
+                                        "match_event_id": rx_event_id,
+                                    })
+                                except Exception as exc:
+                                    logging.warning("cmd_verifier tlm log failed: %s", exc)
+
+                # Sweep + persist after any apply (covers timed_out transitions).
+                self.runtime.platform.verifiers.sweep(now_ms=now_ms)
+                try:
+                    _write_instances(
+                        _Path(self.runtime.log_dir) / ".pending_instances.jsonl",
+                        self.runtime.platform.verifiers.open_instances(),
+                    )
+                except Exception as exc:
+                    logging.warning("pending_instances write failed: %s", exc)
+
                 try:
                     if self.log:
                         record = rx_log_record(
                             self.runtime.mission, pkt, version,
                             session_id=self.log.session_id,
+                            event_id=rx_event_id,
                             mission_id=self.runtime.mission_id,
                             operator=self.runtime.operator,
                             station=self.runtime.station,
