@@ -1,0 +1,24 @@
+schema_version: 1
+id: x
+name: x
+header: {version: "1.0.0", date: "2026-04-25"}
+parameter_types:
+  u: {kind: int, size_bits: 8}
+parameters: {}
+sequence_containers:
+  parent_a:
+    domain: d
+    abstract: true
+    restriction_criteria: {packet: {cmd_id: foo}}
+    entry_list: [{name: x, type: u}]
+  parent_b:
+    domain: d
+    base_container_ref: parent_a
+    restriction_criteria: {parent_args: {x: 1}}
+    entry_list: []
+  concrete:
+    domain: d
+    base_container_ref: parent_b
+    restriction_criteria: {parent_args: {x: 1}}
+    entry_list: []
+meta_commands: {}

@@ -1,0 +1,16 @@
+schema_version: 1
+id: x
+name: x
+header: {version: "1.0.0", date: "2026-04-25"}
+parameter_types: {}
+parameters: {}
+sequence_containers:
+  a:
+    domain: d
+    restriction_criteria: {packet: {cmd_id: foo, ptype: RES}}
+    entry_list: []
+  b:
+    domain: d
+    restriction_criteria: {packet: {cmd_id: foo, ptype: RES}}
+    entry_list: []
+meta_commands: {}
