@@ -1,0 +1,23 @@
+schema_version: 1
+id: balloon_v2
+name: "Balloon"
+header: {version: "1.0.0", date: "2026-04-25"}
+
+nodes: {NONE: 0, GS: 1}
+ptypes: {CMD: 1, TLM: 5}
+
+parameter_types: {}
+
+parameters:
+  altitude_m: {type: u32, description: "Altitude (m)"}
+  pressure_hpa: {type: u16, description: "Pressure (hPa)"}
+
+sequence_containers:
+  balloon_tlm:
+    domain: balloon
+    restriction_criteria: {packet: {cmd_id: telemetry, ptype: TLM}}
+    entry_list:
+      - {name: altitude_m, type: u32}
+      - {name: pressure_hpa, type: u16}
+
+meta_commands: {}

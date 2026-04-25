@@ -1,0 +1,25 @@
+schema_version: 1
+id: echo_v2
+name: "Echo Test"
+header: {version: "1.0.0", date: "2026-04-25"}
+
+nodes: {NONE: 0, NODE_A: 1}
+ptypes: {CMD: 1, RES: 2}
+
+parameter_types: {}
+
+parameters:
+  payload: {type: ascii_blob, description: "echo payload"}
+
+sequence_containers:
+  echo_res:
+    domain: echo
+    restriction_criteria: {packet: {cmd_id: echo, ptype: RES}}
+    entry_list:
+      - {name: payload, type: ascii_blob}
+
+meta_commands:
+  echo:
+    packet: {dest: NODE_A, echo: NONE, ptype: CMD}
+    argument_list:
+      - {name: payload, type: ascii_blob}
