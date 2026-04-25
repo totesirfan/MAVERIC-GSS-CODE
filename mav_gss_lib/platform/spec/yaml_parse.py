@@ -114,6 +114,7 @@ def _parse(
     _check_recursive_paged_frames(sequence_containers)
     _check_dynamic_ref_ordering(sequence_containers, parameter_types)
     _check_container_domains(sequence_containers)
+    _check_repeat_entry_count(sequence_containers)
     _check_argument_bound_types(meta_commands, parameter_types)
     if validate_plugins:
         _check_plugins(parameter_types, plugins)
@@ -575,6 +576,25 @@ def _check_container_domains(containers: Mapping[str, SequenceContainer]) -> Non
             raise ParseError(
                 f"container {c.name!r} must declare a non-empty domain"
             )
+
+
+def _check_repeat_entry_count(containers: Mapping[str, SequenceContainer]) -> None:
+    """RepeatEntry.count_fixed must be >= 1 (XTCE 1.3 / XTCE13-143).
+
+    count == 1 is a no-op repeat (single iteration); count == 0 would
+    produce zero iterations which is degenerate and almost certainly
+    a typo. Reject at parse time.
+    """
+    for c in containers.values():
+        for entry in c.entry_list:
+            if not isinstance(entry, RepeatEntry):
+                continue
+            if entry.count_kind == "fixed" and entry.count_fixed is not None:
+                if entry.count_fixed < 1:
+                    raise ParseError(
+                        f"container {c.name!r}: repeat_entry on {entry.entry.name!r} "
+                        f"has count={entry.count_fixed}; XTCE 1.3 requires count >= 1"
+                    )
 
 
 def _check_argument_bound_types(

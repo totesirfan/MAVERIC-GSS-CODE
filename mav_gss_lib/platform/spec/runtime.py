@@ -76,6 +76,11 @@ class TypeCodec:
         if isinstance(t, BinaryParameterType):
             blob = cursor.read_remaining_bytes()
             return bytes(blob)
+        if isinstance(t, ArrayParameterType):
+            count = t.dimension_list[0]
+            return [self.decode_ascii(t.array_type_ref, cursor) for _ in range(count)]
+        if isinstance(t, AggregateParameterType):
+            return {m.name: self.decode_ascii(m.type_ref, cursor) for m in t.member_list}
         raise TypeError(
             f"TypeCodec.decode_ascii: type {type_ref!r} of kind {type(t).__name__} "
             "is not valid in ascii_tokens layout"
@@ -96,6 +101,10 @@ class TypeCodec:
             return str(int(value))
         if isinstance(t, StringParameterType):
             return str(value)
+        if isinstance(t, ArrayParameterType):
+            return " ".join(self.encode_ascii(t.array_type_ref, elem) for elem in value)
+        if isinstance(t, AggregateParameterType):
+            return " ".join(self.encode_ascii(m.type_ref, value[m.name]) for m in t.member_list)
         raise TypeError(
             f"TypeCodec.encode_ascii: type {type_ref!r} of kind {type(t).__name__} "
             "is not valid in ascii_tokens layout"
@@ -140,6 +149,11 @@ class TypeCodec:
             from .time_codec import decode_millis_u64
             assert t.encoding == "millis_u64"
             return decode_millis_u64(cursor.read_bytes(8))
+        if isinstance(t, ArrayParameterType):
+            count = t.dimension_list[0]
+            return [self.decode_binary(t.array_type_ref, cursor) for _ in range(count)]
+        if isinstance(t, AggregateParameterType):
+            return {m.name: self.decode_binary(m.type_ref, cursor) for m in t.member_list}
         raise TypeError(
             f"TypeCodec.decode_binary: type {type_ref!r} of kind "
             f"{type(t).__name__} unsupported"
@@ -161,6 +175,10 @@ class TypeCodec:
             return bytes(value)
         if isinstance(t, StringParameterType):
             return str(value).encode(t.charset)
+        if isinstance(t, ArrayParameterType):
+            return b"".join(self.encode_binary(t.array_type_ref, elem) for elem in value)
+        if isinstance(t, AggregateParameterType):
+            return b"".join(self.encode_binary(m.type_ref, value[m.name]) for m in t.member_list)
         raise TypeError(
             f"TypeCodec.encode_binary: type {type_ref!r} of kind "
             f"{type(t).__name__} unsupported"

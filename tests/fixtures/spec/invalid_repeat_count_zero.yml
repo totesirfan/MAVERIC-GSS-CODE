@@ -1,0 +1,16 @@
+schema_version: 1
+id: x
+name: x
+header: {version: "1.0.0", date: "2026-04-25"}
+parameter_types:
+  u: {kind: int, size_bits: 8}
+parameters: {}
+sequence_containers:
+  bad_repeat:
+    domain: d
+    restriction_criteria: {packet: {cmd_id: foo, ptype: TLM}}
+    entry_list:
+      - repeat_entry:
+          entry: {name: x, type: u}
+          count: 0
+meta_commands: {}

@@ -77,5 +77,13 @@ class TestArgBoundType(unittest.TestCase):
         self.assertIn("mode_str", str(ctx.exception))
 
 
+class TestRepeatEntryCountAtLeastOne(unittest.TestCase):
+    """Rule 8 — RepeatEntry.count_fixed must be >= 1 (XTCE 1.3 / XTCE13-143)."""
+
+    def test_zero_count_rejected(self):
+        with self.assertRaises(ParseError):
+            parse_yaml(FIXTURES / "invalid_repeat_count_zero.yml", plugins={})
+
+
 if __name__ == "__main__":
     unittest.main()
