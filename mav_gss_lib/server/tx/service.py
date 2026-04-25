@@ -231,6 +231,46 @@ class TxService:
         except asyncio.TimeoutError:
             return False
 
+    async def _wait_for_pending_verifications_clear(
+        self, *, poll_ms: int = 250, max_wait_ms: int = 35_000,
+    ) -> bool:
+        """Block until no non-terminal verifier instance is open, or abort.
+
+        Honors spec §3 invariant ("no two sends to the same (cmd_id, dest) in
+        flight or within CheckWindow simultaneously") via the simpler global
+        rule operators expect: at most one verification window is open at a
+        time. The next mission_cmd waits until the prior instance reaches a
+        terminal stage (complete / failed / timed_out) before publishing.
+
+        Cross-target batches serialize too — accepted tradeoff for predictable
+        per-row UI: each row's rail/dots tell a clean story without overlap.
+
+        Hard cap of `max_wait_ms` (default 35s, slightly past the longest
+        MAVERIC CheckWindow = 30s) prevents the queue from stalling forever
+        if the periodic sweeper somehow fails to advance an instance to
+        terminal — proceed with the next send rather than freeze.
+
+        Returns True if aborted.
+        """
+        from mav_gss_lib.platform.tx.verifiers import _TERMINAL
+        if self.abort.is_set():
+            return True
+        registry = self.runtime.platform.verifiers
+        deadline = time.time() + max_wait_ms / 1000.0
+        while any(inst.stage not in _TERMINAL for inst in registry.open_instances()):
+            if time.time() >= deadline:
+                logging.warning(
+                    "verifier wait timed out after %dms — proceeding with next send",
+                    max_wait_ms,
+                )
+                return False
+            try:
+                await asyncio.wait_for(self.abort.wait(), timeout=poll_ms / 1000.0)
+                return True
+            except asyncio.TimeoutError:
+                continue
+        return False
+
     async def _run_note_item(self, item: QueueItem, ctx: _SendContext) -> _RunResult:
         """Drop a front-of-queue ``note`` item without numbering impact."""
         self._pop_unnumbered_note()
@@ -384,7 +424,8 @@ class TxService:
 
     async def _run_mission_cmd_item(self, item: QueueItem, ctx: _SendContext) -> _RunResult:
         """Execute one ``mission_cmd`` queue item end-to-end: optional guard,
-        frame build, ZMQ send, blackout arm, history record, post-send dwell."""
+        same-target wait, frame build, ZMQ send, blackout arm, history record,
+        post-send dwell."""
         if item.get("guard"):
             if await self._run_guard_wait(item):
                 return _RunResult(aborted=True, sent_delta=0)
@@ -402,6 +443,30 @@ class TxService:
             await self.broadcast({"type": "send_error", "error": f"frame build failed: {exc}"})
             self._pop_and_renumber()
             return _RunResult(aborted=True, sent_delta=0)
+
+        # Sequential-verification gate: only one command's CheckWindow is open
+        # at a time. Block here if any prior instance is still non-terminal,
+        # so the next send only fires after the previous command is confirmed
+        # / failed / timed_out. The visible "waiting" state mirrors
+        # `_run_delay_item` so the operator sees the queue is paced, not stuck.
+        #
+        # The wait is gated on the periodic sweeper actually being live —
+        # without it, non-terminal instances never advance and the wait would
+        # block forever. The lifespan startup attaches `verifier_sweep_task`;
+        # unit-test runtimes (which skip lifespan) don't, and so bypass the
+        # wait entirely.
+        if getattr(self.runtime, "verifier_sweep_task", None) is not None:
+            from mav_gss_lib.platform.tx.verifiers import _TERMINAL
+            if any(inst.stage not in _TERMINAL
+                   for inst in self.runtime.platform.verifiers.open_instances()):
+                self.sending["waiting"] = True
+                await self.send_queue_update()
+                try:
+                    if await self._wait_for_pending_verifications_clear():
+                        return _RunResult(aborted=True, sent_delta=0)
+                finally:
+                    self.sending["waiting"] = False
+                    await self.send_queue_update()
 
         if not send_pdu(ctx.sock, framed.wire):
             logging.error("ZMQ send failed for %s", item.get("cmd", "?"))
