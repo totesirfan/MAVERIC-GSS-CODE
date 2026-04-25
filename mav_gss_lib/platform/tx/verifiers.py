@@ -193,3 +193,21 @@ class VerifierRegistry:
         with self._lock:
             terminal_ids = [i.instance_id for i in self._by_id.values() if i.stage in _TERMINAL]
             return [self._by_id.pop(i) for i in terminal_ids]
+
+    def sweep(self, *, now_ms: int) -> None:
+        """Mark every pending verifier whose window has closed as window_expired.
+
+        Called periodically (e.g., once per second) from a platform task.
+        Called also at RX/TX critical points to keep the UI snappy.
+        Task 19b extends this to also track dirty instances.
+        """
+        with self._lock:
+            for inst in self._by_id.values():
+                for spec in inst.verifier_set.verifiers:
+                    current = inst.outcomes.get(spec.verifier_id, VerifierOutcome.pending())
+                    if current.state != "pending":
+                        continue
+                    deadline = inst.t0_ms + spec.check_window.stop_ms
+                    if now_ms >= deadline:
+                        inst.outcomes[spec.verifier_id] = VerifierOutcome.window_expired()
+                inst.stage = _derive_stage(inst)

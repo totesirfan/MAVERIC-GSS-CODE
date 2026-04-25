@@ -171,5 +171,34 @@ class TerminalDropsFromOpen(unittest.TestCase):
         self.assertEqual(len(reg.open_instances()), 0)
 
 
+class Sweeper(unittest.TestCase):
+    def test_sweep_marks_expired_verifiers(self):
+        """At t=11000ms, the uppm_ack window (0-10000ms) is expired."""
+        reg = VerifierRegistry()
+        inst = _instance()
+        reg.register(inst)
+        reg.sweep(now_ms=inst.t0_ms + 11000)
+        self.assertEqual(inst.outcomes["uppm_ack"].state, "window_expired")
+        # lppm_ack (0-15000ms) still pending.
+        self.assertEqual(inst.outcomes["lppm_ack"].state, "pending")
+
+    def test_sweep_preserves_passed_outcomes(self):
+        reg = VerifierRegistry()
+        inst = _instance()
+        reg.register(inst)
+        reg.apply("i1", "uppm_ack",
+                  VerifierOutcome.passed(matched_at_ms=500, match_event_id="e1"))
+        reg.sweep(now_ms=inst.t0_ms + 11000)
+        self.assertEqual(inst.outcomes["uppm_ack"].state, "passed")
+
+    def test_sweep_transitions_stage_on_last_expiry(self):
+        """Every window expired → stage = timed_out."""
+        reg = VerifierRegistry()
+        inst = _instance()
+        reg.register(inst)
+        reg.sweep(now_ms=inst.t0_ms + 35000)  # past every stop_ms
+        self.assertEqual(inst.stage, "timed_out")
+
+
 if __name__ == "__main__":
     unittest.main()
