@@ -19,6 +19,7 @@ from .loader import load_mission_spec_from_split
 from .rx.pipeline import RxPipeline, RxResult
 from .telemetry import TelemetryRouter
 from .tx.commands import PreparedCommand, frame_command, prepare_command
+from .tx.verifiers import VerifierRegistry
 
 
 def _resolve_log_dir(platform_cfg: dict[str, Any]) -> str:
@@ -42,6 +43,7 @@ class PlatformRuntime:
     mission: MissionSpec
     telemetry: TelemetryRouter
     rx: RxPipeline
+    verifiers: VerifierRegistry
 
     @classmethod
     def from_split(
@@ -69,6 +71,7 @@ class PlatformRuntime:
             mission=mission,
             telemetry=telemetry,
             rx=RxPipeline(mission, telemetry),
+            verifiers=VerifierRegistry(),
         )
 
     def process_rx(self, meta: dict[str, Any], raw: bytes) -> RxResult:
@@ -82,3 +85,10 @@ class PlatformRuntime:
     def frame_tx(self, encoded: EncodedCommand) -> FramedCommand:
         """Ask the mission to wrap encoded bytes in its wire framing."""
         return frame_command(self.mission, encoded)
+
+    def restore_verifiers(self, *, path, now_ms: int) -> None:
+        """Load any persisted in-flight command instances into the registry."""
+        from .tx.verifiers import restore_instances
+
+        for inst in restore_instances(path, now_ms=now_ms):
+            self.verifiers.register(inst)
