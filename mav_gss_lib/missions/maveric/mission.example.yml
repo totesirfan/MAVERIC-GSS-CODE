@@ -339,6 +339,22 @@ bitfield_types:
       - { name: SERR,            bits: [30, 30], kind: bool }
       - { name: HERR,            bits: [31, 31], kind: bool }
 
+  ACT_ERR_REG:
+    size_bits: 32
+    byte_order: little
+    entry_list:
+      - { name: CMG0, bits: [0, 0], kind: bool }
+      - { name: CMG1, bits: [1, 1], kind: bool }
+      - { name: CMG2, bits: [2, 2], kind: bool }
+      - { name: CMG3, bits: [3, 3], kind: bool }
+      - { name: byte0_spare, bits: [4, 7], kind: uint }
+      - { name: MTQ0, bits: [8, 8],   kind: bool }
+      - { name: MTQ1, bits: [9, 9],   kind: bool }
+      - { name: MTQ2, bits: [10, 10], kind: bool }
+      - { name: byte1_spare, bits: [11, 15], kind: uint }
+      - { name: byte2_raw,   bits: [16, 23], kind: uint }
+      - { name: byte3_raw,   bits: [24, 31], kind: uint }
+
 sequence_containers: {}
 
 meta_commands: {}
