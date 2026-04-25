@@ -24,9 +24,14 @@ from mav_gss_lib.platform.tx.verifiers import (
 
 
 # ─── CheckWindow bounds ───────────────────────────────────────────────
+#
+# All received-stage ACKs share the same 15s window so the collapsed
+# tick-strip dot does not pulse → unpulse → pulse when a UPPM-only
+# window expires before the destination ack's. The UI groups UPPM+dest
+# acks into one "ack" signal; their near-expiry cautionary pulse needs
+# to be continuous across the group.
 
-_UPPM_ACK_WIN   = CheckWindow(start_ms=0, stop_ms=10_000)
-_DEST_ACK_WIN   = CheckWindow(start_ms=0, stop_ms=15_000)
+_ACK_WIN        = CheckWindow(start_ms=0, stop_ms=15_000)
 _RES_WIN        = CheckWindow(start_ms=0, stop_ms=30_000)
 _NACK_WIN       = CheckWindow(start_ms=0, stop_ms=30_000)
 _TLM_WIN        = CheckWindow(start_ms=0, stop_ms=30_000)
@@ -65,35 +70,35 @@ def derive_verifier_set(*, cmd_id: str, dest: str) -> VerifierSet:
 
     if d == "LPPM":
         return VerifierSet(verifiers=(
-            _ack("uppm_ack", "UPPM", _UPPM_ACK_WIN),
-            _ack("lppm_ack", "LPPM", _DEST_ACK_WIN),
+            _ack("uppm_ack", "UPPM", _ACK_WIN),
+            _ack("lppm_ack", "LPPM", _ACK_WIN),
             _res("lppm"),
             _nack("uppm"),
             _nack("lppm"),
         ))
     if d == "UPPM":
         return VerifierSet(verifiers=(
-            _ack("uppm_ack", "UPPM", _UPPM_ACK_WIN),
+            _ack("uppm_ack", "UPPM", _ACK_WIN),
             _res("uppm"),
             _nack("uppm"),
         ))
     if d == "HLNV":
         return VerifierSet(verifiers=(
-            _ack("uppm_ack", "UPPM", _UPPM_ACK_WIN),
-            _ack("hlnv_ack", "HLNV", _DEST_ACK_WIN),
+            _ack("uppm_ack", "UPPM", _ACK_WIN),
+            _ack("hlnv_ack", "HLNV", _ACK_WIN),
             _res("hlnv"),
             _nack("uppm"),
         ))
     if d == "ASTR":
         return VerifierSet(verifiers=(
-            _ack("uppm_ack", "UPPM", _UPPM_ACK_WIN),
-            _ack("astr_ack", "ASTR", _DEST_ACK_WIN),
+            _ack("uppm_ack", "UPPM", _ACK_WIN),
+            _ack("astr_ack", "ASTR", _ACK_WIN),
             _res("astr"),
             _nack("uppm"),
         ))
     if d == "EPS":
         return VerifierSet(verifiers=(
-            _ack("uppm_ack", "UPPM", _UPPM_ACK_WIN),
+            _ack("uppm_ack", "UPPM", _ACK_WIN),
             _res("eps"),
             _nack("uppm"),
             _nack("eps"),
