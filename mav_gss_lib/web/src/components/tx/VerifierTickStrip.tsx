@@ -18,7 +18,11 @@ interface Dot {
 function dotColor(state: DotState): string {
   if (state === 'passed') return colors.success
   if (state === 'failed') return colors.danger
-  if (state === 'window_expired') return colors.dim
+  // Window expired = silent timeout — treat as a failure at the dot level,
+  // consistent with the left-rail aggregate (any non-success outcome → red).
+  // NACK-vs-expired distinction is still visible via the `!` badge: NACK
+  // fires `!`, expired does not.
+  if (state === 'window_expired') return colors.danger
   return 'transparent'
 }
 
