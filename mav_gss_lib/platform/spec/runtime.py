@@ -463,3 +463,157 @@ class EntryDecoder:
                     )
                 continue
             yield from self.walk(child, cursor, now_ms=now_ms, decoded_into={}, matcher=matcher)
+
+
+import logging
+
+from .commands import MetaCommand
+from .mission import Mission
+
+
+class CommandEncoder:
+    """Walks a MetaCommand's argument_list and produces the args byte run.
+
+    No envelope, no CRC, no length headers. The mission's PacketCodec
+    wraps this output with whatever envelope its wire format requires.
+    """
+
+    __slots__ = ("_meta", "_codec", "_types")
+
+    def __init__(
+        self,
+        *,
+        meta_commands: Mapping[str, MetaCommand],
+        codec: TypeCodec,
+        types: Mapping[str, ParameterType],
+    ) -> None:
+        self._meta = meta_commands
+        self._codec = codec
+        self._types = types
+
+    def encode_args(self, cmd_id: str, args: Mapping[str, Any]) -> bytes:
+        meta = self._meta[cmd_id]
+        if not meta.argument_list:
+            return b""
+        # ASCII tokens by default (matches MAVERIC). Mission codec is
+        # responsible for binary-args commands (none in MAVERIC today).
+        tokens: list[str] = []
+        for arg in meta.argument_list:
+            value = args.get(arg.name)
+            tokens.append(self._codec.encode_ascii(arg.type_ref, value))
+        return " ".join(tokens).encode("ascii")
+
+    def arg_run_size(self, cmd_id: str) -> int | None:
+        meta = self._meta[cmd_id]
+        total = 0
+        for arg in meta.argument_list:
+            t = self._types[arg.type_ref]
+            if isinstance(t, IntegerParameterType) or isinstance(t, FloatParameterType):
+                # ASCII width is dynamic
+                return None
+            if isinstance(t, EnumeratedParameterType):
+                return None
+            if isinstance(t, StringParameterType):
+                if t.encoding == "fixed" and t.fixed_size_bytes is not None:
+                    total += t.fixed_size_bytes
+                else:
+                    return None
+            elif isinstance(t, BinaryParameterType):
+                if t.size_kind == "fixed" and t.fixed_size_bytes is not None:
+                    total += t.fixed_size_bytes
+                else:
+                    return None
+            else:
+                return None
+            total += 1  # space separator
+        return total
+
+
+class DeclarativeWalker:
+    """Public façade. Decodes packets via parent + concrete dispatch and
+    encodes outbound command args. Stateless except for caches keyed by
+    Mission identity. Mission-agnostic above the WalkerPacket layer.
+    """
+
+    __slots__ = ("_mission", "_codec", "_calibrators", "_matcher", "_entries", "_cmd_encoder", "log")
+
+    def __init__(self, mission: Mission, plugins: Mapping[str, Any]) -> None:
+        self._mission = mission
+        self._codec = TypeCodec(types=mission.parameter_types)
+        self._calibrators = CalibratorRuntime(types=mission.parameter_types, plugins=plugins)
+        self._matcher = ContainerMatcher(containers=mission.sequence_containers)
+        self._entries = EntryDecoder(
+            types=mission.parameter_types,
+            codec=self._codec,
+            calibrators=self._calibrators,
+            bitfields=mission.bitfield_types,
+        )
+        self._cmd_encoder = CommandEncoder(
+            meta_commands=mission.meta_commands,
+            codec=self._codec,
+            types=mission.parameter_types,
+        )
+        self.log = logging.getLogger("mav_gss_lib.platform.spec.runtime")
+
+    def match_parent(self, pkt: WalkerPacket) -> SequenceContainer | None:
+        return self._matcher.match_parent(pkt)
+
+    def extract(self, pkt: WalkerPacket, now_ms: int) -> Iterator[TelemetryFragment]:
+        parent = self.match_parent(pkt)
+        if parent is None:
+            return
+        cursor = (
+            BitCursor(pkt.args_raw) if parent.layout == "binary"
+            else TokenCursor(pkt.args_raw)
+        )
+        parent_decoded: dict[str, Any] = {}
+        try:
+            yield from self._entries.walk(
+                parent, cursor, now_ms=now_ms,
+                decoded_into=parent_decoded, matcher=self._matcher,
+            )
+        except IndexError:
+            self._handle_short(parent)
+            return
+        if not self._matcher.has_concrete_children(parent.name):
+            return
+        concrete = self._matcher.resolve_concrete(parent.name, parent_decoded)
+        if concrete is None:
+            if parent.abstract:
+                self.log.warning(
+                    "no concrete child for abstract parent %s; decoded=%r",
+                    parent.name, parent_decoded,
+                )
+            return
+        try:
+            yield from self._entries.walk(
+                concrete, cursor, now_ms=now_ms,
+                decoded_into={}, matcher=self._matcher,
+            )
+        except IndexError:
+            self._handle_short(concrete)
+
+    def encode_args(self, cmd_id: str, args: Mapping[str, Any]) -> bytes:
+        return self._cmd_encoder.encode_args(cmd_id, args)
+
+    def arg_run_size(self, cmd_id: str) -> int | None:
+        return self._cmd_encoder.arg_run_size(cmd_id)
+
+    def _handle_short(self, container: SequenceContainer) -> None:
+        if container.on_short_payload == "raise":
+            raise
+        # 'skip' or 'emit_partial' — fragments already yielded before underrun
+        self.log.warning(
+            "container %s: short payload (on_short_payload=%s)",
+            container.name, container.on_short_payload,
+        )
+
+
+__all__ = [
+    "TypeCodec",
+    "ContainerMatcher",
+    "BitfieldDecoder",
+    "EntryDecoder",
+    "CommandEncoder",
+    "DeclarativeWalker",
+]
