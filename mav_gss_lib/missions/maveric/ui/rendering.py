@@ -2,7 +2,7 @@
 
 Reads MaverMissionPayload attributes (header, args_raw, valid_crc,
 csp_header, csp_plausible, csp_crc32, csp_crc32_valid, stripped_hdr) +
-envelope.telemetry directly. No mission_data dict, no NodeTable.
+envelope.parameters directly. No mission_data dict, no NodeTable.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -49,21 +49,30 @@ class IntegrityBlock:
 # =============================================================================
 
 
+def _split_qname(name: str) -> tuple[str, str]:
+    """Split a qualified ParamUpdate name into (group, key)."""
+    if "." in name:
+        g, k = name.split(".", 1)
+        return g, k
+    return "", name
+
+
 def ts_result(envelope: "PacketEnvelope") -> tuple | None:
     """Derive (utc_dt, local_dt, unix_ms) from a 'time' or 'sat_time'
-    fragment in envelope.telemetry.
+    parameter in envelope.parameters.
 
     Beacons emit 'time' (BCD-time entry in mission.yml). Commands
     emit 'sat_time' iff mission.yml declares a sequence_container that
-    decodes a sat_time arg. When no such fragment is present this
+    decodes a sat_time arg. When no such parameter is present this
     returns None and the row falls through to envelope.received_at_short.
     """
-    for f in envelope.telemetry:
-        if f.key not in ("time", "sat_time"):
+    for u in envelope.parameters:
+        _, key = _split_qname(u.name)
+        if key not in ("time", "sat_time"):
             continue
-        if not isinstance(f.value, dict):
+        if not isinstance(u.value, dict):
             continue
-        unix_ms = f.value.get("unix_ms")
+        unix_ms = u.value.get("unix_ms")
         if unix_ms is None:
             continue
         try:
@@ -129,19 +138,20 @@ def packet_list_row(payload: "MaverMissionPayload", envelope: "PacketEnvelope") 
 
 
 def _cmd_summary(payload: "MaverMissionPayload", envelope: "PacketEnvelope") -> str:
-    """Format the cmd column. Walker emits typed args as fragments — read
+    """Format the cmd column. Walker emits typed args as parameters — read
     them when present; fall back to args_raw.hex() when mission.yml has
     no container for this cmd_id."""
     if payload.header is None:
         return ""
     cmd_id = payload.header.get("cmd_id", "")
-    if envelope.telemetry:
-        # Show up to first 3 emitted fragments compactly.
+    if envelope.parameters:
+        # Show up to first 3 emitted parameters compactly.
         parts = []
-        for f in envelope.telemetry[:3]:
-            if f.display_only:
+        for u in envelope.parameters[:3]:
+            if u.display_only:
                 continue
-            parts.append(f"{f.key}={_compact_value(f.value, f.unit)}")
+            _, key = _split_qname(u.name)
+            parts.append(f"{key}={_compact_value(u.value, u.unit)}")
         if parts:
             return f"{cmd_id} {' '.join(parts)}".strip()
     if payload.args_raw:
@@ -241,74 +251,83 @@ def packet_detail_blocks(
             {"name": "Cmd",  "value": str(h.get("cmd_id", ""))},
         ]})
 
-    # Telemetry blocks — partition by domain, render via display_kind dispatch.
+    # Telemetry blocks — partition by group prefix, render via display_kind dispatch.
     cmd_id = h.get("cmd_id") if h else None
     is_beacon = cmd_id == "tlm_beacon"
 
-    sc_canon, sc_raw = _split_canonical_and_raw(envelope.telemetry, "spacecraft")
+    sc_canon, sc_raw = _split_canonical_and_raw(envelope.parameters, "spacecraft")
     if sc_canon:
         blocks.append(_frag_block(sc_canon, "SPACECRAFT", mission))
     if sc_raw:
         blocks.append(_frag_block(sc_raw, "SPACECRAFT (raw)", mission))
 
-    eps_canon, eps_raw = _split_canonical_and_raw(envelope.telemetry, "eps")
+    eps_canon, eps_raw = _split_canonical_and_raw(envelope.parameters, "eps")
     if eps_canon:
         blocks.append(_frag_block(eps_canon, "EPS", mission))
     if eps_raw:
         blocks.append(_frag_block(eps_raw, "EPS (raw)", mission))
 
-    gnc_canon, gnc_raw = _split_canonical_and_raw(envelope.telemetry, "gnc")
+    gnc_canon, gnc_raw = _split_canonical_and_raw(envelope.parameters, "gnc")
     if gnc_canon:
         if is_beacon:
             blocks.append(_frag_block(gnc_canon, "GNC", mission))
         else:
-            for f in gnc_canon:
-                dispatch = display_kind(mission, f.key)
-                fields = render_detail_fields(f.value, dispatch, f.unit)
+            for u in gnc_canon:
+                _, key = _split_qname(u.name)
+                dispatch = display_kind(mission, key)
+                fields = render_detail_fields(u.value, dispatch, u.unit)
                 if not fields:
                     continue
                 blocks.append({
                     "kind": "args",
-                    "label": _display_label(f.key),
+                    "label": _display_label(key),
                     "fields": fields,
                 })
     if gnc_raw:
         blocks.append(_frag_block(gnc_raw, "GNC (raw)", mission))
 
-    # Other domains (imaging, hk, etc.) — render as a single block per domain
-    seen_domains = {"spacecraft", "eps", "gnc"}
-    other_domains: dict[str, list] = {}
-    for f in envelope.telemetry:
-        if f.domain in seen_domains:
+    # Other groups (imaging, hk, etc.) — render as a single block per group
+    seen_groups = {"spacecraft", "eps", "gnc"}
+    other_groups: dict[str, list] = {}
+    for u in envelope.parameters:
+        group, _ = _split_qname(u.name)
+        if group in seen_groups or not group:
             continue
-        other_domains.setdefault(f.domain, []).append(f)
-    for domain in sorted(other_domains.keys()):
-        blocks.append(_frag_block(other_domains[domain], domain.upper(), mission))
+        other_groups.setdefault(group, []).append(u)
+    for group in sorted(other_groups.keys()):
+        blocks.append(_frag_block(other_groups[group], group.upper(), mission))
 
     return blocks
 
 
 def _split_canonical_and_raw(
-    fragments: list,
-    domain: str,
+    parameters,
+    group: str,
 ) -> tuple[list, list]:
-    """Partition envelope.telemetry by domain + display_only flag."""
-    canonical = [f for f in fragments
-                 if f.domain == domain and not f.display_only]
-    raw = [f for f in fragments
-           if f.domain == domain and f.display_only]
+    """Partition envelope.parameters by group prefix + display_only flag."""
+    canonical = []
+    raw = []
+    for u in parameters:
+        g, _ = _split_qname(u.name)
+        if g != group:
+            continue
+        if u.display_only:
+            raw.append(u)
+        else:
+            canonical.append(u)
     return canonical, raw
 
 
-def _frag_block(fragments: list, label: str, mission: "Mission") -> dict[str, Any]:
-    """Build one {kind:'args', label, fields} block from a fragment list,
+def _frag_block(parameters: list, label: str, mission: "Mission") -> dict[str, Any]:
+    """Build one {kind:'args', label, fields} block from a parameter list,
     rendering each value via display_kind / render_value."""
     rows = []
-    for f in fragments:
-        dispatch = display_kind(mission, f.key)
-        rendered = render_value(f.value, dispatch, f.unit)
+    for u in parameters:
+        _, key = _split_qname(u.name)
+        dispatch = display_kind(mission, key)
+        rendered = render_value(u.value, dispatch, u.unit)
         rows.append({
-            "name":  _display_label(f.key),
+            "name":  _display_label(key),
             "value": rendered,
         })
     return {"kind": "args", "label": label, "fields": rows}

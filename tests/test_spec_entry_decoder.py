@@ -33,13 +33,12 @@ class TestEntryDecoder(unittest.TestCase):
         )
         cursor = TokenCursor(b"1500")
         decoded_into: dict = {}
-        fragments = list(decoder.walk(container, cursor, now_ms=42, decoded_into=decoded_into))
-        self.assertEqual(len(fragments), 1)
-        f = fragments[0]
-        self.assertEqual(f.domain, "eps")
-        self.assertEqual(f.key, "V_BUS")
-        self.assertAlmostEqual(f.value, 1.5)
-        self.assertEqual(f.unit, "V")
+        updates = list(decoder.walk(container, cursor, now_ms=42, decoded_into=decoded_into))
+        self.assertEqual(len(updates), 1)
+        u = updates[0]
+        self.assertEqual(u.name, "eps.V_BUS")
+        self.assertAlmostEqual(u.value, 1.5)
+        self.assertEqual(u.unit, "V")
         self.assertEqual(decoded_into["V_BUS"], 1500)  # raw value cached for dispatch
 
     def test_emit_false_decodes_but_no_fragment(self):
@@ -54,8 +53,8 @@ class TestEntryDecoder(unittest.TestCase):
         )
         cursor = TokenCursor(b"5")
         decoded_into: dict = {}
-        fragments = list(decoder.walk(container, cursor, now_ms=42, decoded_into=decoded_into))
-        self.assertEqual(fragments, [])
+        updates = list(decoder.walk(container, cursor, now_ms=42, decoded_into=decoded_into))
+        self.assertEqual(updates, [])
         self.assertEqual(decoded_into["dispatch_key"], 5)
 
     def test_repeat_entry_count_to_end(self):
@@ -75,8 +74,8 @@ class TestEntryDecoder(unittest.TestCase):
         )
         cursor = TokenCursor(b"alpha beta gamma")
         decoded_into: dict = {}
-        fragments = list(decoder.walk(container, cursor, now_ms=0, decoded_into=decoded_into))
-        self.assertEqual([f.value for f in fragments], ["alpha", "beta", "gamma"])
+        updates = list(decoder.walk(container, cursor, now_ms=0, decoded_into=decoded_into))
+        self.assertEqual([u.value for u in updates], ["alpha", "beta", "gamma"])
 
     def test_bitfield_entry_one_fragment_dict_value(self):
         types = dict(BUILT_IN_PARAMETER_TYPES)
@@ -101,10 +100,10 @@ class TestEntryDecoder(unittest.TestCase):
         from mav_gss_lib.platform.spec.cursor import BitCursor
         cursor = BitCursor(b"\x09")  # 0b00001001 → thr_ok=1, err_count=4
         decoded_into: dict = {}
-        fragments = list(decoder.walk(container, cursor, now_ms=0, decoded_into=decoded_into))
-        self.assertEqual(len(fragments), 1)
-        self.assertEqual(fragments[0].key, "STAT")
-        self.assertEqual(fragments[0].value, {"thr_ok": True, "err_count": 4})
+        updates = list(decoder.walk(container, cursor, now_ms=0, decoded_into=decoded_into))
+        self.assertEqual(len(updates), 1)
+        self.assertEqual(updates[0].name, "gnc.STAT")
+        self.assertEqual(updates[0].value, {"thr_ok": True, "err_count": 4})
 
 
     def test_ascii_dynamic_ref_binary_caches_raw(self):
@@ -127,11 +126,11 @@ class TestEntryDecoder(unittest.TestCase):
         )
         cursor = TokenCursor(b"3 hello")
         decoded_into: dict = {}
-        fragments = list(decoder.walk(container, cursor, now_ms=0, decoded_into=decoded_into))
-        self.assertEqual(len(fragments), 1)
-        self.assertEqual(fragments[0].key, "data")
+        updates = list(decoder.walk(container, cursor, now_ms=0, decoded_into=decoded_into))
+        self.assertEqual(len(updates), 1)
+        self.assertEqual(updates[0].name, "d.data")
         # blob is b"hello"; trimmed to first 3 bytes by the dynamic_ref size
-        self.assertEqual(fragments[0].value, b"hel")
+        self.assertEqual(updates[0].value, b"hel")
 
 
 if __name__ == "__main__":

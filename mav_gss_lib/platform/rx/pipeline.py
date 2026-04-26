@@ -1,27 +1,28 @@
-"""End-to-end RX orchestration: packet → telemetry → render → events.
+"""End-to-end RX orchestration: packet → walker → parameter cache → render.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any
 
 from ..contract.mission import MissionSpec
 from ..contract.packets import PacketEnvelope
-from ..telemetry import TelemetryRouter
+from ..parameters import ParameterCache
+from ..spec.runtime import DeclarativeWalker
 from .events import collect_packet_events
 from .packets import PacketPipeline
 from .rendering import render_packet
-from .telemetry import extract_telemetry_fragments, ingest_packet_telemetry
 
 
 @dataclass(slots=True)
 class RxResult:
     packet: PacketEnvelope
     packet_message: dict[str, Any]
-    telemetry_messages: list[dict[str, Any]] = field(default_factory=list)
+    parameters_message: dict[str, Any] | None = None
     event_messages: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -30,21 +31,41 @@ class RxPipeline:
 
     Ordering:
       1. packet normalize/parse/classify
-      2. telemetry extract
-      3. telemetry ingest
+      2. walker.extract → ParamUpdate stream
+      3. ParameterCache.apply (LWW persistence + change detection)
       4. packet render
       5. produce websocket-ready messages
     """
 
-    def __init__(self, mission: MissionSpec, telemetry_router: TelemetryRouter) -> None:
+    def __init__(
+        self,
+        mission: MissionSpec,
+        walker: DeclarativeWalker | None,
+        parameter_cache: ParameterCache,
+    ) -> None:
         self.mission = mission
         self.packet_pipeline = PacketPipeline(mission)
-        self.telemetry_router = telemetry_router
+        self.walker = walker
+        self.cache = parameter_cache
 
     def process(self, meta: dict[str, Any], raw: bytes) -> RxResult:
         packet = self.packet_pipeline.process(meta, raw)
-        extract_telemetry_fragments(self.mission, packet)
-        telemetry_messages = ingest_packet_telemetry(self.telemetry_router, packet)
+        wp = getattr(packet.mission_payload, "walker_packet", None)
+        if self.walker is not None and wp is not None:
+            try:
+                packet.parameters = tuple(self.walker.extract(wp, packet.received_at_ms))
+            except Exception:
+                logging.exception(
+                    "walker.extract raised; dropping parameters for this packet"
+                )
+                packet.parameters = ()
+        else:
+            packet.parameters = ()
+
+        changes = self.cache.apply(packet.parameters)
+        parameters_message = (
+            {"type": "parameters", "updates": changes} if changes else None
+        )
         rendering = render_packet(self.mission, packet)
         event_messages = collect_packet_events(self.mission, packet)
         packet_message = {
@@ -66,6 +87,6 @@ class RxPipeline:
         return RxResult(
             packet=packet,
             packet_message=packet_message,
-            telemetry_messages=telemetry_messages,
+            parameters_message=parameters_message,
             event_messages=event_messages,
         )

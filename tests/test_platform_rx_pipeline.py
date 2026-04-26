@@ -1,39 +1,40 @@
+from pathlib import Path
+
 from mav_gss_lib.platform.loader import load_mission_spec
+from mav_gss_lib.platform.parameters import ParameterCache
 from mav_gss_lib.platform.rx.pipeline import RxPipeline
-from mav_gss_lib.platform.telemetry.router import TelemetryRouter
 
 
-def _router_for(spec, tmp_path):
-    router = TelemetryRouter(tmp_path)
-    if spec.telemetry is not None:
-        for name, domain in spec.telemetry.domains.items():
-            router.register_domain(name, **domain.router_kwargs())
-    return router
+def _pipeline_for(spec, tmp_path: Path) -> RxPipeline:
+    cache = ParameterCache(tmp_path / "parameters.json")
+    return RxPipeline(spec, walker=None, parameter_cache=cache)
 
 
-def test_rx_pipeline_v2_processes_echo_packet_without_telemetry(tmp_path):
+def test_rx_pipeline_v2_processes_echo_packet_without_parameters(tmp_path):
     spec = load_mission_spec(
         {"mission": {"id": "echo_v2", "config": {}}, "platform": {}},
         data_dir=tmp_path,
     )
-    rx = RxPipeline(spec, _router_for(spec, tmp_path))
+    rx = _pipeline_for(spec, tmp_path)
 
     result = rx.process({"transmitter": "fixture"}, b"\x01\x02")
 
     assert result.packet.seq == 1
-    assert result.packet.telemetry == []
-    assert result.telemetry_messages == []
+    assert result.packet.parameters == ()
+    assert result.parameters_message is None
     assert result.packet_message["type"] == "packet"
     assert result.packet_message["data"]["raw_hex"] == "0102"
     assert result.packet_message["data"]["_rendering"]["row"]["hex"]["value"] == "0102"
 
 
-def test_rx_pipeline_v2_processes_balloon_packet_with_telemetry(tmp_path):
+def test_rx_pipeline_v2_balloon_packet_emits_no_parameters_post_swap(tmp_path):
+    """balloon_v2 has no declarative spec — packets still flow but no
+    parameters."""
     spec = load_mission_spec(
         {"mission": {"id": "balloon_v2", "config": {}}, "platform": {}},
         data_dir=tmp_path,
     )
-    rx = RxPipeline(spec, _router_for(spec, tmp_path))
+    rx = _pipeline_for(spec, tmp_path)
 
     result = rx.process(
         {},
@@ -41,8 +42,8 @@ def test_rx_pipeline_v2_processes_balloon_packet_with_telemetry(tmp_path):
     )
 
     assert result.packet.flags.is_unknown is False
-    assert {f.domain for f in result.packet.telemetry} == {"environment", "position"}
-    assert {m["domain"] for m in result.telemetry_messages} == {"environment", "position"}
+    assert result.packet.parameters == ()
+    assert result.parameters_message is None
     assert result.packet_message["data"]["_rendering"]["row"]["kind"]["value"] == "beacon"
     assert result.packet_message["data"]["_rendering"]["row"]["alt"]["value"] == 1200
 
@@ -52,10 +53,10 @@ def test_rx_pipeline_v2_marks_unknown_balloon_packet(tmp_path):
         {"mission": {"id": "balloon_v2", "config": {}}, "platform": {}},
         data_dir=tmp_path,
     )
-    rx = RxPipeline(spec, _router_for(spec, tmp_path))
+    rx = _pipeline_for(spec, tmp_path)
 
     result = rx.process({}, b'{"type":"status"}')
 
     assert result.packet.flags.is_unknown is True
     assert result.packet_message["data"]["is_unknown"] is True
-    assert result.telemetry_messages == []
+    assert result.parameters_message is None

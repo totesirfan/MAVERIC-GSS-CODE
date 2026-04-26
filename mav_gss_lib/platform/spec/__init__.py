@@ -8,7 +8,6 @@ Author:  Irfan Annuar - USC ISI SERC
 from .bitfield import BitfieldEntry, BitfieldType
 from .calibrators import Calibrator, PolynomialCalibrator, PythonCalibrator
 from .calibrator_runtime import CalibratorRuntime, PluginCallable
-from .catalog import CatalogBuilder
 from .command_ops import (
     DeclarativeCommandOpsAdapter,
     build_declarative_command_ops,
@@ -77,10 +76,6 @@ from .runtime import (
     EntryDecoder,
     TypeCodec,
 )
-from .telemetry_ops import (
-    DeclarativeWalkerExtractor,
-    build_declarative_telemetry_ops,
-)
 from .time_codec import decode_millis_u64, encode_millis_u64
 from .types import ByteOrder, HeaderValue
 from .walker_packet import WalkerPacket
@@ -122,10 +117,7 @@ __all__ = [
     # Runtime
     "TypeCodec", "ContainerMatcher", "BitfieldDecoder",
     "EntryDecoder", "CommandEncoder", "DeclarativeWalker",
-    # Catalog
-    "CatalogBuilder",
     # Factories
-    "build_declarative_telemetry_ops", "DeclarativeWalkerExtractor",
     "build_declarative_command_ops", "DeclarativeCommandOpsAdapter",
     # Verifiers
     "VerifierSpecDecl", "VerifierRules", "VerifierStage", "VerifierTone",

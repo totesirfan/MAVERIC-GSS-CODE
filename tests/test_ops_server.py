@@ -46,7 +46,9 @@ class TestWebRuntimeWorkflows(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.generated_dir = Path(self.tmp.name) / "imports"
         self.generated_dir.mkdir(parents=True, exist_ok=True)
-        self.runtime.platform_cfg.setdefault("general", {})["generated_commands_dir"] = str(self.generated_dir)
+        general = self.runtime.platform_cfg.setdefault("general", {})
+        general["generated_commands_dir"] = str(self.generated_dir)
+        general["log_dir"] = self.tmp.name
         self.runtime.tx.queue.clear()
 
         async def _noop(_msg=None):

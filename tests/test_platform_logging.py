@@ -1,19 +1,18 @@
+from pathlib import Path
+
 from mav_gss_lib.platform.loader import load_mission_spec
+from mav_gss_lib.platform.parameters import ParameterCache
 from mav_gss_lib.platform.rx.logging import (
+    parameter_log_records,
     rx_log_record,
     rx_log_text,
-    rx_telemetry_records,
 )
 from mav_gss_lib.platform.rx.pipeline import RxPipeline
-from mav_gss_lib.platform.telemetry.router import TelemetryRouter
 
 
-def _router_for(spec, tmp_path):
-    router = TelemetryRouter(tmp_path)
-    if spec.telemetry is not None:
-        for name, domain in spec.telemetry.domains.items():
-            router.register_domain(name, **domain.router_kwargs())
-    return router
+def _pipeline_for(spec, tmp_path: Path) -> RxPipeline:
+    cache = ParameterCache(tmp_path / "parameters.json")
+    return RxPipeline(spec, walker=None, parameter_cache=cache)
 
 
 def test_build_rx_log_record_wraps_echo_packet_in_platform_envelope(tmp_path):
@@ -21,7 +20,7 @@ def test_build_rx_log_record_wraps_echo_packet_in_platform_envelope(tmp_path):
         {"mission": {"id": "echo_v2", "config": {}}, "platform": {}},
         data_dir=tmp_path,
     )
-    result = RxPipeline(spec, _router_for(spec, tmp_path)).process(
+    result = _pipeline_for(spec, tmp_path).process(
         {"transmitter": "fixture"},
         b"\xde\xad",
     )
@@ -54,12 +53,14 @@ def test_build_rx_log_record_wraps_echo_packet_in_platform_envelope(tmp_path):
     assert "telemetry" not in record
 
 
-def test_build_rx_log_record_emits_balloon_telemetry_as_separate_events(tmp_path):
+def test_balloon_v2_emits_no_parameters_post_swap(tmp_path):
+    """balloon_v2 has no declarative spec post-Task-4 — packets still flow,
+    but no parameter records are emitted."""
     spec = load_mission_spec(
         {"mission": {"id": "balloon_v2", "config": {}}, "platform": {}},
         data_dir=tmp_path,
     )
-    result = RxPipeline(spec, _router_for(spec, tmp_path)).process(
+    result = _pipeline_for(spec, tmp_path).process(
         {},
         b'{"type":"beacon","alt_m":1200,"lat":34.0,"lon":-118.2,"temp_c":18.4}',
     )
@@ -69,7 +70,7 @@ def test_build_rx_log_record_emits_balloon_telemetry_as_separate_events(tmp_path
         session_id="downlink_test",
         mission_id="balloon_v2",
     )
-    tel = list(rx_telemetry_records(
+    rows = list(parameter_log_records(
         result.packet,
         session_id="downlink_test",
         rx_event_id=record["event_id"],
@@ -78,20 +79,7 @@ def test_build_rx_log_record_emits_balloon_telemetry_as_separate_events(tmp_path
     ))
 
     assert record["mission"]["type"] == "beacon"
-    assert "nodes" not in record
-    assert "ptypes" not in record
-
-    keys = {(f["domain"], f["key"]) for f in tel}
-    assert ("environment", "altitude_m") in keys
-    assert ("position", "gps") in keys
-
-    # Every telemetry event carries the envelope + back-pointer
-    for t in tel:
-        assert t["event_kind"] == "telemetry"
-        assert t["session_id"] == "downlink_test"
-        assert t["rx_event_id"] == record["event_id"]
-        assert t["mission_id"] == "balloon_v2"
-        assert isinstance(t["ts_ms"], int)
+    assert rows == []
 
 
 def test_format_rx_text_lines_uses_mission_ui_safely(tmp_path):
@@ -99,6 +87,6 @@ def test_format_rx_text_lines_uses_mission_ui_safely(tmp_path):
         {"mission": {"id": "echo_v2", "config": {}}, "platform": {}},
         data_dir=tmp_path,
     )
-    result = RxPipeline(spec, _router_for(spec, tmp_path)).process({}, b"\xca\xfe")
+    result = _pipeline_for(spec, tmp_path).process({}, b"\xca\xfe")
 
     assert rx_log_text(spec, result.packet) == ["  RAW         cafe"]

@@ -5,7 +5,7 @@ The envelope is a unified shape shared with TX
 schema across both sides: every record carries `event_id`, `event_kind`,
 `ts_ms`, `ts_iso`, `session_id`, `seq`, `v`, `mission_id`, `operator`,
 `station`. Mission-owned content sits under a single `mission` sub-dict;
-telemetry fragments are emitted as separate `event_kind="telemetry"` records
+parameter updates are emitted as separate `event_kind="parameter"` records
 back-pointing to the parent rx_packet via `rx_event_id`.
 
 Author:  Irfan Annuar - USC ISI SERC
@@ -36,9 +36,9 @@ def rx_log_record(
 
     The mission-owned payload lives under the `mission` key (always present,
     `{}` when the mission has nothing to contribute). Nested rendering and
-    telemetry arrays that used to live on this record are not written to
+    parameter arrays that used to live on this record are not written to
     disk anymore — rendering is re-derived from canonical fields at view
-    time, and telemetry is emitted as its own event kind.
+    time, and parameter updates are emitted as their own event kind.
     """
 
     event_id = event_id or new_event_id()
@@ -68,7 +68,7 @@ def rx_log_record(
     }
 
 
-def rx_telemetry_records(
+def parameter_log_records(
     packet: PacketEnvelope,
     *,
     session_id: str,
@@ -78,31 +78,31 @@ def rx_telemetry_records(
     operator: str = "",
     station: str = "",
 ) -> Iterator[dict[str, Any]]:
-    """Yield one JSONL record per TelemetryFragment attached to *packet*.
+    """Yield one JSONL record per ParamUpdate attached to *packet*.
 
     Each record shares the packet's envelope (seq, ts_ms, session_id,
     operator, station) and back-points to the parent rx_packet via
-    `rx_event_id`, so SQL can JOIN telemetry against events for packet-
-    level context without reparsing the packet envelope on every row.
+    `rx_event_id`, so SQL can JOIN parameter rows against events for
+    packet-level context without reparsing the packet envelope on every
+    row.
     """
-    for fragment in packet.telemetry:
+    for u in packet.parameters:
         yield {
             "event_id": new_event_id(),
-            "event_kind": "telemetry",
+            "event_kind": "parameter",
             "session_id": session_id,
-            "ts_ms": fragment.ts_ms or packet.received_at_ms,
-            "ts_iso": ts_iso(fragment.ts_ms or packet.received_at_ms),
+            "ts_ms": u.ts_ms or packet.received_at_ms,
+            "ts_iso": ts_iso(u.ts_ms or packet.received_at_ms),
             "seq": packet.seq,
             "v": version,
             "mission_id": mission_id,
             "operator": operator,
             "station": station,
             "rx_event_id": rx_event_id,
-            "domain": fragment.domain,
-            "key": fragment.key,
-            "value": fragment.value,
-            "unit": fragment.unit,
-            "display_only": fragment.display_only,
+            "name": u.name,
+            "value": u.value,
+            "unit": u.unit,
+            "display_only": u.display_only,
         }
 
 

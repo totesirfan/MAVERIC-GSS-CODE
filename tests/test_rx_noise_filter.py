@@ -167,13 +167,13 @@ class TestBroadcastLoopSuppressesNoise(unittest.TestCase):
                 self.jsonl_calls.append(record)
 
             def write_packet(self, record, packet, *,
-                             telemetry_records=None, text_lines=None) -> None:
-                self.packet_calls.append((record, packet, telemetry_records, text_lines))
+                             parameter_records=None, text_lines=None) -> None:
+                self.packet_calls.append((record, packet, parameter_records, text_lines))
                 # Mirror the real writer's fan-out so jsonl_calls stays
                 # a meaningful assertion target for downstream tests.
                 self.write_jsonl(record)
-                for tel in (telemetry_records or []):
-                    self.write_jsonl(tel)
+                for p in (parameter_records or []):
+                    self.write_jsonl(p)
 
         self.spy_log = _SpyLog()
         self.rx.log = self.spy_log

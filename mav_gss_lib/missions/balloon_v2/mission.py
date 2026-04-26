@@ -3,6 +3,10 @@
 Balloon proves the platform can support a mission with no nodes, ptypes,
 spacecraft routing, CSP, AX.25, or command schema.
 
+Telemetry is intentionally absent until ported to mission.yml — the
+declarative walker is the only emit path post-Task 4. balloon_v2 is silent
+on the parameter stream; PacketOps + UiOps still surface inbound JSON.
+
 Author:  Irfan Annuar - USC ISI SERC
 """
 
@@ -10,7 +14,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any
 
 from mav_gss_lib.platform import (
     Cell,
@@ -25,10 +29,7 @@ from mav_gss_lib.platform import (
     PacketFlags,
     PacketOps,
     PacketRendering,
-    TelemetryDomainSpec,
-    TelemetryOps,
 )
-from mav_gss_lib.platform.telemetry import TelemetryFragment
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,29 +52,6 @@ class BalloonPacketOps(PacketOps):
 
     def match_verifiers(self, packet, open_instances, *, now_ms, rx_event_id=""):
         return []
-
-
-@dataclass(frozen=True, slots=True)
-class BalloonTelemetryExtractor:
-    def extract(self, packet: PacketEnvelope) -> Iterable[TelemetryFragment]:
-        payload = packet.mission_payload if isinstance(packet.mission_payload, dict) else {}
-        if payload.get("type") != "beacon":
-            return []
-        out: list[TelemetryFragment] = []
-        if "alt_m" in payload:
-            out.append(TelemetryFragment("environment", "altitude_m", payload["alt_m"], packet.received_at_ms, unit="m"))
-        if "temp_c" in payload:
-            out.append(TelemetryFragment("environment", "temperature_c", payload["temp_c"], packet.received_at_ms, unit="C"))
-        if "lat" in payload and "lon" in payload:
-            out.append(
-                TelemetryFragment(
-                    "position",
-                    "gps",
-                    {"lat": payload["lat"], "lon": payload["lon"]},
-                    packet.received_at_ms,
-                )
-            )
-        return out
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,29 +107,11 @@ class BalloonUiOps:
         return [f"  BALLOON     {json.dumps(payload, sort_keys=True)}"]
 
 
-def _environment_catalog() -> list[dict[str, str]]:
-    return [
-        {"name": "altitude_m", "type": "float", "unit": "m"},
-        {"name": "temperature_c", "type": "float", "unit": "C"},
-    ]
-
-
-def _position_catalog() -> list[dict[str, str]]:
-    return [{"name": "gps", "type": "object", "unit": ""}]
-
-
 def build(ctx: MissionContext) -> MissionSpec:
     return MissionSpec(
         id="balloon_v2",
         name="Balloon V2",
         packets=BalloonPacketOps(),
         ui=BalloonUiOps(),
-        telemetry=TelemetryOps(
-            domains={
-                "environment": TelemetryDomainSpec(catalog=_environment_catalog),
-                "position": TelemetryDomainSpec(catalog=_position_catalog),
-            },
-            extractors=[BalloonTelemetryExtractor()],
-        ),
         config=MissionConfigSpec(),
     )

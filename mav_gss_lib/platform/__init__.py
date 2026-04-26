@@ -3,11 +3,11 @@
 Layout:
     contract/         — what missions implement (Protocols + types)
     rx/               — inbound packet flow: PacketPipeline, RxPipeline,
-                        rx_log_record + rx_telemetry_records (JSONL envelopes)
+                        rx_log_record + parameter_log_records (JSONL envelopes)
     tx/               — outbound command flow: prepare_command, frame_command,
                         tx_log_record (JSONL envelope)
     config/           — platform-config update spec + appliers
-    telemetry/        — runtime fragment/policy/state/router types
+    parameters/       — flat ParameterCache (single source of live state)
     runtime.py        — PlatformRuntime container
     loader.py         — MissionSpec loading
     _log_envelope.py  — shared new_event_id + ts_iso helpers (RX/TX)
@@ -47,6 +47,7 @@ from .contract.packets import (
     PacketFlags,
     PacketOps,
 )
+from .contract.parameters import ParamUpdate
 from .contract.rendering import (
     Cell,
     ColumnDef,
@@ -54,39 +55,24 @@ from .contract.rendering import (
     IntegrityBlock,
     PacketRendering,
 )
-from .contract.telemetry import (
-    CatalogProvider,
-    TelemetryDomainSpec,
-    TelemetryExtractor,
-    TelemetryOps,
-)
 from .contract.ui import UiOps
 from .loader import (
     load_mission_spec,
     load_mission_spec_from_split,
     validate_mission_spec,
 )
+from .parameters import ParameterCache
 from .runtime import PlatformRuntime
 from .rx.events import collect_connect_events, collect_packet_events
-from .rx.logging import rx_log_record, rx_log_text, rx_telemetry_records
+from .rx.logging import parameter_log_records, rx_log_record, rx_log_text
 from .rx.packets import PacketPipeline
 from .rx.pipeline import RxPipeline, RxResult
 from .rx.rendering import fallback_packet_rendering, render_packet
-from .rx.telemetry import extract_telemetry_fragments, ingest_packet_telemetry
-from .telemetry import (
-    DomainState,
-    EntryLoader,
-    MergePolicy,
-    TelemetryFragment,
-    TelemetryRouter,
-    lww_by_ts,
-)
 from .tx.commands import CommandRejected, PreparedCommand, frame_command, prepare_command
 from .tx.logging import tx_log_record
 from . import spec
 
 __all__ = [
-    "CatalogProvider",
     "Cell",
     "ColumnDef",
     "CommandDraft",
@@ -95,14 +81,11 @@ __all__ = [
     "CommandRendering",
     "DEFAULT_PLATFORM_CONFIG_SPEC",
     "DetailBlock",
-    "DomainState",
     "EncodedCommand",
-    "EntryLoader",
     "EventOps",
     "FramedCommand",
     "HttpOps",
     "IntegrityBlock",
-    "MergePolicy",
     "MissionConfigSpec",
     "MissionContext",
     "MissionPacket",
@@ -115,35 +98,29 @@ __all__ = [
     "PacketOps",
     "PacketPipeline",
     "PacketRendering",
+    "ParamUpdate",
+    "ParameterCache",
     "PlatformConfigSpec",
     "PlatformRuntime",
     "PreparedCommand",
     "RxPipeline",
     "RxResult",
-    "TelemetryDomainSpec",
-    "TelemetryExtractor",
-    "TelemetryFragment",
-    "TelemetryOps",
-    "TelemetryRouter",
     "UiOps",
     "ValidationIssue",
     "apply_mission_config_update",
     "apply_platform_config_update",
     "collect_connect_events",
     "collect_packet_events",
-    "extract_telemetry_fragments",
     "fallback_packet_rendering",
     "frame_command",
-    "ingest_packet_telemetry",
     "load_mission_spec",
     "load_mission_spec_from_split",
-    "lww_by_ts",
+    "parameter_log_records",
     "persist_mission_config",
     "prepare_command",
     "render_packet",
     "rx_log_record",
     "rx_log_text",
-    "rx_telemetry_records",
     "tx_log_record",
     "validate_mission_spec",
 ]

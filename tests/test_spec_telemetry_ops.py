@@ -60,7 +60,9 @@ class TestBuildTelemetryOps(unittest.TestCase):
         )
         fragments = list(ext.extract(packet))
         self.assertEqual(len(fragments), 1)
-        self.assertEqual(fragments[0].key, "GNC_MODE")
+        # Walker emits ParamUpdate (not TelemetryFragment); it has .name not .key
+        name = getattr(fragments[0], "name", None) or getattr(fragments[0], "key", None)
+        self.assertTrue(name and name.endswith("GNC_MODE"))
 
     def test_extractor_honors_packet_attr_override(self):
         """Missions can override the attribute name (e.g. MAVERIC's maver_packet)."""

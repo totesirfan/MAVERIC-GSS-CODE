@@ -69,11 +69,10 @@ class TestDeclarativeWalker(unittest.TestCase):
         m = _mission()
         walker = DeclarativeWalker(m, plugins={})
         pkt = _Pkt(args_raw=b"1", header={"cmd_id": "gnc_get_mode", "ptype": "RES"})
-        fragments = list(walker.extract(pkt, now_ms=42))
-        self.assertEqual(len(fragments), 1)
-        self.assertEqual(fragments[0].key, "GNC_MODE")
-        self.assertEqual(fragments[0].domain, "gnc")
-        self.assertEqual(fragments[0].value, 1)
+        updates = list(walker.extract(pkt, now_ms=42))
+        self.assertEqual(len(updates), 1)
+        self.assertEqual(updates[0].name, "gnc.GNC_MODE")
+        self.assertEqual(updates[0].value, 1)
 
     def test_extract_no_match_yields_nothing(self):
         m = _mission()

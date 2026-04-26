@@ -17,11 +17,13 @@ def test_runtime_v2_loads_echo_and_processes_rx_and_tx(tmp_path):
 
     assert runtime.mission.id == "echo_v2"
     assert rx.packet_message["data"]["raw_hex"] == "0102"
-    assert rx.telemetry_messages == []
+    assert rx.parameters_message is None
     assert tx.encoded.raw == b"ping hello"
 
 
-def test_runtime_v2_loads_balloon_and_registers_telemetry_domains(tmp_path):
+def test_runtime_v2_loads_balloon_silent_telemetry(tmp_path):
+    """balloon_v2 has no declarative spec post-Task-4 — packets flow,
+    parameters do not."""
     runtime = PlatformRuntime.from_split(
         {"logs": {"dir": str(tmp_path)}},
         "balloon_v2",
@@ -34,9 +36,9 @@ def test_runtime_v2_loads_balloon_and_registers_telemetry_domains(tmp_path):
     )
 
     assert runtime.mission.id == "balloon_v2"
-    assert runtime.telemetry.has_domain("environment")
-    assert runtime.telemetry.has_domain("position")
-    assert {m["domain"] for m in result.telemetry_messages} == {"environment", "position"}
+    assert runtime.walker is None
+    assert result.parameters_message is None
+    assert result.packet.parameters == ()
 
 
 def test_runtime_v2_rejects_tx_for_non_commandable_mission(tmp_path):
@@ -50,7 +52,7 @@ def test_runtime_v2_rejects_tx_for_non_commandable_mission(tmp_path):
         runtime.prepare_tx("anything")
 
 
-def test_runtime_v2_loads_maveric_and_prepares_command(tmp_path):
+def test_runtime_v2_loads_maveric_with_walker_and_cache(tmp_path):
     platform_cfg, mission_id, mission_cfg = load_split_config()
     platform_cfg["logs"] = {"dir": str(tmp_path)}
 
@@ -60,9 +62,8 @@ def test_runtime_v2_loads_maveric_and_prepares_command(tmp_path):
     tx = runtime.prepare_tx("ftdi_log hello")
 
     assert runtime.mission.id == "maveric"
-    assert runtime.telemetry.has_domain("eps")
-    assert runtime.telemetry.has_domain("gnc")
-    assert runtime.telemetry.has_domain("spacecraft")
+    assert runtime.walker is not None
+    assert runtime.parameter_cache is not None
     assert rx.packet.flags.is_unknown is True
     assert rx.packet_message["data"]["is_unknown"] is True
     assert tx.encoded.raw

@@ -21,9 +21,9 @@ from mav_gss_lib.config import get_rx_zmq_addr
 
 from .._atomics import AtomicStatus
 from mav_gss_lib.platform.rx.logging import (
+    parameter_log_records,
     rx_log_record,
     rx_log_text,
-    rx_telemetry_records,
 )
 from mav_gss_lib.platform.rx.frame_detect import detect_frame_type, is_noise_frame
 from mav_gss_lib.transport import SUB_STATUS, init_zmq_sub, poll_monitor, receive_pdu, zmq_cleanup
@@ -226,7 +226,7 @@ class RxService:
                             operator=self.runtime.operator,
                             station=self.runtime.station,
                         )
-                        tel_records = list(rx_telemetry_records(
+                        param_records = list(parameter_log_records(
                             pkt,
                             session_id=self.log.session_id,
                             rx_event_id=record["event_id"],
@@ -237,7 +237,7 @@ class RxService:
                         ))
                         self.log.write_packet(
                             record, pkt,
-                            telemetry_records=tel_records,
+                            parameter_records=param_records,
                             text_lines=rx_log_text(self.runtime.mission, pkt),
                         )
                 except Exception as exc:
@@ -246,7 +246,11 @@ class RxService:
                 self.packets.append(pkt_json)
                 await broadcast_safe(self.clients, self.lock, json.dumps(result.packet_message))
 
-                for extra in result.telemetry_messages + result.event_messages:
+                extras: list[dict[str, Any]] = []
+                if result.parameters_message is not None:
+                    extras.append(result.parameters_message)
+                extras.extend(result.event_messages)
+                for extra in extras:
                     await broadcast_safe(self.clients, self.lock, json.dumps(extra))
 
                 # Track last RX time and detect inactive→active transition

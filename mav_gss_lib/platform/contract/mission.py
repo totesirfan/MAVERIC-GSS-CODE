@@ -12,14 +12,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Mapping
 
 from .commands import CommandOps
 from .events import EventOps
 from .http import HttpOps
 from .packets import PacketOps
-from .telemetry import TelemetryOps
 from .ui import UiOps
+
+if TYPE_CHECKING:
+    from mav_gss_lib.platform.spec.mission import Mission
 
 
 # Typed loosely as `Iterable[Any]` to avoid a platform → preflight import
@@ -49,7 +51,8 @@ class MissionSpec:
     ui: UiOps
     config: MissionConfigSpec
     commands: CommandOps | None = None
-    telemetry: TelemetryOps | None = None
+    spec_root: "Mission | None" = None
+    spec_plugins: Mapping[str, Callable] = field(default_factory=dict)
     events: EventOps | None = None
     http: HttpOps | None = None
     preflight: MissionPreflightFn | None = None

@@ -1,6 +1,6 @@
 """Envelope-stability guardrail for the unified JSONL logging schema.
 
-Every JSONL line (rx_packet, telemetry, tx_command) must carry the full
+Every JSONL line (rx_packet, parameter, tx_command) must carry the full
 envelope (`event_id`, `event_kind`, `session_id`, `ts_ms`, `ts_iso`, `seq`,
 `v`, `mission_id`, `operator`, `station`). Missing keys break SQL ingest
 on the other team's side, so the test fails fast instead of letting the
@@ -15,13 +15,13 @@ import tempfile
 from mav_gss_lib.logging import TXLog
 from mav_gss_lib.platform import MissionSpec
 from mav_gss_lib.platform.contract.packets import PacketEnvelope, PacketFlags
+from mav_gss_lib.platform.contract.parameters import ParamUpdate
 from mav_gss_lib.platform.contract.rendering import PacketRendering
 from mav_gss_lib.platform.rx.logging import (
+    parameter_log_records,
     rx_log_record,
-    rx_telemetry_records,
 )
 from mav_gss_lib.platform.tx.logging import tx_log_record
-from mav_gss_lib.platform.telemetry import TelemetryFragment
 
 
 _ENVELOPE_KEYS = {
@@ -29,7 +29,7 @@ _ENVELOPE_KEYS = {
     "seq", "v", "mission_id", "operator", "station",
 }
 
-_ALLOWED_KINDS = {"rx_packet", "tx_command", "telemetry"}
+_ALLOWED_KINDS = {"rx_packet", "tx_command", "parameter"}
 
 
 class _Ui:
@@ -65,16 +65,12 @@ def _make_packet() -> PacketEnvelope:
         warnings=[],
         mission_payload={},
         flags=PacketFlags(),
-        telemetry=[
-            TelemetryFragment(
-                domain="eps", key="vbatt", value=7.42,
-                ts_ms=1714053603500, unit="V",
-            ),
-            TelemetryFragment(
-                domain="eps", key="temp_batt", value=18.3,
-                ts_ms=1714053603500, unit="C",
-            ),
-        ],
+        parameters=(
+            ParamUpdate(name="eps.vbatt", value=7.42,
+                        ts_ms=1714053603500, unit="V"),
+            ParamUpdate(name="eps.temp_batt", value=18.3,
+                        ts_ms=1714053603500, unit="C"),
+        ),
     )
 
 
@@ -101,24 +97,26 @@ def test_rx_packet_envelope_shape():
     assert "telemetry" not in record
 
 
-def test_telemetry_records_envelope_shape():
+def test_parameter_records_envelope_shape():
     pkt = _make_packet()
-    tel = list(rx_telemetry_records(
+    rows = list(parameter_log_records(
         pkt,
         session_id="downlink_20260423_140000",
         rx_event_id="parent_event_id",
         version="5.7.0",
         mission_id="maveric", operator="irfan", station="GS-0",
     ))
-    assert len(tel) == 2
-    for row in tel:
+    assert len(rows) == 2
+    for row in rows:
         _assert_envelope(row)
-        assert row["event_kind"] == "telemetry"
+        assert row["event_kind"] == "parameter"
         assert row["rx_event_id"] == "parent_event_id"
-        assert row["domain"] == "eps"
         assert row["seq"] == 42
         assert isinstance(row["ts_ms"], int)
-    assert {row["key"] for row in tel} == {"vbatt", "temp_batt"}
+        assert row["v"] == "5.7.0"
+        assert "domain" not in row
+        assert "key" not in row
+    assert {row["name"] for row in rows} == {"eps.vbatt", "eps.temp_batt"}
 
 
 def test_tx_command_envelope_shape():

@@ -8,12 +8,12 @@ websocket clients.
 
 Reads from the declarative pipeline:
   - `payload.header` carries cmd_id + ptype name (resolved via codec).
-  - `envelope.telemetry` carries the typed args emitted by the walker
+  - `envelope.parameters` carries the typed args emitted by the walker
     (filename, num_chunks, thumb_filename, thumb_num_chunks, chunk_idx,
     chunk_len). The walker emits these per the `*_res` sequence_container
     declarations in mission.yml.
   - `chunk_data` is declared `emit: false`, so it does not appear in
-    envelope.telemetry. We slice it directly from `payload.args_raw`
+    envelope.parameters. We slice it directly from `payload.args_raw`
     using chunk_len + the trailing-binary layout of img_get_chunks_res.
 
 Author:  Irfan Annuar - USC ISI SERC
@@ -54,13 +54,15 @@ class MavericImagingEvents:
         if header.get("ptype") != expected_ptype:
             return []
 
-        # Build a {fragment_key: value} map from envelope.telemetry.
-        # Skip display_only fragments — they're forensics, not canonical.
+        # Build a {key: value} map from envelope.parameters. ParamUpdate
+        # names are qualified ("group.key"); strip the group prefix.
+        # Skip display_only updates — they're forensics, not canonical.
         args_by_key: dict[str, Any] = {}
-        for f in packet.telemetry:
-            if f.display_only:
+        for u in packet.parameters:
+            if u.display_only:
                 continue
-            args_by_key[f.key] = f.value
+            key = u.name.split(".", 1)[1] if "." in u.name else u.name
+            args_by_key[key] = u.value
         if not args_by_key:
             return []
 

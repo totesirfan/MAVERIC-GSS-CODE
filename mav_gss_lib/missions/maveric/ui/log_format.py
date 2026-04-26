@@ -140,12 +140,17 @@ def format_log_lines(
         f"args {len(payload.args_raw)}B",
     ))
 
-    # Telemetry — one indented line per fragment.
-    for f in envelope.telemetry:
-        dispatch = display_kind(mission, f.key)
-        rendered = render_value(f.value, dispatch, f.unit)
-        suffix = "  # raw" if f.display_only else ""
-        lines.append(f"  TLM        {f.domain}.{f.key} = {rendered}{suffix}")
+    # Telemetry — one indented line per ParamUpdate.
+    for u in envelope.parameters:
+        if "." in u.name:
+            group, key = u.name.split(".", 1)
+        else:
+            group, key = "", u.name
+        dispatch = display_kind(mission, key)
+        rendered = render_value(u.value, dispatch, u.unit)
+        suffix = "  # raw" if u.display_only else ""
+        qualified = f"{group}.{key}" if group else key
+        lines.append(f"  TLM        {qualified} = {rendered}{suffix}")
 
     return lines
 

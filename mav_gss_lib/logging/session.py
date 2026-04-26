@@ -13,7 +13,7 @@ from ._base import _BaseLog
 
 
 class SessionLog(_BaseLog):
-    """RX session log — JSONL (rx_packet + telemetry events) + text."""
+    """RX session log — JSONL (rx_packet + parameter events) + text."""
 
     def __init__(
         self,
@@ -36,23 +36,23 @@ class SessionLog(_BaseLog):
         record: dict[str, Any],
         packet: Any,
         *,
-        telemetry_records: Iterable[dict[str, Any]] | None = None,
+        parameter_records: Iterable[dict[str, Any]] | None = None,
         text_lines: list[str] | None = None,
     ) -> None:
-        """Write one rx_packet record + any telemetry-event rows + text entry.
+        """Write one rx_packet record + any parameter-event rows + text entry.
 
         *record* is the pre-built JSONL envelope from
-        ``mav_gss_lib.platform.rx.logging.rx_log_record``. *telemetry_records*
-        is the iterable of flat telemetry events (one per
-        ``TelemetryFragment``) from ``rx_telemetry_records``. Both land in
-        the same JSONL file; the packet record goes first so an ingest
-        streaming through the file sees the parent before its children.
-        The text log keeps its existing per-packet layout.
+        ``mav_gss_lib.platform.rx.logging.rx_log_record``. *parameter_records*
+        is the iterable of flat parameter events (one per ``ParamUpdate``)
+        from ``parameter_log_records``. Both land in the same JSONL file;
+        the packet record goes first so an ingest streaming through the
+        file sees the parent before its children. The text log keeps its
+        existing per-packet layout.
         """
         self.write_jsonl(record)
-        if telemetry_records:
-            for tel in telemetry_records:
-                self.write_jsonl(tel)
+        if parameter_records:
+            for p in parameter_records:
+                self.write_jsonl(p)
 
         lines = []
         label = f"#{packet.seq}"

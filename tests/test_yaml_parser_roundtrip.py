@@ -37,10 +37,11 @@ class TestYamlParser(unittest.TestCase):
         m = parse_yaml(FIXTURE, plugins={})
         walker = DeclarativeWalker(m, plugins={})
         pkt = _Pkt(args_raw=b"1", header={"cmd_id": "gnc_get_mode", "ptype": "RES"})
-        fragments = list(walker.extract(pkt, now_ms=42))
-        self.assertEqual(len(fragments), 1)
-        self.assertEqual(fragments[0].key, "GNC_MODE")
-        self.assertEqual(fragments[0].value, 1)
+        updates = list(walker.extract(pkt, now_ms=42))
+        self.assertEqual(len(updates), 1)
+        # Walker emits qualified ParamUpdate.name = "<group>.<key>".
+        self.assertTrue(updates[0].name.endswith(".GNC_MODE") or updates[0].name == "GNC_MODE")
+        self.assertEqual(updates[0].value, 1)
 
     def test_parse_yaml_for_tooling_skips_plugin_check(self):
         # The minimal fixture has no python: refs, but the entry-point

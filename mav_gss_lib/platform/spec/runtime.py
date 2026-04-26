@@ -270,7 +270,7 @@ class ContainerMatcher:
 
 from typing import Iterator
 
-from mav_gss_lib.platform.telemetry import TelemetryFragment
+from mav_gss_lib.platform.contract.parameters import ParamUpdate
 
 from .bitfield import BitfieldType
 from .calibrator_runtime import CalibratorRuntime
@@ -322,7 +322,7 @@ class BitfieldDecoder:
 
 
 class EntryDecoder:
-    """Walks a container's entry_list, emitting TelemetryFragment per
+    """Walks a container's entry_list, emitting ParamUpdate per
     ParameterRefEntry (when emit=True), per RepeatEntry iteration, or per
     PagedFrameEntry marker block. Populates `decoded_into` with raw
     decoded values for downstream dispatch (`parent_args`, dynamic_ref).
@@ -360,7 +360,7 @@ class EntryDecoder:
         now_ms: int,
         decoded_into: dict[str, Any],
         matcher: ContainerMatcher | None = None,
-    ) -> Iterator[TelemetryFragment]:
+    ) -> Iterator[ParamUpdate]:
         for entry in container.entry_list:
             if isinstance(entry, ParameterRefEntry):
                 yield from self._walk_ref(container, entry, cursor, now_ms, decoded_into)
@@ -382,7 +382,7 @@ class EntryDecoder:
         cursor: BitCursor | TokenCursor,
         now_ms: int,
         decoded_into: dict[str, Any],
-    ) -> Iterator[TelemetryFragment]:
+    ) -> Iterator[ParamUpdate]:
         if entry.type_ref in self._bitfields:
             assert isinstance(cursor, BitCursor), "bitfield decode requires binary layout"
             bf = self._bitfields[entry.type_ref]
@@ -413,9 +413,9 @@ class EntryDecoder:
                     value, unit = self._calibrators.apply(entry.type_ref, raw)
             decoded_into[entry.name] = value if entry.type_ref in self._bitfields else raw
         if entry.emit:
-            yield TelemetryFragment(
-                domain=self._domain_for(container, entry.name),
-                key=entry.name,
+            group = self._domain_for(container, entry.name)
+            yield ParamUpdate(
+                name=f"{group}.{entry.name}" if group else entry.name,
                 value=value,
                 ts_ms=now_ms,
                 unit=unit,
@@ -428,7 +428,7 @@ class EntryDecoder:
         cursor: BitCursor | TokenCursor,
         now_ms: int,
         decoded_into: dict[str, Any],
-    ) -> Iterator[TelemetryFragment]:
+    ) -> Iterator[ParamUpdate]:
         if entry.count_kind == "fixed":
             assert entry.count_fixed is not None
             count = entry.count_fixed
@@ -453,9 +453,9 @@ class EntryDecoder:
                 raw = self._codec.decode_binary(entry.entry.type_ref, cursor)
             value, unit = self._calibrators.apply(entry.entry.type_ref, raw)
             if entry.entry.emit:
-                yield TelemetryFragment(
-                    domain=self._domain_for(container, entry.entry.name),
-                    key=entry.entry.name,
+                group = self._domain_for(container, entry.entry.name)
+                yield ParamUpdate(
+                    name=f"{group}.{entry.entry.name}" if group else entry.entry.name,
                     value=value,
                     ts_ms=now_ms,
                     unit=unit,
@@ -470,7 +470,7 @@ class EntryDecoder:
         now_ms: int,
         decoded_into: dict[str, Any],
         matcher: ContainerMatcher,
-    ) -> Iterator[TelemetryFragment]:
+    ) -> Iterator[ParamUpdate]:
         # Markers are tokens that contain `marker_separator`. Walk the
         # remaining cursor block-by-block.
         assert isinstance(cursor, TokenCursor), "paged_frame_entry requires ascii_tokens layout"
@@ -495,12 +495,12 @@ class EntryDecoder:
                     )
                 # 'skip' or 'emit_unknown' — both consume nothing further
                 if entry.on_unknown_register == "emit_unknown":
-                    yield TelemetryFragment(
-                        domain=container.domain,  # unknown reg: container default
-                        key=f"UNKNOWN_REG_{'_'.join(str(v) for v in synthesized.values())}",
+                    suffix = "UNKNOWN_REG_" + "_".join(str(v) for v in synthesized.values())
+                    name = f"{container.domain}.{suffix}" if container.domain else suffix
+                    yield ParamUpdate(
+                        name=name,
                         value=None,
                         ts_ms=now_ms,
-                        unit="",
                     )
                 continue
             yield from self.walk(child, cursor, now_ms=now_ms, decoded_into={}, matcher=matcher)
@@ -603,7 +603,7 @@ class DeclarativeWalker:
     def match_parent(self, pkt: WalkerPacket) -> SequenceContainer | None:
         return self._matcher.match_parent(pkt)
 
-    def extract(self, pkt: WalkerPacket, now_ms: int) -> Iterator[TelemetryFragment]:
+    def extract(self, pkt: WalkerPacket, now_ms: int) -> Iterator[ParamUpdate]:
         parents = self._matcher.match_parents(pkt)
         if not parents:
             return

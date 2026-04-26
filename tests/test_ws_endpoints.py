@@ -65,6 +65,10 @@ def _build_stub_runtime():
     ]
     runtime.mission.events = EventOps()
 
+    # Parameter cache replay: empty by default; tests override to validate
+    # the on-connect replay behavior.
+    runtime.parameter_cache.replay.return_value = []
+
     return runtime
 
 
@@ -106,32 +110,24 @@ class TestWsRxHandshake(unittest.TestCase):
             # Removed after disconnect
             self.assertEqual(len(runtime.rx.clients), 0)
 
-    def test_connect_replays_telemetry_snapshots(self):
+    def test_connect_replays_parameters_snapshot(self):
         """EPS/GNC dashboards repopulate after a browser reload because
-        /ws/rx replays persisted telemetry snapshots on connect.
-        Regression guard for a bug where TelemetryRouter.replay() was
-        defined but never wired into the handshake."""
+        /ws/rx replays the persisted ParameterCache on connect."""
         app = _build_app()
         runtime = app.state.runtime
-        runtime.telemetry.replay.return_value = [
-            {"type": "telemetry", "domain": "eps",
-             "changes": {"V_BUS": {"v": 7.4, "t": 1_700_000_000_000}},
-             "replay": True},
-            {"type": "telemetry", "domain": "gnc",
-             "changes": {"GNC_MODE": {"v": 2, "t": 1_700_000_000_000}},
-             "replay": True},
+        runtime.parameter_cache.replay.return_value = [
+            {"name": "eps.V_BUS", "v": 7.4, "t": 1_700_000_000_000},
+            {"name": "gnc.GNC_MODE", "v": 2, "t": 1_700_000_000_000},
         ]
         with TestClient(app) as client:
             url = f"/ws/rx?token={runtime.session_token}"
             with client.websocket_connect(url) as ws:
                 self.assertEqual(ws.receive_json()["type"], "columns")
-                eps_msg = ws.receive_json()
-                gnc_msg = ws.receive_json()
-        self.assertEqual(eps_msg["domain"], "eps")
-        self.assertTrue(eps_msg["replay"])
-        self.assertEqual(eps_msg["changes"]["V_BUS"]["v"], 7.4)
-        self.assertEqual(gnc_msg["domain"], "gnc")
-        self.assertTrue(gnc_msg["replay"])
+                msg = ws.receive_json()
+        self.assertEqual(msg["type"], "parameters")
+        self.assertTrue(msg["replay"])
+        names = {u["name"] for u in msg["updates"]}
+        self.assertEqual(names, {"eps.V_BUS", "gnc.GNC_MODE"})
 
 
 class TestWsTxHandshake(unittest.TestCase):

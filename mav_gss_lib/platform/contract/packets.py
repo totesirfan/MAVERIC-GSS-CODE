@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Hashable, Protocol
 
-from ..telemetry import TelemetryFragment
+from .parameters import ParamUpdate
 from .rendering import PacketRendering
 
 if TYPE_CHECKING:
@@ -51,7 +51,7 @@ class PacketEnvelope:
     warnings: list[str]
     mission_payload: Any
     flags: PacketFlags
-    telemetry: list[TelemetryFragment] = field(default_factory=list)
+    parameters: tuple[ParamUpdate, ...] = ()
     rendering: PacketRendering | None = None
 
 

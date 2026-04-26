@@ -45,21 +45,26 @@ class TestWalkerGenericityGrep(unittest.TestCase):
 FIXTURES = Path(__file__).parent / "fixtures" / "spec"
 
 
+def _key_of(name: str) -> str:
+    return name.split(".", 1)[1] if "." in name else name
+
+
 class TestWalkerExecutionGenericity(unittest.TestCase):
     def test_echo_v2_decodes_through_walker(self):
         m = parse_yaml(FIXTURES / "echo_v2_mission.yml", plugins={})
         walker = DeclarativeWalker(m, plugins={})
         pkt = _Pkt(args_raw=b"hello", header={"cmd_id": "echo", "ptype": "RES"})
-        fragments = list(walker.extract(pkt, now_ms=0))
-        self.assertEqual(len(fragments), 1)
-        self.assertEqual(fragments[0].domain, "echo")
+        updates = list(walker.extract(pkt, now_ms=0))
+        self.assertEqual(len(updates), 1)
+        # ParamUpdate.name is qualified with the container/parameter group.
+        self.assertTrue(updates[0].name.startswith("echo."))
 
     def test_balloon_v2_decodes_through_walker(self):
         m = parse_yaml(FIXTURES / "balloon_v2_mission.yml", plugins={})
         walker = DeclarativeWalker(m, plugins={})
         pkt = _Pkt(args_raw=b"42 1013", header={"cmd_id": "telemetry", "ptype": "TLM"})
-        fragments = list(walker.extract(pkt, now_ms=0))
-        self.assertEqual({f.key for f in fragments}, {"altitude_m", "pressure_hpa"})
+        updates = list(walker.extract(pkt, now_ms=0))
+        self.assertEqual({_key_of(u.name) for u in updates}, {"altitude_m", "pressure_hpa"})
 
 
 if __name__ == "__main__":

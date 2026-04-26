@@ -12,13 +12,11 @@ class TestPublicApi(unittest.TestCase):
             PacketCodec,
             WalkerPacket,
             build_declarative_command_ops,
-            build_declarative_telemetry_ops,
             parse_yaml,
             parse_yaml_for_tooling,
         )
         self.assertTrue(callable(parse_yaml))
         self.assertTrue(callable(parse_yaml_for_tooling))
-        self.assertTrue(callable(build_declarative_telemetry_ops))
         self.assertTrue(callable(build_declarative_command_ops))
 
     def test_platform_exposes_spec_namespace(self):

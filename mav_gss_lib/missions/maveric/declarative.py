@@ -35,12 +35,10 @@ from mav_gss_lib.platform.contract.commands import (
     FramedCommand,
 )
 from mav_gss_lib.platform.contract.rendering import Cell, ColumnDef, DetailBlock
-from mav_gss_lib.platform.contract.telemetry import TelemetryOps
 from mav_gss_lib.platform.spec import (
     Mission,
     ParseWarning,
     build_declarative_command_ops,
-    build_declarative_telemetry_ops,
     parse_yaml,
 )
 
@@ -83,8 +81,8 @@ _TX_QUEUE_COLUMNS: tuple[dict, ...] = (
 @dataclass(frozen=True, slots=True)
 class DeclarativeCapabilities:
     mission: Mission
+    plugins: Mapping[str, Any]
     packet_codec: MaverPacketCodec
-    telemetry_ops: TelemetryOps
     command_ops: CommandOps
     parse_warnings: tuple[ParseWarning, ...]
 
@@ -352,9 +350,6 @@ def build_declarative_capabilities(
     mission = parse_yaml(Path(mission_yml_path), plugins=PLUGINS)
     codec = MaverPacketCodec(extensions=mission.extensions)
     framer = _LiveFramer(platform_cfg=platform_cfg, mission_cfg=mission_cfg)
-    telemetry_ops = build_declarative_telemetry_ops(
-        mission, PLUGINS, packet_attr="walker_packet",
-    )
     declarative_ops = build_declarative_command_ops(
         mission, PLUGINS, packet_codec=codec, framer=framer,
     )
@@ -363,8 +358,8 @@ def build_declarative_capabilities(
     )
     return DeclarativeCapabilities(
         mission=mission,
+        plugins=PLUGINS,
         packet_codec=codec,
-        telemetry_ops=telemetry_ops,
         command_ops=command_ops,
         parse_warnings=tuple(mission.parse_warnings),
     )

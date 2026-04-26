@@ -2,14 +2,14 @@
 
 This subpackage holds the mission/platform boundary:
 
-    commands.py   — CommandOps + draft/encoded/framed types
-    events.py     — EventOps + PacketEventSource
-    http.py       — HttpOps
-    mission.py    — MissionSpec + MissionContext + MissionConfigSpec + MissionPreflightFn
-    packets.py    — PacketOps + envelope + normalized + flags
-    rendering.py  — Cell + ColumnDef + PacketRendering + DetailBlock + IntegrityBlock
-    telemetry.py  — TelemetryOps + TelemetryExtractor + TelemetryDomainSpec
-    ui.py         — UiOps
+    commands.py    — CommandOps + draft/encoded/framed types
+    events.py      — EventOps + PacketEventSource
+    http.py        — HttpOps
+    mission.py     — MissionSpec + MissionContext + MissionConfigSpec + MissionPreflightFn
+    packets.py     — PacketOps + envelope + normalized + flags
+    parameters.py  — ParamUpdate (walker emit type, sole live-state input)
+    rendering.py   — Cell + ColumnDef + PacketRendering + DetailBlock + IntegrityBlock
+    ui.py          — UiOps
 
 Core nouns are re-exported here for ergonomic mid-level imports:
     from mav_gss_lib.platform.contract import MissionSpec, PacketOps, CommandOps
@@ -35,17 +35,11 @@ from .packets import (
     PacketFlags,
     PacketOps,
 )
+from .parameters import ParamUpdate
 from .rendering import Cell, ColumnDef, DetailBlock, IntegrityBlock, PacketRendering
-from .telemetry import (
-    CatalogProvider,
-    TelemetryDomainSpec,
-    TelemetryExtractor,
-    TelemetryOps,
-)
 from .ui import UiOps
 
 __all__ = [
-    "CatalogProvider",
     "Cell",
     "ColumnDef",
     "CommandDraft",
@@ -68,9 +62,7 @@ __all__ = [
     "PacketFlags",
     "PacketOps",
     "PacketRendering",
-    "TelemetryDomainSpec",
-    "TelemetryExtractor",
-    "TelemetryOps",
+    "ParamUpdate",
     "UiOps",
     "ValidationIssue",
 ]

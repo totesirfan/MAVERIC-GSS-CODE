@@ -1,8 +1,9 @@
 """Platform runtime container used by the production web runtime.
 
-Loads the active MissionSpec, registers mission telemetry domains,
-processes RX through `RxPipeline`, and prepares TX commands through
-`CommandOps`.
+Loads the active MissionSpec, builds the DeclarativeWalker from
+``mission.spec_root`` + ``mission.spec_plugins``, owns the live
+``ParameterCache``, processes RX through ``RxPipeline``, and prepares
+TX commands through ``CommandOps``.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -16,8 +17,9 @@ from typing import Any
 from .contract.commands import EncodedCommand, FramedCommand
 from .contract.mission import MissionSpec
 from .loader import load_mission_spec_from_split
+from .parameters import ParameterCache
 from .rx.pipeline import RxPipeline, RxResult
-from .telemetry import TelemetryRouter
+from .spec.runtime import DeclarativeWalker
 from .tx.commands import PreparedCommand, frame_command, prepare_command
 from .tx.verifiers import VerifierRegistry
 
@@ -33,7 +35,7 @@ def _resolve_log_dir(platform_cfg: dict[str, Any]) -> str:
 
 @dataclass(slots=True)
 class PlatformRuntime:
-    """Mission + telemetry router + RX pipeline, bound to split operator state.
+    """Mission + walker + parameter cache + RX pipeline, bound to split state.
 
     Created once per ``WebRuntime`` via ``PlatformRuntime.from_split(...)``.
     ``process_rx`` / ``prepare_tx`` / ``frame_tx`` are the three entry
@@ -41,7 +43,8 @@ class PlatformRuntime:
     """
 
     mission: MissionSpec
-    telemetry: TelemetryRouter
+    walker: DeclarativeWalker | None
+    parameter_cache: ParameterCache
     rx: RxPipeline
     verifiers: VerifierRegistry
 
@@ -54,23 +57,25 @@ class PlatformRuntime:
     ) -> "PlatformRuntime":
         """Build the platform runtime from split operator state.
 
-        Loads the active MissionSpec, registers mission telemetry domains
-        on a fresh ``TelemetryRouter`` rooted under ``<log_dir>/.telemetry``,
-        and wires the ``RxPipeline`` that stitches packet/telemetry/render
-        into one call.
+        Loads the active MissionSpec, constructs the walker from the
+        mission's ``spec_root`` + ``spec_plugins`` (None when the mission
+        has no declarative spec), builds the ``ParameterCache`` rooted
+        under ``<log_dir>/parameters.json``, and wires the ``RxPipeline``.
         """
         log_dir = _resolve_log_dir(platform_cfg)
         mission = load_mission_spec_from_split(
             platform_cfg, mission_id, mission_cfg, data_dir=Path(log_dir),
         )
-        telemetry = TelemetryRouter(Path(log_dir) / ".telemetry")
-        if mission.telemetry is not None:
-            for name, domain in mission.telemetry.domains.items():
-                telemetry.register_domain(name, **domain.router_kwargs())
+        walker = (
+            DeclarativeWalker(mission.spec_root, plugins=mission.spec_plugins)
+            if mission.spec_root is not None else None
+        )
+        cache = ParameterCache(Path(log_dir) / "parameters.json")
         return cls(
             mission=mission,
-            telemetry=telemetry,
-            rx=RxPipeline(mission, telemetry),
+            walker=walker,
+            parameter_cache=cache,
+            rx=RxPipeline(mission, walker, cache),
             verifiers=VerifierRegistry(),
         )
 

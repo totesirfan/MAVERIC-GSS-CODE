@@ -101,7 +101,8 @@ def build(ctx: MissionContext) -> MissionSpec:
             codec=capabilities.packet_codec,
             mission=capabilities.mission,
         ),
-        telemetry=capabilities.telemetry_ops,
+        spec_root=capabilities.mission,
+        spec_plugins=capabilities.plugins,
         events=EventOps(sources=[MavericImagingEvents(
             codec=capabilities.packet_codec,
             image_assembler=image_assembler,

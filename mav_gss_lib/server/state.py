@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import secrets
+import shutil
 import threading
 import uuid
 from dataclasses import dataclass
@@ -34,9 +35,9 @@ from mav_gss_lib.config import (
 from mav_gss_lib.constants import DEFAULT_MISSION_NAME
 from mav_gss_lib.identity import capture_host, capture_operator, capture_station
 from mav_gss_lib.platform import PlatformRuntime
+from mav_gss_lib.platform.parameters import ParameterCache
 from ._atomics import AtomicStatus
 from .rx.service import RxService
-from .telemetry import reset_legacy_snapshots
 from .tx.service import TxService
 
 if TYPE_CHECKING:
@@ -93,19 +94,20 @@ class WebRuntime:
             getattr(self.mission, "parse_warnings", ())
         )
 
-        log_dir = self.log_dir
-        # Telemetry upgrade path: if pre-split snapshot files are still on
-        # disk from a prior incarnation, remove them once and log the
-        # removal. Operators see the WARNING on startup; dashboards
-        # will be blank until the next live packet arrives.
-        removed = reset_legacy_snapshots(log_dir)
-        if removed:
+        # Parameter cache upgrade path: a prior incarnation may have written
+        # per-domain snapshot files under ``<log_dir>/.telemetry``. Remove
+        # them once on boot — the live ``ParameterCache`` (one JSON under
+        # ``<log_dir>/parameters.json``) is the sole source of truth from
+        # this version onward. Dashboards repopulate from the next packet.
+        log_dir_path = Path(self.log_dir)
+        legacy_dir = log_dir_path / ".telemetry"
+        if legacy_dir.exists():
+            shutil.rmtree(legacy_dir, ignore_errors=True)
             logging.warning(
-                "telemetry upgrade: removed %d legacy snapshot file(s): %s. "
-                "Dashboards will show empty state until the next live packet arrives.",
-                len(removed), ", ".join(removed),
+                "parameter cache upgrade: removed legacy per-domain snapshot dir %s. "
+                "Dashboards repopulate from the next live packet.",
+                legacy_dir,
             )
-        self.telemetry = self.platform.telemetry
 
         self.tx_status = AtomicStatus()
 
@@ -194,6 +196,10 @@ class WebRuntime:
     def tx_blackout_ms(self) -> int:
         rx = self.platform_cfg.get("rx") or {}
         return int(rx.get("tx_blackout_ms", 0) or 0)
+
+    @property
+    def parameter_cache(self) -> ParameterCache:
+        return self.platform.parameter_cache
 
 
 def create_runtime() -> WebRuntime:

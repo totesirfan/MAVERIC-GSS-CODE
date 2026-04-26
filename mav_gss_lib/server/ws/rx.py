@@ -39,8 +39,13 @@ async def ws_rx(websocket: WebSocket) -> None:
         except Exception:
             return
 
-    for msg in runtime.telemetry.replay():
-        await websocket.send_text(json.dumps(msg))
+    replay_updates = runtime.parameter_cache.replay()
+    if replay_updates:
+        await websocket.send_text(json.dumps({
+            "type": "parameters",
+            "updates": replay_updates,
+            "replay": True,
+        }))
 
     for msg in collect_connect_events(runtime.mission):
         await websocket.send_text(json.dumps(msg))
