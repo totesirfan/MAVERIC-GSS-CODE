@@ -44,9 +44,12 @@ from mav_gss_lib.platform.spec import (
     parse_yaml,
 )
 
+from mav_gss_lib.platform.contract.rendering import ColumnDef
+
 from mav_gss_lib.missions.maveric.codec import MaverPacketCodec
 from mav_gss_lib.missions.maveric.framing import MavericFramer
 from mav_gss_lib.missions.maveric.plugins import PLUGINS
+from mav_gss_lib.missions.maveric.ui.rendering import tx_queue_columns
 
 
 _HEADER_FIELDS = ("dest", "echo", "ptype", "src")
@@ -100,6 +103,9 @@ class _MaverCommandOpsWrapper:
                 raise ValueError(f"'{cmd_id}' is receive-only")
             return self.inner.parse_input(self._canonicalize(value))
         return self.inner.parse_input(value)
+
+    def tx_columns(self) -> list[ColumnDef]:
+        return [ColumnDef.from_dict(col) for col in tx_queue_columns()]
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.inner, name)

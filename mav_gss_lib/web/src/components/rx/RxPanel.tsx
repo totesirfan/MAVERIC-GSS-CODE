@@ -20,7 +20,7 @@ import {
 import type { ColumnDef, GssConfig, RxPacket, RxStatus } from '@/lib/types'
 
 function f(label: string, value: string): string {
-  return `  ${label.padEnd(12)}${value}`
+  return `  ${label.padEnd(12)} ${value}`
 }
 
 /** Extract command label from _rendering (live row or replay detail_blocks). */

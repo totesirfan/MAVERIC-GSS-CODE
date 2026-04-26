@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from mav_gss_lib.platform.spec import (
+    AbsoluteTimeParameterType,
     EnumeratedParameterType,
     Mission,
     PythonCalibrator,
@@ -83,6 +84,7 @@ def display_kind(mission: Mission, key: str) -> str | None:
         parameter type uses a Python plugin
       - '_enum' if the parameter type is an EnumeratedParameterType
       - '_absolute_time' if the parameter type is absolute_time
+      - '_bitfield' if the parameter references a bitfield_types entry
       - None for plain scalars (caller falls back to _compact_value)
 
     Returns None for keys not in mission.parameters (handler-emitted
@@ -92,6 +94,8 @@ def display_kind(mission: Mission, key: str) -> str | None:
     p = mission.parameters.get(key)
     if p is None:
         return None
+    if p.type_ref in mission.bitfield_types:
+        return "_bitfield"
     t = mission.parameter_types.get(p.type_ref)
     if t is None:
         return None
@@ -100,8 +104,7 @@ def display_kind(mission: Mission, key: str) -> str | None:
         return cal.callable_ref
     if isinstance(t, EnumeratedParameterType):
         return "_enum"
-    kind = getattr(t, "kind", None)
-    if kind == "absolute_time":
+    if isinstance(t, AbsoluteTimeParameterType):
         return "_absolute_time"
     return None
 
@@ -117,6 +120,7 @@ def render_value(value: Any, dispatch: str | None, unit: str = "") -> str:
     if dispatch == "maveric.gnc_planner_mode": return _format_gnc_mode(value)
     if dispatch == "_enum":                    return _format_enum(value)
     if dispatch == "_absolute_time":           return _format_absolute_time(value)
+    if dispatch == "_bitfield":                return _format_bitfield(value)
     return _compact_value(value, unit)
 
 
@@ -217,10 +221,42 @@ def _format_enum(value: Any) -> str:
 
 
 def _format_absolute_time(value: Any) -> str:
-    """absolute_time values arrive as int unix_ms scalars from the walker."""
+    """absolute_time values arrive as either an int unix_ms scalar OR a
+    dict {unix_ms, iso_utc, display} when the walker plugin pre-formatted
+    the time (e.g. BcdTime emits a dict, millis_u64 emits a scalar)."""
+    if isinstance(value, dict):
+        return (
+            value.get("display")
+            or value.get("iso_utc")
+            or _compact_value(value)
+        )
     if isinstance(value, (int, float)):
         return f"{int(value)} ms"
     return _compact_value(value)
+
+
+def _format_bitfield(value: Any) -> str:
+    """Bitfield values arrive as a flat dict of all decoded entries.
+    Render the most-meaningful summary (the *_name field for any enum
+    entry, plus only the True boolean flags) so the row stays scannable
+    instead of dumping every bit. Drops byte-padding fields (byte0_raw,
+    byte1_raw, …) which are decode-internal."""
+    if not isinstance(value, dict):
+        return _compact_value(value)
+    parts: list[str] = []
+    # Enum-like entries: pick up <name>_name (string label) when present.
+    for k, v in value.items():
+        if k.endswith("_name") and isinstance(v, str):
+            parts.append(v)
+    # True booleans: show flag names.
+    for k, v in value.items():
+        if k.startswith("byte") and k.endswith("_raw"):
+            continue
+        if k.endswith("_name"):
+            continue
+        if v is True:
+            parts.append(k)
+    return "  ".join(parts) if parts else _compact_value(value)
 
 
 # ---------- detail-block formatters ----------
