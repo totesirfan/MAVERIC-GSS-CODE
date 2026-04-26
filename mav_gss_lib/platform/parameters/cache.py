@@ -12,25 +12,32 @@ import json
 import logging
 from pathlib import Path
 from threading import RLock
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from mav_gss_lib.platform.contract.parameters import ParamUpdate
 
+ApplyCallback = Callable[[list], None]
+
 
 class ParameterCache:
-    def __init__(self, path: str | Path) -> None:
+    def __init__(self, path: str | Path, *,
+                 on_apply: ApplyCallback | None = None) -> None:
         self._path = Path(path)
         self._lock = RLock()
         self._state: dict[str, dict[str, Any]] = {}
+        self._on_apply = on_apply
         self._load()
 
     def apply(self, updates: Iterable[ParamUpdate]) -> list[dict]:
         changes: list[dict] = []
+        captured: list[ParamUpdate] = []
         with self._lock:
             dirty = False
             for u in updates:
+                captured.append(u)
                 if u.display_only:
-                    changes.append({"name": u.name, "v": u.value, "t": u.ts_ms, "display_only": True})
+                    changes.append({"name": u.name, "v": u.value, "t": u.ts_ms,
+                                    "display_only": True})
                     continue
                 prev = self._state.get(u.name)
                 if prev is not None and u.ts_ms < prev["t"]:
@@ -40,6 +47,11 @@ class ParameterCache:
                 dirty = True
             if dirty:
                 self._persist_locked()
+        if self._on_apply is not None and captured:
+            try:
+                self._on_apply(captured)
+            except Exception:
+                logging.exception("ParameterCache on_apply raised")
         return changes
 
     def replay(self) -> list[dict]:

@@ -54,6 +54,8 @@ class PlatformRuntime:
         platform_cfg: dict[str, Any],
         mission_id: str,
         mission_cfg: dict[str, Any],
+        *,
+        on_parameter_apply=None,
     ) -> "PlatformRuntime":
         """Build the platform runtime from split operator state.
 
@@ -70,7 +72,10 @@ class PlatformRuntime:
             DeclarativeWalker(mission.spec_root, plugins=mission.spec_plugins)
             if mission.spec_root is not None else None
         )
-        cache = ParameterCache(Path(log_dir) / "parameters.json")
+        cache = ParameterCache(
+            Path(log_dir) / "parameters.json",
+            on_apply=on_parameter_apply,
+        )
         return cls(
             mission=mission,
             walker=walker,
