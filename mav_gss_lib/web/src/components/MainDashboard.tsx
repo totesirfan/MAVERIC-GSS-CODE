@@ -156,8 +156,6 @@ export function MainDashboard({ config, confirmSendSignal, confirmClearSignal, r
     if (tx.error) showToast(tx.error, 'error', 'tx')
   }, [tx.error])
 
-  const uplinkMode = config?.platform.tx.uplink_mode ?? ''
-
   return (
     <div className="flex-1 overflow-hidden p-4">
       <SplitPane
@@ -166,7 +164,7 @@ export function MainDashboard({ config, confirmSendSignal, confirmClearSignal, r
             config={config}
             queue={tx.queue} summary={tx.summary}
             sendProgress={tx.sendProgress} guardConfirm={tx.guardConfirm}
-            uplinkMode={uplinkMode} connected={tx.connected}
+            connected={tx.connected}
             queueCommand={tx.queueCommand}
             deleteItem={tx.deleteItem} clearQueue={tx.clearQueue}
             undoLast={tx.undoLast} toggleGuard={tx.toggleGuard}

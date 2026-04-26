@@ -228,7 +228,6 @@ export interface PlatformConfig {
     zmq_addr: string
     frequency: string
     delay_ms: number
-    uplink_mode: string
   }
   rx: {
     zmq_addr: string
@@ -241,13 +240,6 @@ export interface PlatformConfig {
     generated_commands_dir?: string
   }
   stations?: Record<string, string>
-}
-
-export interface Maveric_Ax25Config {
-  src_call: string
-  src_ssid: number
-  dest_call: string
-  dest_ssid: number
 }
 
 export interface MavericCspConfig {
@@ -268,7 +260,6 @@ export interface MavericMissionConfig {
   nodes?: Record<string, string>
   ptypes?: Record<string, string>
   node_descriptions?: Record<string, string>
-  ax25: Maveric_Ax25Config
   csp: MavericCspConfig
   imaging?: Record<string, unknown>
 }

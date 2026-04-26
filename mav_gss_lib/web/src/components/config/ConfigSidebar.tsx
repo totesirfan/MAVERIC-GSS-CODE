@@ -247,10 +247,6 @@ export function ConfigSidebar({ open, onClose }: ConfigSidebarProps) {
     })
   }, [])
 
-  const isAx25 = cfg?.platform.tx.uplink_mode?.toLowerCase().includes('ax25') ||
-                  cfg?.platform.tx.uplink_mode?.toLowerCase().includes('ax.25') ||
-                  cfg?.platform.tx.uplink_mode === 'Mode 6'
-
   return (
     <AnimatePresence initial={false}>
       {open && (
@@ -288,37 +284,6 @@ export function ConfigSidebar({ open, onClose }: ConfigSidebarProps) {
               <div className="text-xs" style={{ color: colors.dim }}>Loading...</div>
             ) : (
               <>
-                {/* Uplink Mode */}
-                <Section title="Uplink Mode">
-                  <div className="flex gap-1">
-                    {['AX.25', 'ASM+Golay'].map((mode) => {
-                      const active = cfg.platform.tx.uplink_mode === mode
-                      return (
-                        <button
-                          key={mode}
-                          onClick={() => updatePlatform('tx', 'uplink_mode', mode)}
-                          className="flex-1 px-2 py-1.5 rounded text-xs font-medium transition-colors btn-feedback"
-                          style={{
-                            backgroundColor: active ? `${colors.label}22` : 'transparent',
-                            color: active ? colors.label : colors.dim,
-                            border: `1px solid ${active ? `${colors.label}44` : colors.borderSubtle}`,
-                          }}
-                        >
-                          {mode}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </Section>
-
-                {/* AX.25 (conditional) */}
-                <Section title="AX.25" show={isAx25}>
-                  <TextField label="Src Call" value={cfg.mission.config.ax25.src_call} onChange={(v) => updateMission('ax25', 'src_call', v)} />
-                  <NumberField label="Src SSID" value={cfg.mission.config.ax25.src_ssid} onChange={(v) => updateMission('ax25', 'src_ssid', v)} />
-                  <TextField label="Dest Call" value={cfg.mission.config.ax25.dest_call} onChange={(v) => updateMission('ax25', 'dest_call', v)} />
-                  <NumberField label="Dest SSID" value={cfg.mission.config.ax25.dest_ssid} onChange={(v) => updateMission('ax25', 'dest_ssid', v)} />
-                </Section>
-
                 {/* CSP */}
                 <Section title="CSP">
                   <ToggleField label="CRC-32" value={cfg.mission.config.csp.csp_crc} onChange={(v) => updateMission('csp', 'csp_crc', v)} />

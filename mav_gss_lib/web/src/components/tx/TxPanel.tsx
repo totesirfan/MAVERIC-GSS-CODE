@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Kbd } from '@/components/ui/kbd'
 import { StatusDot } from '@/components/shared/StatusDot'
-import { colors } from '@/lib/colors'
+import { colors, frameColor } from '@/lib/colors'
 import { TxQueue } from './TxQueue'
 import { CommandInput } from './CommandInput'
 import { ImportDialog } from './ImportDialog'
@@ -25,7 +25,6 @@ interface TxPanelProps {
   summary: TxQueueSummary
   sendProgress: SendProgress | null
   guardConfirm: GuardConfirm | null
-  uplinkMode: string
   connected: boolean
   queueCommand: (line: string) => void
   deleteItem: (index: number) => void
@@ -45,7 +44,7 @@ interface TxPanelProps {
 }
 
 export function TxPanel({
-  config, queue, summary, sendProgress, guardConfirm, uplinkMode, connected,
+  config, queue, summary, sendProgress, guardConfirm, connected,
   queueCommand, deleteItem, clearQueue,
   toggleGuard, reorder, editDelay, addDelay,
   sendAll, abortSend, approveGuard, rejectGuard,
@@ -75,8 +74,12 @@ export function TxPanel({
   }, [hasProvider])
   const txColumns = ctxDefs?.tx ?? localTxColumns
 
+  const [frameLabel, setFrameLabel] = useState<string>('')
+  useEffect(() => {
+    fetch('/api/status').then(r => r.json()).then(s => setFrameLabel(s.frame_label || '')).catch(() => {})
+  }, [])
+
   const sending = sendProgress !== null
-  const modeColor = uplinkMode.toLowerCase().includes('golay') ? colors.frameGolay : colors.frameAx25
   const missionName = config?.mission.config.mission_name ?? 'Mission'
 
   return (
@@ -88,7 +91,12 @@ export function TxPanel({
           <div className="flex items-center gap-2">
             <span className="text-xs font-bold tracking-wide uppercase" style={{ color: colors.value }}>{config?.mission.config.tx_title ?? 'TX Uplink'}</span>
             <StatusDot status={connected ? 'LIVE' : 'DOWN'} />
-            <span className="text-[11px] font-medium" style={{ color: modeColor }}>{uplinkMode || '--'}</span>
+            <span
+              className="text-[11px] font-medium"
+              style={{ color: frameColor(frameLabel) }}
+            >
+              {frameLabel || '--'}
+            </span>
             {sending && (
               <Badge className="text-[11px] px-1.5 py-0 h-5 animate-pulse-text" style={{ backgroundColor: `${colors.infoFill}`, color: colors.info }}>
                 SENDING {sendProgress.sent}/{sendProgress.total}

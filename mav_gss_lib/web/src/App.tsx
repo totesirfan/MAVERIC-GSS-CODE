@@ -325,7 +325,6 @@ function PopOutTx() {
 function PopOutTxInner() {
   const { config } = usePopOutBootstrap()
   const tx = useTx()
-  const uplinkMode = config?.platform.tx.uplink_mode ?? ''
 
   return (
     <div className="flex flex-col h-full" style={{ backgroundColor: colors.bgApp }}>
@@ -334,7 +333,7 @@ function PopOutTxInner() {
         config={config}
         queue={tx.queue} summary={tx.summary}
         sendProgress={tx.sendProgress} guardConfirm={tx.guardConfirm}
-        uplinkMode={uplinkMode} connected={tx.connected}
+        connected={tx.connected}
         queueCommand={tx.queueCommand}
         deleteItem={tx.deleteItem} clearQueue={tx.clearQueue}
         undoLast={tx.undoLast} toggleGuard={tx.toggleGuard}
