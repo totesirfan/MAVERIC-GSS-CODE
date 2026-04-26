@@ -37,6 +37,7 @@ from .ws.preflight import (
 )
 from .ws.update import schedule_update_check
 from .ws.tx import router as tx_router
+from .ws.alarms import router as alarms_router
 from .api.parameters import router as parameters_router
 from mav_gss_lib.transport import PUB_STATUS, zmq_cleanup
 from .state import WEB_DIR, create_runtime, get_runtime
@@ -187,6 +188,7 @@ def create_app() -> FastAPI:
     app.include_router(tx_router)
     app.include_router(session_router)
     app.include_router(preflight_router)
+    app.include_router(alarms_router)
     app.include_router(parameters_router)
 
     if runtime.mission.http is not None:
