@@ -157,6 +157,18 @@ class RxService:
                 if container_id:
                     now_ms = int(time.time() * 1000)
                     self.last_arrival_ms[container_id] = now_ms
+                    spec_root = getattr(self.runtime.mission, "spec_root", None)
+                    expected_period_ms = 0
+                    if spec_root is not None:
+                        c = spec_root.sequence_containers.get(container_id)
+                        if c is not None:
+                            expected_period_ms = int(getattr(c, "expected_period_ms", 0) or 0)
+                    await self.broadcast({
+                        "type": "parameters_freshness",
+                        "container": container_id,
+                        "last_ms": now_ms,
+                        "expected_period_ms": expected_period_ms,
+                    })
 
                 flags = pkt.flags
                 if flags.integrity_ok is False:        # explicit fail (None == not checked)

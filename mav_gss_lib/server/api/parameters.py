@@ -63,6 +63,21 @@ def _build_spec_payload(spec_root) -> dict[str, Any]:
     return {"parameters": out}
 
 
+def _build_freshness_payload(spec_root, last_arrival_ms: dict) -> dict[str, Any]:
+    if spec_root is None:
+        return {}
+    out: dict[str, Any] = {}
+    for cid, c in spec_root.sequence_containers.items():
+        last = int(last_arrival_ms.get(cid, 0))
+        out[cid] = {
+            "last_ms": last if last > 0 else None,
+            "expected_period_ms": (
+                int(getattr(c, "expected_period_ms", 0)) or None
+            ),
+        }
+    return out
+
+
 @router.get("/api/parameters")
 async def get_parameters(request: Request) -> JSONResponse:
     runtime = get_runtime(request)
@@ -70,7 +85,11 @@ async def get_parameters(request: Request) -> JSONResponse:
     if cached is None:
         cached = _build_spec_payload(runtime.mission.spec_root)
         runtime._parameters_spec_cache = cached  # type: ignore[attr-defined]
-    return JSONResponse(cached)
+    body = dict(cached)
+    body["freshness"] = _build_freshness_payload(
+        runtime.mission.spec_root, runtime.rx.last_arrival_ms,
+    )
+    return JSONResponse(body)
 
 
 @router.delete("/api/parameters/group/{group}")
