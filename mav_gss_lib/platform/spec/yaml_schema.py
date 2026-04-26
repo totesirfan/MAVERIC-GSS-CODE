@@ -170,6 +170,22 @@ class _Argument(_Strict):
     important: bool = False
 
 
+class _VerifierWindow(_Strict):
+    start_ms: int = 0
+    stop_ms: int = 30_000
+
+
+class _VerifierSpecDecl(_Strict):
+    stage: Literal["received", "accepted", "complete", "failed"]
+    label: str
+    tone: Literal["info", "success", "warning", "danger"]
+    window: _VerifierWindow = Field(default_factory=_VerifierWindow)
+
+
+class _VerifierRules(_Strict):
+    by_dest: dict[str, list[str]] = Field(default_factory=dict)
+
+
 class _MetaCommand(_Strict):
     packet: dict[str, Any] = Field(default_factory=dict)
     allowed_packet: dict[str, list[Any]] = Field(default_factory=dict)
@@ -182,6 +198,7 @@ class _MetaCommand(_Strict):
     rx_count_from: str | None = None
     rx_index_field: str | None = None
     description: str = ""
+    verifier_override: dict[str, list[str]] | None = None
 
 
 class _Header(_Strict):
@@ -203,6 +220,8 @@ class MissionDocument(_Strict):
     bitfield_types: dict[str, _BitfieldType] = Field(default_factory=dict)
     sequence_containers: dict[str, _SequenceContainer] = Field(default_factory=dict)
     meta_commands: dict[str, _MetaCommand] = Field(default_factory=dict)
+    verifier_specs: dict[str, _VerifierSpecDecl] = Field(default_factory=dict)
+    verifier_rules: _VerifierRules | None = None
 
     @field_validator("schema_version")
     @classmethod

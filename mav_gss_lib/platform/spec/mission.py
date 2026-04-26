@@ -10,6 +10,7 @@ from .commands import MetaCommand
 from .containers import SequenceContainer
 from .parameters import Parameter
 from .parameter_types import ParameterType
+from .verifier_decls import VerifierRules, VerifierSpecDecl
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +79,8 @@ class Mission:
 
     extensions: Mapping[str, Any] = field(default_factory=dict)
     parse_warnings: tuple[ParseWarning, ...] = ()
+    verifier_specs: Mapping[str, VerifierSpecDecl] = field(default_factory=dict)
+    verifier_rules: VerifierRules | None = None
 
     def declared_domains(self) -> frozenset[str]:
         return frozenset(
@@ -91,4 +94,6 @@ __all__ = [
     "ParseWarning",
     "ContainerShadow",
     "EnumSliceTruncation",
+    "VerifierSpecDecl",
+    "VerifierRules",
 ]

@@ -41,6 +41,7 @@ class MetaCommand:
     rx_count_from: str | None = None
     rx_index_field: str | None = None
     description: str = ""
+    verifier_override: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
 
 
 __all__ = ["Argument", "MetaCommand"]

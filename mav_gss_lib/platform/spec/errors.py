@@ -90,6 +90,17 @@ class MissingPluginError(ParseError):
         super().__init__(f"PythonCalibrator references unresolved plugin {name!r}")
 
 
+class UnknownVerifierId(ParseError):
+    def __init__(self, ref: str, *, source: str = ""):
+        self.ref = ref
+        self.source = source
+        super().__init__(
+            f"Unknown verifier_id {ref!r} referenced"
+            + (f" in {source!r}" if source else "")
+            + " — declare it under verifier_specs"
+        )
+
+
 # ---- Codec / runtime family ----
 
 

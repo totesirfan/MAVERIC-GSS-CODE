@@ -49,7 +49,9 @@ from .errors import (
     PagedFrameTargetEmpty,
     ParseError,
     UnknownTypeRef,
+    UnknownVerifierId,
 )
+from .verifier_decls import VerifierRules, VerifierSpecDecl
 from .mission import (
     ContainerShadow,
     EnumSliceTruncation,
@@ -104,6 +106,8 @@ def _parse(
     }
     sequence_containers = _project_sequence_containers(doc, parameter_types, bitfield_types)
     meta_commands = _project_meta_commands(doc, parameter_types)
+    verifier_specs = _project_verifier_specs(doc)
+    verifier_rules = _project_verifier_rules(doc)
 
     # Cross-reference checks
     _check_type_refs(parameter_types, bitfield_types, parameters, sequence_containers, meta_commands)
@@ -117,6 +121,7 @@ def _parse(
     _check_container_domains(sequence_containers)
     _check_repeat_entry_count(sequence_containers)
     _check_argument_bound_types(meta_commands, parameter_types)
+    _check_verifier_refs(verifier_specs, verifier_rules, meta_commands)
     if validate_plugins:
         _check_plugins(parameter_types, plugins)
 
@@ -136,6 +141,8 @@ def _parse(
         meta_commands=meta_commands,
         extensions=dict(doc.extensions),
         parse_warnings=tuple(warnings),
+        verifier_specs=verifier_specs,
+        verifier_rules=verifier_rules,
     )
 
 
@@ -311,6 +318,11 @@ def _project_meta_commands(
 ) -> dict[str, MetaCommand]:
     out: dict[str, MetaCommand] = {}
     for name, m in doc.meta_commands.items():
+        verifier_override: dict[str, tuple[str, ...]] = {}
+        if m.verifier_override is not None:
+            verifier_override = {
+                stage: tuple(ids) for stage, ids in m.verifier_override.items()
+            }
         out[name] = MetaCommand(
             id=name,
             packet=dict(m.packet),
@@ -321,6 +333,7 @@ def _project_meta_commands(
             rx_args=tuple(_project_argument(a) for a in m.rx_args),
             rx_count_from=m.rx_count_from, rx_index_field=m.rx_index_field,
             description=m.description,
+            verifier_override=verifier_override,
         )
     return out
 
@@ -333,6 +346,49 @@ def _project_argument(a) -> Argument:
         invalid_values=tuple(a.invalid_values) if a.invalid_values is not None else None,
         important=a.important,
     )
+
+
+def _project_verifier_specs(doc: MissionDocument) -> dict[str, VerifierSpecDecl]:
+    return {
+        name: VerifierSpecDecl(
+            verifier_id=name,
+            stage=v.stage,
+            display_label=v.label,
+            display_tone=v.tone,
+            start_ms=v.window.start_ms,
+            stop_ms=v.window.stop_ms,
+        )
+        for name, v in doc.verifier_specs.items()
+    }
+
+
+def _project_verifier_rules(doc: MissionDocument) -> VerifierRules | None:
+    if doc.verifier_rules is None:
+        return None
+    return VerifierRules(
+        by_dest={
+            dest: tuple(ids)
+            for dest, ids in doc.verifier_rules.by_dest.items()
+        }
+    )
+
+
+def _check_verifier_refs(
+    verifier_specs: dict[str, VerifierSpecDecl],
+    verifier_rules: VerifierRules | None,
+    meta_commands: dict[str, MetaCommand],
+) -> None:
+    """Cross-reference: every verifier_id used in rules or overrides must exist in verifier_specs."""
+    if verifier_rules is not None:
+        for dest, ids in verifier_rules.by_dest.items():
+            for vid in ids:
+                if vid not in verifier_specs:
+                    raise UnknownVerifierId(vid, source=f"verifier_rules.by_dest.{dest}")
+    for cmd_id, meta in meta_commands.items():
+        for stage, ids in meta.verifier_override.items():
+            for vid in ids:
+                if vid not in verifier_specs:
+                    raise UnknownVerifierId(vid, source=f"meta_commands.{cmd_id}.verifier_override.{stage}")
 
 
 # ---- Cross-reference / graph checks ----

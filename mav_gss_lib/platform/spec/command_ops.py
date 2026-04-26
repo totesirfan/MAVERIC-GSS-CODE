@@ -36,6 +36,7 @@ from .errors import (
 from .mission import Mission
 from .packet_codec import CommandHeader, PacketCodec
 from .runtime import DeclarativeWalker
+from .verifier_runtime import derive_verifier_set
 
 
 _ADAPTER_REQUIRED = ("dest", "echo", "ptype")
@@ -170,9 +171,9 @@ class DeclarativeCommandOpsAdapter:
         )
 
     def verifier_set(self, encoded: EncodedCommand) -> VerifierSet:
-        # Verifier-framework integration is mission-side; default to empty
-        # so missions without a verifier wire keep working.
-        return VerifierSet(verifiers=())
+        cmd_id = encoded.mission_payload["cmd_id"]
+        dest = encoded.mission_payload["header"]["dest"]
+        return derive_verifier_set(self._mission, cmd_id=cmd_id, dest=dest)
 
     def schema(self) -> dict[str, Any]:
         return {

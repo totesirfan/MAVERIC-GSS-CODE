@@ -43,6 +43,7 @@ from .errors import (
     SpecRuntimeError,
     UnknownHeaderValue,
     UnknownTypeRef,
+    UnknownVerifierId,
 )
 from .mission import (
     ContainerShadow,
@@ -83,6 +84,8 @@ from .telemetry_ops import (
 from .time_codec import decode_millis_u64, encode_millis_u64
 from .types import ByteOrder, HeaderValue
 from .walker_packet import WalkerPacket
+from .verifier_decls import VerifierRules, VerifierSpecDecl, VerifierStage, VerifierTone
+from .verifier_runtime import derive_verifier_set
 from .yaml_parse import parse_yaml, parse_yaml_for_tooling
 from .yaml_schema import MissionDocument
 
@@ -124,6 +127,9 @@ __all__ = [
     # Factories
     "build_declarative_telemetry_ops", "DeclarativeWalkerExtractor",
     "build_declarative_command_ops", "DeclarativeCommandOpsAdapter",
+    # Verifiers
+    "VerifierSpecDecl", "VerifierRules", "VerifierStage", "VerifierTone",
+    "derive_verifier_set",
     # YAML
     "MissionDocument", "parse_yaml", "parse_yaml_for_tooling",
     # Errors
@@ -134,4 +140,5 @@ __all__ = [
     "MissingRequiredHeaderField", "HeaderFieldNotOverridable",
     "HeaderValueNotAllowed", "UnknownHeaderValue",
     "ArgsTooLong", "CmdIdTooLong", "CrcMismatch", "NonJsonSafeArg",
+    "UnknownVerifierId",
 ]
