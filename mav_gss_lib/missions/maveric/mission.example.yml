@@ -1,0 +1,49 @@
+# MAVERIC mission database (example).
+#
+# The live `mission.yml` is gitignored (security: command schema, node IDs,
+# CSP port assignments). Copy this file to mission.yml and fill in the
+# redacted sections from your operations team's reference.
+#
+# The `framing:` block at the bottom is the operator-relevant part — it
+# declares the uplink wire stack as data (instead of code). Edit it freely.
+
+schema_version: 1
+id: maveric
+name: "MAVERIC"
+header:
+  version: "1.0"
+  date: "2026-04-26"
+  description: "MAVERIC mission database — example shell."
+
+# ── Mission identity (REDACTED — copy from internal reference) ──
+extensions:
+  nodes: {}              # e.g. { "1": "LPPM", "2": "EPS", ... }
+  ptypes: {}             # e.g. { "0": "CMD", "1": "REQ", ... }
+  node_descriptions: {}
+  gs_node: GS-0
+
+# ── Parameter / container / command schema (REDACTED) ──
+parameter_types: {}
+parameters: {}
+bitfield_types: {}
+sequence_containers: {}
+meta_commands: {}
+verifier_specs: {}
+verifier_rules: null
+
+# ── Wire framing (this is the part Plan B promotes from Python to YAML) ──
+#
+# `chain:` lists framers innermost-first. `config_ref:` resolves against
+# the live mission_cfg (e.g. `mission.config.csp` from gss.yml) so
+# operator edits to CSP src/dest/ports take effect on the next send
+# without a server restart.
+framing:
+  uplink:
+    label: "ASM+Golay"
+    chain:
+      - framer: csp_v1
+        config_ref: csp
+      - framer: asm_golay
+  downlink:
+    accept_frame_types: [ASM+GOLAY]
+    on_unexpected: warn
