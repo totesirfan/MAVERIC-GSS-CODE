@@ -34,7 +34,7 @@ def build_preflight(
         from mav_gss_lib.preflight import CheckResult
 
         yield from _mission_yml_checks(mission_dir, CheckResult)
-        yield from _uplink_capability_checks(platform_config, CheckResult)
+        yield from _uplink_capability_checks(CheckResult)
 
     return _checks
 
@@ -53,26 +53,18 @@ def _mission_yml_checks(mission_dir: Path, CheckResult: type) -> Iterable[Any]:
         )
 
 
-def _uplink_capability_checks(platform_config: dict[str, Any], CheckResult: type) -> Iterable[Any]:
+def _uplink_capability_checks(CheckResult: type) -> Iterable[Any]:
+    """libfec is mandatory for MAVERIC — ASM+Golay is the only uplink mode."""
     try:
         from mav_gss_lib.platform.framing.asm_golay import _GR_RS_OK as _golay_rs_ok
     except ImportError:
         _golay_rs_ok = False
 
-    tx_section = platform_config.get("tx") if isinstance(platform_config.get("tx"), dict) else {}
-    selected_mode = str(tx_section.get("uplink_mode", "AX.25"))
-
     if _golay_rs_ok:
         yield CheckResult("uplink", "libfec (ASM+Golay RS encoder)", "ok")
-    elif selected_mode == "ASM+Golay":
-        yield CheckResult(
-            "uplink", "libfec (ASM+Golay RS encoder)", "fail",
-            fix=f"{_GOLAY_FIX}, or switch tx.uplink_mode to AX.25",
-            detail="tx.uplink_mode='ASM+Golay' selected but libfec is not loadable",
-        )
     else:
         yield CheckResult(
-            "uplink", "libfec (ASM+Golay RS encoder)", "warn",
-            fix=f"{_GOLAY_FIX} to enable tx.uplink_mode='ASM+Golay'",
-            detail="AX.25 mode active; ASM+Golay would be unavailable if selected",
+            "uplink", "libfec (ASM+Golay RS encoder)", "fail",
+            fix=_GOLAY_FIX,
+            detail="MAVERIC requires libfec for ASM+Golay framing — uplink will not function without it.",
         )

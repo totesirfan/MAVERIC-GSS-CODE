@@ -25,16 +25,12 @@ from mav_gss_lib.platform.contract.mission import HttpOps
 MISSION_DIR = Path(os.path.abspath(os.path.dirname(__file__)))
 MISSION_YML_PATH = MISSION_DIR / "mission.yml"
 
-_AX25_DEFAULTS = {
-    "src_call": "NOCALL", "src_ssid": 0,
-    "dest_call": "NOCALL", "dest_ssid": 0,
-}
 _CSP_DEFAULTS = {
     "priority": 2, "source": 0, "destination": 0,
     "dest_port": 0, "src_port": 0, "flags": 0, "csp_crc": True,
 }
 _IMAGING_DEFAULTS = {"thumb_prefix": "tn_"}
-_TX_DEFAULTS = {"frequency": "XXX.XX MHz", "uplink_mode": "ASM+Golay"}
+_TX_DEFAULTS = {"frequency": "XXX.XX MHz"}
 
 
 def _seed(mission_cfg: dict[str, Any], platform_cfg: dict[str, Any]) -> None:
@@ -42,7 +38,6 @@ def _seed(mission_cfg: dict[str, Any], platform_cfg: dict[str, Any]) -> None:
     (nodes/ptypes/mission_name) live in mission.yml extensions and are
     NOT seeded into mission_cfg — the codec is the protection."""
     for key, defaults in (
-        ("ax25", _AX25_DEFAULTS),
         ("csp", _CSP_DEFAULTS),
         ("imaging", _IMAGING_DEFAULTS),
     ):
@@ -67,7 +62,6 @@ def build(ctx: MissionContext) -> MissionSpec:
 
     capabilities = build_declarative_capabilities(
         mission_yml_path=MISSION_YML_PATH,
-        platform_cfg=ctx.platform_config,
         mission_cfg=ctx.mission_config,
     )
     # Fail-loud at boot if the formatter dispatch table drifts from the
@@ -109,7 +103,7 @@ def build(ctx: MissionContext) -> MissionSpec:
         )]),
         http=HttpOps(routers=routers),
         config=MissionConfigSpec(
-            editable_paths={"ax25.*", "csp.*", "imaging.thumb_prefix"},
+            editable_paths={"csp.*", "imaging.thumb_prefix"},
             # mission.yml is the protection — operators can't edit
             # identity (nodes/ptypes/mission_name) via /api/config because
             # those keys live in mission.yml extensions, not mission_cfg.

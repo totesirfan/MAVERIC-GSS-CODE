@@ -1,22 +1,13 @@
-"""Build the declarative MAVERIC telemetry + command capabilities.
+"""Build MAVERIC's declarative telemetry + command capabilities.
 
 Reads ``mission.yml`` via ``platform.spec.parse_yaml`` (with PLUGINS
 bound), constructs a ``MaverPacketCodec`` from the parsed extensions,
-constructs a ``MavericFramer`` from the live operator configs, then
-hands both to Plan A's two factory functions.
+and a platform ``DeclarativeFramer`` from ``mission.framing``.
 
 Wraps the declarative command_ops with a frontend-compat translator
 that accepts both the legacy MAVERIC flat shape
 (``{cmd_id, args, dest, echo, ptype, guard}``) and the canonical
-declarative shape (``{cmd_id, args:dict, packet:dict}``). The frontend
-TX builder + queue.py admission test fixtures emit the flat shape; the
-walker requires header fields under ``packet``. Wrapping at the mission
-boundary keeps the declarative adapter pristine and keeps the operator
-surface stable across the cut-over.
-
-Wraps the framer with a live-config rebinder so AX.25 callsign / CSP
-header changes through ``/api/config`` take effect on the next send
-without a MissionSpec rebuild.
+declarative shape (``{cmd_id, args:dict, packet:dict}``).
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -32,9 +23,9 @@ from mav_gss_lib.platform.contract.commands import (
     CommandDraft,
     CommandRendering,
     EncodedCommand,
-    FramedCommand,
 )
 from mav_gss_lib.platform.contract.rendering import Cell, ColumnDef, DetailBlock
+from mav_gss_lib.platform.framing import DeclarativeFramer
 from mav_gss_lib.platform.spec import (
     Mission,
     ParseWarning,
@@ -43,7 +34,6 @@ from mav_gss_lib.platform.spec import (
 )
 
 from mav_gss_lib.missions.maveric.codec import MaverPacketCodec
-from mav_gss_lib.missions.maveric.framing import MavericFramer
 from mav_gss_lib.missions.maveric.plugins import PLUGINS
 
 
@@ -85,24 +75,6 @@ class DeclarativeCapabilities:
     packet_codec: MaverPacketCodec
     command_ops: CommandOps
     parse_warnings: tuple[ParseWarning, ...]
-
-
-class _LiveFramer:
-    """Framer wrapper that rebuilds the MavericFramer per-send so live
-    operator-config edits to ax25.* / csp.* / tx.uplink_mode propagate
-    without a MissionSpec rebuild."""
-
-    def __init__(self, platform_cfg: Mapping[str, Any], mission_cfg: Mapping[str, Any]) -> None:
-        self._platform_cfg = platform_cfg
-        self._mission_cfg = mission_cfg
-
-    def frame(self, encoded: EncodedCommand) -> FramedCommand:
-        uplink_mode = (self._platform_cfg.get("tx") or {}).get("uplink_mode", "ASM+Golay")
-        framer = MavericFramer.from_mission_config(
-            dict(self._mission_cfg),
-            uplink_mode=uplink_mode,
-        )
-        return framer.frame(encoded)
 
 
 class _MaverCommandOpsWrapper:
@@ -344,12 +316,23 @@ class _MaverCommandOpsWrapper:
 def build_declarative_capabilities(
     *,
     mission_yml_path: str | Path,
-    platform_cfg: Mapping[str, Any],
     mission_cfg: Mapping[str, Any],
 ) -> DeclarativeCapabilities:
+    """Construct MAVERIC's declarative capabilities from mission.yml.
+
+    `mission_cfg` is captured by reference; the DeclarativeFramer reads
+    its current state per send so /api/config edits to bound sections
+    (csp.*) propagate without a MissionSpec rebuild.
+    """
     mission = parse_yaml(Path(mission_yml_path), plugins=PLUGINS)
+    if mission.framing is None:
+        raise ValueError(
+            f"mission.yml at {mission_yml_path} is missing the 'framing:' "
+            "block — required for the declarative pipeline. See "
+            "mav_gss_lib/missions/maveric/mission.example.yml for the schema."
+        )
     codec = MaverPacketCodec(extensions=mission.extensions)
-    framer = _LiveFramer(platform_cfg=platform_cfg, mission_cfg=mission_cfg)
+    framer = DeclarativeFramer(mission.framing, mission_cfg)
     declarative_ops = build_declarative_command_ops(
         mission, PLUGINS, packet_codec=codec, framer=framer,
     )
