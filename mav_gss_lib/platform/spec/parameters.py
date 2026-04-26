@@ -14,7 +14,8 @@ sections, format strings) live in mission Python — never declared here.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any, Mapping
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,6 +24,7 @@ class Parameter:
     type_ref: str
     description: str = ""
     domain: str | None = None
+    tags: Mapping[str, Any] = field(default_factory=dict)
 
 
 __all__ = ["Parameter"]

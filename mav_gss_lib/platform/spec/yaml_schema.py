@@ -129,6 +129,7 @@ class _Parameter(_Strict):
     type: str
     description: str = ""
     domain: str | None = None
+    tags: dict[str, Any] = Field(default_factory=dict)
 
 
 class _ParameterRefEntry(_Strict):
