@@ -51,7 +51,7 @@ class TestConfigRoundTrip(unittest.TestCase):
                 },
                 "mission": {
                     "id": "echo_v2",
-                    "config": {"ax25": {"src_call": "WM2XBC"}},
+                    "config": {"csp": {"source": 6}},
                 },
             }
             cfg_mod.save_operator_config(value, path)
@@ -62,7 +62,7 @@ class TestConfigRoundTrip(unittest.TestCase):
             self.assertEqual(platform_cfg["rx"]["tx_blackout_ms"], 5)
             self.assertEqual(platform_cfg["general"]["log_dir"], "logs-test")
             self.assertEqual(mission_id, "echo_v2")
-            self.assertEqual(mission_cfg["ax25"]["src_call"], "WM2XBC")
+            self.assertEqual(mission_cfg["csp"]["source"], 6)
 
     def test_save_is_atomic_replace(self):
         """Partial write scenario — temp file shouldn't leak into real path."""
@@ -95,8 +95,7 @@ class TestConfigRoundTrip(unittest.TestCase):
             flat = {
                 "tx": {"zmq_addr": "tcp://x:1", "delay_ms": 250},
                 "general": {"mission": "maveric", "log_dir": "native-logs"},
-                "ax25": {"src_call": "WM2XBC"},
-                "csp": {"priority": 3},
+                "csp": {"priority": 3, "source": 6},
             }
             cfg_mod.save_operator_config(flat, path)
             platform_cfg, mission_id, mission_cfg = cfg_mod.load_split_config(path)
@@ -104,8 +103,8 @@ class TestConfigRoundTrip(unittest.TestCase):
             self.assertEqual(platform_cfg["general"]["log_dir"], "native-logs")
             self.assertEqual(platform_cfg["tx"]["zmq_addr"], "tcp://x:1")
             self.assertEqual(platform_cfg["tx"]["delay_ms"], 250)
-            self.assertEqual(mission_cfg["ax25"]["src_call"], "WM2XBC")
             self.assertEqual(mission_cfg["csp"]["priority"], 3)
+            self.assertEqual(mission_cfg["csp"]["source"], 6)
 
 
 if __name__ == "__main__":

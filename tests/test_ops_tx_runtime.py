@@ -86,20 +86,15 @@ class TestTxRuntime(unittest.TestCase):
             validate_mission_cmd(_make_payload("set_voltage", ""), runtime=self.runtime)
 
     def test_asm_golay_size_limit_is_enforced(self):
-        with self.runtime.cfg_lock:
-            old_mode = self.runtime.platform_cfg.get("tx", {}).get("uplink_mode", "AX.25")
-            self.runtime.platform_cfg["tx"]["uplink_mode"] = "ASM+Golay"
-        try:
-            payload = {
-                "cmd_id": "cfg_set_tle",
-                "args": {"tle": "A" * 220},
-                "dest": "LPPM", "echo": "NONE", "ptype": "CMD", "guard": False,
-            }
-            with self.assertRaisesRegex(ValueError, "too large for ASM\\+Golay"):
-                validate_mission_cmd(payload, runtime=self.runtime)
-        finally:
-            with self.runtime.cfg_lock:
-                self.runtime.platform_cfg["tx"]["uplink_mode"] = old_mode
+        # MAVERIC is locked to ASM+Golay framing — oversize payloads must be
+        # rejected at queue admission via the mission framer's MTU check.
+        payload = {
+            "cmd_id": "cfg_set_tle",
+            "args": {"tle": "A" * 220},
+            "dest": "LPPM", "echo": "NONE", "ptype": "CMD", "guard": False,
+        }
+        with self.assertRaisesRegex(ValueError, "too large for ASM\\+Golay"):
+            validate_mission_cmd(payload, runtime=self.runtime)
 
     def test_queue_restore_sanitizes_invalid_entries(self):
         valid = self._make_item("com_ping", "")

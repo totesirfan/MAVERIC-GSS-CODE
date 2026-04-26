@@ -2,7 +2,7 @@
 
 Verifies:
   1. MAVERIC build(ctx) seeds mission_cfg with operator-overridable defaults
-     (ax25/csp/imaging) and gap-fills tx defaults onto platform_cfg.
+     (csp/imaging) and gap-fills tx defaults onto platform_cfg.
   2. Operator-supplied values in gss.yml win over mission defaults.
   3. Platform _DEFAULTS stay mission-free.
   4. load_mission_spec_from_split + build(ctx) produce a populated MissionSpec.
@@ -37,39 +37,32 @@ class TestMissionDefaultsSeeding(unittest.TestCase):
         mission_cfg: dict = {}
         _seed(mission_cfg, platform_cfg)
 
-        # ax25 / csp / imaging gap-filled with placeholder defaults.
-        self.assertIn("ax25", mission_cfg)
+        # csp / imaging gap-filled with placeholder defaults.
         self.assertIn("csp", mission_cfg)
         self.assertIn("imaging", mission_cfg)
-        self.assertEqual(mission_cfg["ax25"]["src_call"], "NOCALL")
-        self.assertEqual(mission_cfg["ax25"]["dest_call"], "NOCALL")
         self.assertEqual(mission_cfg["imaging"]["thumb_prefix"], "tn_")
         self.assertEqual(mission_cfg["csp"]["dest_port"], 0)
 
         # tx defaults gap-fill onto platform_cfg.
         self.assertIn("frequency", platform_cfg["tx"])
-        self.assertEqual(platform_cfg["tx"]["uplink_mode"], "ASM+Golay")
 
     def test_seed_respects_operator_overrides(self):
         """Operator-set values win over mission defaults; one-deep merge on
-        ax25/csp/imaging fills only the gaps."""
+        csp/imaging fills only the gaps."""
         mission_cfg = {
-            "ax25": {"src_call": "REAL"},
             "csp": {"dest_port": 24},
             "imaging": {"thumb_prefix": "thumb_"},
         }
-        platform_cfg = {"tx": {"frequency": "437.6 MHz", "uplink_mode": "AX.25"}}
+        platform_cfg = {"tx": {"frequency": "437.6 MHz"}}
         _seed(mission_cfg, platform_cfg)
 
         # Operator values preserved.
-        self.assertEqual(mission_cfg["ax25"]["src_call"], "REAL")
         self.assertEqual(mission_cfg["csp"]["dest_port"], 24)
         self.assertEqual(mission_cfg["imaging"]["thumb_prefix"], "thumb_")
         self.assertEqual(platform_cfg["tx"]["frequency"], "437.6 MHz")
-        self.assertEqual(platform_cfg["tx"]["uplink_mode"], "AX.25")
 
         # Default fills the gap on the same dict.
-        self.assertEqual(mission_cfg["ax25"]["dest_call"], "NOCALL")
+        self.assertEqual(mission_cfg["csp"]["priority"], 2)
 
     def test_build_maveric_from_empty_split_seeds_mission_cfg(self):
         """Loading the MAVERIC spec with an empty mission_cfg still yields
@@ -77,7 +70,6 @@ class TestMissionDefaultsSeeding(unittest.TestCase):
         mission_cfg: dict = {}
         spec = load_mission_spec_from_split({}, "maveric", mission_cfg)
         self.assertEqual(spec.name, "MAVERIC")
-        self.assertIn("ax25", mission_cfg)
         self.assertIn("csp", mission_cfg)
         self.assertIn("imaging", mission_cfg)
 
@@ -85,7 +77,7 @@ class TestMissionDefaultsSeeding(unittest.TestCase):
 class TestConfigDefaults(unittest.TestCase):
     def test_platform_defaults_have_no_mission_keys(self):
         """Platform _DEFAULTS must not carry mission-owned placeholders."""
-        for key in ("nodes", "ptypes", "node_descriptions", "ax25", "csp"):
+        for key in ("nodes", "ptypes", "node_descriptions", "csp"):
             self.assertNotIn(key, _DEFAULTS,
                 f"'{key}' should not be in platform _DEFAULTS")
 
@@ -95,7 +87,7 @@ class TestConfigDefaults(unittest.TestCase):
         self.assertIn("tx", platform_cfg)
         self.assertIn("rx", platform_cfg)
         self.assertIn("general", platform_cfg)
-        for key in ("nodes", "ptypes", "ax25", "csp"):
+        for key in ("nodes", "ptypes", "csp"):
             self.assertNotIn(key, platform_cfg)
 
     @unittest.skipUnless(_MISSION_YML_PRESENT, "mission.yml not present (gitignored)")
@@ -104,7 +96,6 @@ class TestConfigDefaults(unittest.TestCase):
         populated mission_cfg."""
         platform_cfg, mission_id, mission_cfg = load_split_config()
         load_mission_spec_from_split(platform_cfg, mission_id, mission_cfg)
-        self.assertIn("ax25", mission_cfg)
         self.assertIn("csp", mission_cfg)
         self.assertIn("imaging", mission_cfg)
 

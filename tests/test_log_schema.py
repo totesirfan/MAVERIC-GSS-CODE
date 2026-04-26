@@ -129,20 +129,17 @@ def test_tx_command_envelope_shape():
             record = tx_log_record(
                 1,
                 {"title": "com_ping", "subtitle": "EPS"},
-                {"cmd_id": "com_ping", "dest": "EPS", "src": "GS",
-                 "echo": "NONE", "ptype": "CMD"},
+                {"cmd_id": "com_ping",
+                 "header": {"dest": "EPS", "src": "GS",
+                            "echo": "NONE", "ptype": "CMD"}},
                 raw_cmd, wire,
                 session_id=log.session_id,
                 ts_ms=1_700_000_000_000,
                 version="5.7.0",
                 mission_id="maveric", operator="irfan", station="GS-0",
                 frame_label="ASM+Golay",
-                log_fields={"uplink_mode": "ASM+Golay",
-                            "csp": {"prio": 2, "dest": 8}},
+                log_fields={"csp": {"prio": 2, "dest": 8}},
             )
-            # `uplink_mode` is a legacy alias; defensively cleaned out by
-            # tx_log_record so it cannot resurface as either a top-level
-            # field or a nested mission key.
             log.write_mission_command(record, raw_cmd=raw_cmd, wire=wire, log_text=[])
         finally:
             log.close()

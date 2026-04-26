@@ -3,7 +3,7 @@
 Verifies:
 - Platform TX path delegates to mission.commands.frame() — the server backend
   does not import the platform's framing primitives directly.
-- MAVERIC framer reads ax25/csp from the live mission_config reference so
+- DeclarativeFramer reads csp from the live mission_config reference so
   /api/config updates take effect without a MissionSpec rebuild.
 - Echo-style missions with passthrough framing work through the same
   contract (FramedCommand.wire == EncodedCommand.raw).
@@ -66,36 +66,30 @@ class TestBackendHasNoFramingImports(unittest.TestCase):
         self.assertEqual(offenders, [], "\n".join(offenders))
 
 
-class TestMavericFramerReadsLiveConfig(unittest.TestCase):
-    def test_ax25_call_change_takes_effect_on_next_frame(self):
+class TestDeclarativeFramerReadsLiveConfig(unittest.TestCase):
+    def test_csp_change_takes_effect_on_next_frame(self):
+        """Operator edits to mission_cfg.csp propagate without MissionSpec rebuild."""
         from mav_gss_lib.server.state import create_runtime
         rt = create_runtime()
+        rt.mission_cfg.setdefault("csp", {}).update({
+            "source": 6, "destination": 8, "src_port": 1, "dest_port": 24,
+        })
         payload = {"cmd_id": "com_ping", "args": "", "dest": "LPPM", "echo": "NONE", "ptype": "CMD"}
         prep = rt.platform.prepare_tx(payload)
 
-        # Force AX.25 mode so src_call appears in the framed wire header.
-        rt.platform_cfg["tx"]["uplink_mode"] = "AX.25"
-        rt.mission_cfg.setdefault("ax25", {}).update({
-            "src_call": "WAAAAA",
-            "src_ssid": 0,
-            "dest_call": "NOCALL",
-            "dest_ssid": 0,
-        })
-
         framed_before = rt.platform.frame_tx(prep.encoded)
-        self.assertEqual(framed_before.frame_label, "AX.25")
-        self.assertEqual(framed_before.log_fields["ax25"]["src_call"], "WAAAAA")
+        self.assertEqual(framed_before.frame_label, "ASM+Golay")
+        self.assertEqual(framed_before.log_fields["csp"]["src"], 6)
 
         # Mutate live mission_cfg in place — the same dict identity that the
         # mission captured at build time. Next frame must reflect the change.
-        rt.mission_cfg["ax25"]["src_call"] = "WBBBBB"
+        rt.mission_cfg["csp"]["source"] = 7
         framed_after = rt.platform.frame_tx(prep.encoded)
-        self.assertEqual(framed_after.log_fields["ax25"]["src_call"], "WBBBBB")
+        self.assertEqual(framed_after.log_fields["csp"]["src"], 7)
 
     def test_asm_golay_mtu_is_enforced_via_mission_framer(self):
         from mav_gss_lib.server.state import create_runtime
         rt = create_runtime()
-        rt.platform_cfg["tx"]["uplink_mode"] = "ASM+Golay"
         # Assemble an oversized command bytes payload directly to exercise
         # framer admission without going through MAVERIC cmd parsing.
         from mav_gss_lib.platform import EncodedCommand
@@ -137,18 +131,14 @@ class TestTxLogAcceptsMissionLogFields(unittest.TestCase):
                     ts_ms=1_700_000_000_000,
                     version="1.2.3",
                     operator="irfan", station="GS-0",
-                    frame_label="AX.25",
+                    frame_label="ASM+Golay",
                     log_fields={
-                        # Legacy `uplink_mode` key included on purpose — the
-                        # platform tx_log_record must drop it defensively.
-                        "uplink_mode": "AX.25",
-                        "ax25": {"src_call": "TEST", "src_ssid": 1},
                         "csp": {"prio": 2, "dest": 8},
                     },
                 )
                 log.write_mission_command(
                     record, raw_cmd=raw_cmd, wire=wire,
-                    log_text=["  MODE       AX.25"],
+                    log_text=["  FRAME      ASM+Golay"],
                 )
             finally:
                 log.close()
@@ -156,14 +146,13 @@ class TestTxLogAcceptsMissionLogFields(unittest.TestCase):
             with open(log.jsonl_path) as f:
                 rec = json.loads(f.readline())
 
-        self.assertEqual(rec["frame_label"], "AX.25")
+        self.assertEqual(rec["frame_label"], "ASM+Golay")
         # Legacy `uplink_mode` alias must not surface — neither top-level
         # nor under the nested mission block.
         self.assertNotIn("uplink_mode", rec)
         self.assertNotIn("uplink_mode", rec["mission"])
-        # AX.25 / CSP headers now live under the nested `mission` dict —
+        # CSP headers live under the nested `mission` dict —
         # the unified envelope keeps top-level keys stable across missions.
-        self.assertEqual(rec["mission"]["ax25"]["src_call"], "TEST")
         self.assertEqual(rec["mission"]["csp"]["dest"], 8)
         self.assertEqual(rec["operator"], "irfan")
         self.assertEqual(rec["station"], "GS-0")

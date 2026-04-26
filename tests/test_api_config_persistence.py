@@ -30,12 +30,12 @@ class TestApplyPlatformUpdate(unittest.TestCase):
     def test_merges_tx_rx_sections(self):
         platform_cfg = {"tx": {"zmq_addr": "tcp://old", "delay_ms": 500}, "rx": {"zmq_addr": "tcp://old-rx"}}
         _apply_platform_update(platform_cfg, {
-            "tx": {"zmq_addr": "tcp://new", "uplink_mode": "ASM+Golay"},
+            "tx": {"zmq_addr": "tcp://new", "frequency": "437.25 MHz"},
             "rx": {"tx_blackout_ms": 750},
         })
         self.assertEqual(platform_cfg["tx"]["zmq_addr"], "tcp://new")
         self.assertEqual(platform_cfg["tx"]["delay_ms"], 500)
-        self.assertEqual(platform_cfg["tx"]["uplink_mode"], "ASM+Golay")
+        self.assertEqual(platform_cfg["tx"]["frequency"], "437.25 MHz")
         self.assertEqual(platform_cfg["rx"]["zmq_addr"], "tcp://old-rx")
         self.assertEqual(platform_cfg["rx"]["tx_blackout_ms"], 750)
 
@@ -46,12 +46,12 @@ class TestApplyPlatformUpdate(unittest.TestCase):
             "tx": {"delay_ms": 10},
             "stations": {"h1": "Pad"},
             "nodes": {"1": "LEAK"},
-            "ax25": {"src_call": "LEAK"},
+            "csp": {"source": 99},
         })
         self.assertEqual(platform_cfg["tx"]["delay_ms"], 10)
         self.assertNotIn("stations", platform_cfg)
         self.assertNotIn("nodes", platform_cfg)
-        self.assertNotIn("ax25", platform_cfg)
+        self.assertNotIn("csp", platform_cfg)
 
 
 class _FakeService:
@@ -96,7 +96,7 @@ class TestConfigEndpointRoundTrip(unittest.TestCase):
 
     def _mavericish_spec(self):
         return MissionConfigSpec(
-            editable_paths={"ax25.*", "csp.*", "imaging.thumb_prefix"},
+            editable_paths={"csp.*", "imaging.thumb_prefix"},
             protected_paths={
                 "nodes",
                 "ptypes",
@@ -136,8 +136,7 @@ class TestConfigEndpointRoundTrip(unittest.TestCase):
                 "nodes": {"1": "LPPM"},
                 "ptypes": {"1": "CMD"},
                 "gs_node": "GS",
-                "ax25": {"src_call": "WM2XBB", "src_ssid": 97},
-                "csp": {"priority": 2, "destination": 8},
+                "csp": {"priority": 2, "destination": 8, "source": 6},
             }
             runtime = _FakeRuntime(
                 platform_cfg=platform_cfg,
@@ -161,8 +160,7 @@ class TestConfigEndpointRoundTrip(unittest.TestCase):
                 },
                 "mission": {
                     "config": {
-                        "ax25": {"src_call": "WM2XBC", "src_ssid": 98},
-                        "csp": {"priority": 3},
+                        "csp": {"priority": 3, "source": 7},
                         # Mission-protected top-level keys — spec MUST reject:
                         "nodes": {"99": "SENTINEL_NODE"},
                         "ptypes": {"99": "SENTINEL_PTYPE"},
@@ -190,10 +188,9 @@ class TestConfigEndpointRoundTrip(unittest.TestCase):
             self.assertEqual(persisted["mission"]["id"], "maveric")
             self.assertEqual(persisted["platform"]["tx"]["frequency"], "437.25 MHz")
             self.assertEqual(persisted["platform"]["tx"]["delay_ms"], 600)
-            self.assertEqual(persisted["mission"]["config"]["ax25"]["src_call"], "WM2XBC")
-            self.assertEqual(persisted["mission"]["config"]["ax25"]["src_ssid"], 98)
             self.assertEqual(persisted["mission"]["config"]["csp"]["priority"], 3)
             self.assertEqual(persisted["mission"]["config"]["csp"]["destination"], 8)
+            self.assertEqual(persisted["mission"]["config"]["csp"]["source"], 7)
 
             # Protected mission-identity keys (nodes, ptypes, mission_name,
             # gs_node, rx_title) are seeded from mission code at build time
@@ -214,7 +211,7 @@ class TestConfigEndpointRoundTrip(unittest.TestCase):
             # the protected keys stay live in memory (seeded at build time)
             # even though they don't persist.
             self.assertEqual(runtime.mission_cfg["nodes"], {"1": "LPPM"})
-            self.assertEqual(runtime.mission_cfg["ax25"]["src_call"], "WM2XBC")
+            self.assertEqual(runtime.mission_cfg["csp"]["source"], 7)
             self.assertEqual(runtime.mission_cfg["mission_name"], "MAVERIC")
             self.assertNotIn("99", runtime.mission_cfg["nodes"])
             # Platform version still sourced from platform defaults (not clobbered).

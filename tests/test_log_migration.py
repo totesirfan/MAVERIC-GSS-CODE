@@ -108,7 +108,9 @@ def test_migrate_tx_folds_ax25_and_csp_under_mission():
     assert tx["seq"] == 1
     assert tx["cmd_id"] == "com_ping"
     assert tx["dest"] == "EPS"
-    assert tx["uplink_mode"] == "ASM+Golay"
+    # Legacy `uplink_mode` alias is renamed to `frame_label` and dropped.
+    assert tx["frame_label"] == "ASM+Golay"
+    assert "uplink_mode" not in tx
     assert tx["inner_hex"] == "010203"
     assert tx["inner_len"] == 3
     assert tx["wire_hex"] == "0102030405"
@@ -117,6 +119,19 @@ def test_migrate_tx_folds_ax25_and_csp_under_mission():
     assert tx["mission"]["csp"]["dest"] == 8
     assert tx["mission"]["display"]["title"] == "com_ping"
     assert tx["mission"]["payload"]["cmd_id"] == "com_ping"
+
+
+def test_migrate_tx_uses_uplink_mode_when_frame_label_missing():
+    """Older legacy records may have only `uplink_mode` (no `frame_label`).
+    Migration must source `frame_label` from `uplink_mode` in that case."""
+    mig = _load_migrate_module()
+    legacy_old = dict(_OLD_TX)
+    legacy_old.pop("frame_label")
+    out = list(mig.migrate_entry(legacy_old, session_id="uplink_legacy", mission_id="maveric"))
+    assert len(out) == 1
+    tx = out[0]
+    assert tx["frame_label"] == "ASM+Golay"
+    assert "uplink_mode" not in tx
 
 
 def test_migrate_file_round_trip(tmp_path):

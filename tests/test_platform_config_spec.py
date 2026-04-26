@@ -24,25 +24,23 @@ class TestDefaultPlatformSpec(unittest.TestCase):
     def test_tx_and_rx_updates_merge_in(self):
         platform = {"tx": {"zmq_addr": "old"}, "rx": {"zmq_addr": "rx_old"}}
         apply_platform_config_update(platform, {
-            "tx": {"delay_ms": 100, "uplink_mode": "AX.25"},
+            "tx": {"delay_ms": 100, "frequency": "437.25 MHz"},
             "rx": {"tx_blackout_ms": 250},
         })
         self.assertEqual(platform["tx"]["delay_ms"], 100)
-        self.assertEqual(platform["tx"]["uplink_mode"], "AX.25")
+        self.assertEqual(platform["tx"]["frequency"], "437.25 MHz")
         self.assertEqual(platform["tx"]["zmq_addr"], "old")  # deep-merged
         self.assertEqual(platform["rx"]["tx_blackout_ms"], 250)
 
     def test_non_editable_top_level_sections_are_dropped(self):
-        """ax25/csp/nodes belong on mission_cfg — never platform."""
+        """csp/nodes belong on mission_cfg — never platform."""
         platform = {"tx": {}}
         apply_platform_config_update(platform, {
-            "ax25": {"src_call": "A"},
             "csp": {"priority": 2},
             "nodes": {"1": "X"},
             "tx": {"delay_ms": 1},
         })
         self.assertEqual(platform["tx"]["delay_ms"], 1)
-        self.assertNotIn("ax25", platform)
         self.assertNotIn("csp", platform)
         self.assertNotIn("nodes", platform)
 
@@ -82,10 +80,10 @@ class TestCustomSpec(unittest.TestCase):
         platform = {"tx": {}}
         apply_platform_config_update(platform, {
             "radio": {"bandwidth_hz": 12000},
-            "ax25": {"src_call": "A"},
+            "csp": {"source": 6},
         }, extended)
         self.assertEqual(platform["radio"], {"bandwidth_hz": 12000})
-        self.assertNotIn("ax25", platform)
+        self.assertNotIn("csp", platform)
 
 
 if __name__ == "__main__":

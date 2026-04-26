@@ -28,7 +28,6 @@ def _build_cmd_raw_via_codec(src: int, dest: int, cmd_id: str, args: str = "") -
 
     capabilities = build_declarative_capabilities(
         mission_yml_path=MISSION_YML_PATH,
-        platform_cfg={},
         mission_cfg={},
     )
     codec = capabilities.packet_codec

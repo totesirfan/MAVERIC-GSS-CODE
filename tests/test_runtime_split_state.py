@@ -37,27 +37,27 @@ class TestLoadSplitConfig(unittest.TestCase):
                     "tx": {"zmq_addr": "tcp://127.0.0.1:60000"},
                     "stations": {"h": "Pad"},
                 },
-                "mission": {"id": "maveric", "config": {"ax25": {"src_call": "KA9Q"}}},
+                "mission": {"id": "maveric", "config": {"csp": {"source": 6}}},
             })
             platform, mission_id, mission = cfg_module.load_split_config(path)
             self.assertEqual(mission_id, "maveric")
             self.assertEqual(platform["general"]["log_dir"], "ops_logs")
             self.assertEqual(platform["tx"]["zmq_addr"], "tcp://127.0.0.1:60000")
             self.assertEqual(platform["stations"], {"h": "Pad"})
-            self.assertEqual(mission["ax25"]["src_call"], "KA9Q")
+            self.assertEqual(mission["csp"]["source"], 6)
 
     def test_legacy_flat_file_canonicalizes_into_split(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = self._write(tmp, {
                 "general": {"mission": "maveric", "log_dir": "legacy_logs"},
                 "tx": {"zmq_addr": "tcp://127.0.0.1:60001"},
-                "ax25": {"src_call": "LEGACY"},
+                "csp": {"source": 6},
             })
             platform, mission_id, mission = cfg_module.load_split_config(path)
             self.assertEqual(mission_id, "maveric")
             self.assertEqual(platform["general"]["log_dir"], "legacy_logs")
             self.assertEqual(platform["tx"]["zmq_addr"], "tcp://127.0.0.1:60001")
-            self.assertEqual(mission["ax25"], {"src_call": "LEGACY"})
+            self.assertEqual(mission["csp"], {"source": 6})
             self.assertNotIn("mission", platform["general"])
 
 
@@ -73,7 +73,7 @@ class TestSplitToPersistable(unittest.TestCase):
             },
             "tx": {"zmq_addr": "tcp://a"},
         }
-        mission = {"mission_name": "MAVERIC", "ax25": {"src_call": "X"}}
+        mission = {"mission_name": "MAVERIC", "csp": {"source": 6}}
         native = cfg_module.split_to_persistable(platform, "maveric", mission)
         self.assertEqual(native["mission"]["id"], "maveric")
         self.assertEqual(native["platform"]["general"], {
@@ -82,7 +82,7 @@ class TestSplitToPersistable(unittest.TestCase):
         })
         self.assertNotIn("version", native["platform"]["general"])
         self.assertNotIn("mission", native["platform"]["general"])
-        self.assertEqual(native["mission"]["config"]["ax25"], {"src_call": "X"})
+        self.assertEqual(native["mission"]["config"]["csp"], {"source": 6})
 
 
 class TestWebRuntimePrimarySplitState(unittest.TestCase):
@@ -105,7 +105,6 @@ class TestWebRuntimePrimarySplitState(unittest.TestCase):
         self.assertEqual(rt.log_dir, rt.platform_cfg["general"].get("log_dir", "logs"))
         self.assertEqual(rt.version, rt.platform_cfg["general"].get("version", ""))
         self.assertEqual(rt.build_sha, rt.platform_cfg["general"].get("build_sha", ""))
-        self.assertEqual(rt.uplink_mode, rt.platform_cfg["tx"].get("uplink_mode", "AX.25"))
         self.assertEqual(rt.tx_frequency, rt.platform_cfg["tx"].get("frequency", ""))
         self.assertEqual(rt.tx_delay_ms, int(rt.platform_cfg["tx"].get("delay_ms", 500)))
         self.assertEqual(

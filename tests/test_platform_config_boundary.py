@@ -50,15 +50,15 @@ def test_mission_config_update_does_not_create_undeclared_paths():
 
 
 def test_editable_paths_glob_allows_all_subkeys_under_prefix():
-    current = {"ax25": {"src_call": "OLD", "src_ssid": 0}}
-    update = {"ax25": {"src_call": "NEW", "src_ssid": 7, "dest_call": "DST"}}
-    spec = MissionConfigSpec(editable_paths={"ax25.*"})
+    current = {"csp": {"priority": 2, "source": 0}}
+    update = {"csp": {"priority": 3, "source": 7, "destination": 8}}
+    spec = MissionConfigSpec(editable_paths={"csp.*"})
 
     result = apply_mission_config_update(current, update, spec)
 
-    assert result["ax25"]["src_call"] == "NEW"
-    assert result["ax25"]["src_ssid"] == 7
-    assert result["ax25"]["dest_call"] == "DST"
+    assert result["csp"]["priority"] == 3
+    assert result["csp"]["source"] == 7
+    assert result["csp"]["destination"] == 8
 
 
 def test_editable_paths_glob_is_subtree_matched():
@@ -74,16 +74,16 @@ def test_editable_paths_glob_is_subtree_matched():
 
 
 def test_protected_path_wins_over_glob_editable():
-    current = {"ax25": {"src_call": "OLD"}, "nodes": {"1": "A"}}
-    update = {"ax25": {"src_call": "NEW"}, "nodes": {"1": "B"}}
+    current = {"csp": {"source": 0}, "nodes": {"1": "A"}}
+    update = {"csp": {"source": 6}, "nodes": {"1": "B"}}
     spec = MissionConfigSpec(
-        editable_paths={"ax25.*", "nodes.*"},
+        editable_paths={"csp.*", "nodes.*"},
         protected_paths={"nodes"},
     )
 
     result = apply_mission_config_update(current, update, spec)
 
-    assert result["ax25"]["src_call"] == "NEW"
+    assert result["csp"]["source"] == 6
     assert result["nodes"] == {"1": "A"}
 
 
@@ -91,8 +91,7 @@ def test_persist_mission_config_keeps_only_editable_paths():
     """Seeded mission constants (nodes, ptypes, mission_name, ui titles) must
     not leak onto disk — they live in code. Only editable paths persist."""
     mission_cfg = {
-        "ax25": {"src_call": "WM2XBB", "dest_call": "WS9XSW"},
-        "csp": {"priority": 2, "destination": 8},
+        "csp": {"priority": 2, "destination": 8, "source": 6},
         "imaging": {"thumb_prefix": "tn_"},
         "nodes": {0: "NONE", 1: "LPPM"},
         "ptypes": {1: "CMD"},
@@ -101,15 +100,15 @@ def test_persist_mission_config_keeps_only_editable_paths():
         "rx_title": "RX DOWNLINK",
     }
     spec = MissionConfigSpec(
-        editable_paths={"ax25.*", "csp.*", "imaging.thumb_prefix"},
+        editable_paths={"csp.*", "imaging.thumb_prefix"},
         protected_paths={"nodes", "ptypes", "mission_name", "gs_node", "rx_title"},
     )
 
     out = persist_mission_config(mission_cfg, spec)
 
-    assert set(out.keys()) == {"ax25", "csp", "imaging"}
-    assert out["ax25"]["src_call"] == "WM2XBB"
+    assert set(out.keys()) == {"csp", "imaging"}
     assert out["csp"]["destination"] == 8
+    assert out["csp"]["source"] == 6
     assert out["imaging"] == {"thumb_prefix": "tn_"}
 
 
@@ -127,7 +126,7 @@ def test_persist_mission_config_leaf_path_persists_only_declared_key():
 
 
 def test_persist_mission_config_skips_missing_paths():
-    spec = MissionConfigSpec(editable_paths={"ax25.*", "imaging.thumb_prefix"})
+    spec = MissionConfigSpec(editable_paths={"csp.*", "imaging.thumb_prefix"})
 
     out = persist_mission_config({}, spec)
 
