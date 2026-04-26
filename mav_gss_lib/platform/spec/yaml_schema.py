@@ -128,6 +128,7 @@ class _BitfieldType(_Strict):
 class _Parameter(_Strict):
     type: str
     description: str = ""
+    domain: str | None = None
 
 
 class _ParameterRefEntry(_Strict):

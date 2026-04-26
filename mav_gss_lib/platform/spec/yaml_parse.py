@@ -98,7 +98,8 @@ def _parse(
     parameter_types = _project_parameter_types(doc)
     bitfield_types = _project_bitfield_types(doc, parameter_types)
     parameters = {
-        name: Parameter(name=name, type_ref=p.type, description=p.description)
+        name: Parameter(name=name, type_ref=p.type,
+                        description=p.description, domain=p.domain)
         for name, p in doc.parameters.items()
     }
     sequence_containers = _project_sequence_containers(doc, parameter_types, bitfield_types)

@@ -37,13 +37,10 @@ class CatalogBuilder:
 
     def _build_all(self) -> None:
         # For each container, project every emitting ParameterRefEntry into
-        # the container's domain. Anonymous entries (no parameter_ref) are
-        # NOT projected — catalog only carries declared parameters.
+        # its effective domain (parameter.domain wins; container.domain is
+        # the fallback). Anonymous entries (no parameter_ref) are NOT
+        # projected — catalog only carries declared parameters.
         for container in self._mission.sequence_containers.values():
-            domain = container.domain
-            if not domain:
-                continue
-            cat = self._by_domain.setdefault(domain, {"params": {}})
             for entry in container.entry_list:
                 if not isinstance(entry, ParameterRefEntry):
                     continue
@@ -51,6 +48,12 @@ class CatalogBuilder:
                     continue
                 if entry.parameter_ref is None:
                     continue
+                param = self._mission.parameters.get(entry.parameter_ref)
+                domain = (param.domain if param and param.domain
+                          else container.domain)
+                if not domain:
+                    continue
+                cat = self._by_domain.setdefault(domain, {"params": {}})
                 if entry.name in cat["params"]:
                     continue
                 cat["params"][entry.name] = self._project_param(entry)

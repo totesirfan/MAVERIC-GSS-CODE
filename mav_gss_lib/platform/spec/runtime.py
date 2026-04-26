@@ -275,6 +275,7 @@ from mav_gss_lib.platform.telemetry import TelemetryFragment
 from .bitfield import BitfieldType
 from .calibrator_runtime import CalibratorRuntime
 from .containers import ParameterRefEntry, PagedFrameEntry, RepeatEntry
+from .parameters import Parameter
 
 
 class BitfieldDecoder:
@@ -327,7 +328,7 @@ class EntryDecoder:
     decoded values for downstream dispatch (`parent_args`, dynamic_ref).
     """
 
-    __slots__ = ("_types", "_codec", "_calibrators", "_bitfields")
+    __slots__ = ("_types", "_codec", "_calibrators", "_bitfields", "_parameters")
 
     def __init__(
         self,
@@ -336,11 +337,20 @@ class EntryDecoder:
         codec: TypeCodec,
         calibrators: CalibratorRuntime,
         bitfields: Mapping[str, BitfieldType],
+        parameters: Mapping[str, "Parameter"] | None = None,
     ) -> None:
         self._types = types
         self._codec = codec
         self._calibrators = calibrators
         self._bitfields = bitfields
+        self._parameters = parameters or {}
+
+    def _domain_for(self, container: SequenceContainer, entry_name: str) -> str:
+        """XTCE-lite: parameter.domain wins; container.domain is fallback."""
+        param = self._parameters.get(entry_name)
+        if param is not None and param.domain:
+            return param.domain
+        return container.domain
 
     def walk(
         self,
@@ -404,7 +414,7 @@ class EntryDecoder:
             decoded_into[entry.name] = value if entry.type_ref in self._bitfields else raw
         if entry.emit:
             yield TelemetryFragment(
-                domain=container.domain,
+                domain=self._domain_for(container, entry.name),
                 key=entry.name,
                 value=value,
                 ts_ms=now_ms,
@@ -444,7 +454,7 @@ class EntryDecoder:
             value, unit = self._calibrators.apply(entry.entry.type_ref, raw)
             if entry.entry.emit:
                 yield TelemetryFragment(
-                    domain=container.domain,
+                    domain=self._domain_for(container, entry.entry.name),
                     key=entry.entry.name,
                     value=value,
                     ts_ms=now_ms,
@@ -486,7 +496,7 @@ class EntryDecoder:
                 # 'skip' or 'emit_unknown' — both consume nothing further
                 if entry.on_unknown_register == "emit_unknown":
                     yield TelemetryFragment(
-                        domain=container.domain,
+                        domain=container.domain,  # unknown reg: container default
                         key=f"UNKNOWN_REG_{'_'.join(str(v) for v in synthesized.values())}",
                         value=None,
                         ts_ms=now_ms,
@@ -581,6 +591,7 @@ class DeclarativeWalker:
             codec=self._codec,
             calibrators=self._calibrators,
             bitfields=mission.bitfield_types,
+            parameters=mission.parameters,
         )
         self._cmd_encoder = CommandEncoder(
             meta_commands=mission.meta_commands,
