@@ -19,11 +19,12 @@ import logging
 import secrets
 import shutil
 import threading
+import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Mapping, Optional
 
 if TYPE_CHECKING:
     from fastapi import FastAPI, Request, WebSocket
@@ -35,6 +36,12 @@ from mav_gss_lib.config import (
 from mav_gss_lib.constants import DEFAULT_MISSION_NAME
 from mav_gss_lib.identity import capture_host, capture_operator, capture_station
 from mav_gss_lib.platform import PlatformRuntime
+from mav_gss_lib.platform.alarms.dispatch import AlarmDispatch
+from mav_gss_lib.platform.alarms.evaluators.parameter import (
+    PluginRegistry, evaluate_parameter,
+)
+from mav_gss_lib.platform.alarms.registry import AlarmRegistry
+from mav_gss_lib.platform.alarms.schema import AlarmRule
 from mav_gss_lib.platform.parameters import ParameterCache
 from ._atomics import AtomicStatus
 from .rx.service import RxService
@@ -84,8 +91,19 @@ class WebRuntime:
         self.operator = capture_operator()
         self.host = capture_host()
         self.station = capture_station(self.platform_cfg, self.host)
+
+        self.alarm_registry = AlarmRegistry()
+        self.alarm_clients: list = []
+        self.alarm_clients_lock = threading.Lock()
+        # Live until lifespan calls bind_alarm_dispatch — keeps cache writes
+        # silent (no audit, no broadcast) during construction.
+        self._alarm_dispatch: AlarmDispatch | None = None
+        self._parameter_rules: dict[str, tuple[AlarmRule, ...]] = {}
+        self._alarm_plugins: PluginRegistry = PluginRegistry({})
+
         self.platform = PlatformRuntime.from_split(
             self.platform_cfg, self.mission_id, self.mission_cfg,
+            on_parameter_apply=self._evaluate_parameter_alarms,
         )
         self.mission = self.platform.mission
         # Populated from MissionSpec.parse_warnings so the /ws/preflight
@@ -210,6 +228,42 @@ class WebRuntime:
     @property
     def parameter_cache(self) -> ParameterCache:
         return self.platform.parameter_cache
+
+    def bind_alarm_dispatch(
+        self,
+        dispatch: AlarmDispatch,
+        parameter_rules: Mapping[str, tuple[AlarmRule, ...]],
+        plugins: PluginRegistry,
+    ) -> None:
+        """Install the live alarm dispatch + compiled parameter rules.
+
+        Called by lifespan once the spec_root, dispatch sinks, and event
+        loop are all available.
+        """
+        self._alarm_dispatch = dispatch
+        self._parameter_rules = dict(parameter_rules)
+        self._alarm_plugins = plugins
+
+    def _evaluate_parameter_alarms(self, updates) -> None:
+        """ParameterCache.on_apply callback — drives parameter rule
+        evaluation and dispatches changes. No-op until bind_alarm_dispatch
+        has been called."""
+        dispatch = self._alarm_dispatch
+        if dispatch is None:
+            return
+        now_ms = int(time.time() * 1000)
+        for u in updates:
+            if self.alarm_registry.carrier_stale_for(u.name):
+                continue
+            rules = self._parameter_rules.get(u.name)
+            if not rules:
+                continue
+            base = f"param.{u.name}"
+            for verdict in evaluate_parameter(
+                base, rules, u.value, plugins=self._alarm_plugins,
+            ):
+                ch = self.alarm_registry.observe(verdict, now_ms)
+                dispatch.emit(ch, now_ms)
 
 
 def create_runtime() -> WebRuntime:

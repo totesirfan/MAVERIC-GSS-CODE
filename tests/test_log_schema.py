@@ -29,7 +29,7 @@ _ENVELOPE_KEYS = {
     "seq", "v", "mission_id", "operator", "station",
 }
 
-_ALLOWED_KINDS = {"rx_packet", "tx_command", "parameter"}
+_ALLOWED_KINDS = {"rx_packet", "tx_command", "parameter", "alarm"}
 
 
 class _Ui:
