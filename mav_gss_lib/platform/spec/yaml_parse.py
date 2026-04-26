@@ -391,24 +391,13 @@ def _check_paged_frame_targets(containers: Mapping[str, SequenceContainer]) -> N
 
 
 def _check_container_conflicts(containers: Mapping[str, SequenceContainer]) -> None:
-    by_signature: dict[tuple, str] = {}
-    for c in containers.values():
-        rc = c.restriction_criteria
-        if rc is None or not rc.packet:
-            continue
-        sig_items = []
-        for cmp in rc.packet:
-            if cmp.operator == "==":
-                sig_items.append((cmp.parameter_ref, cmp.value))
-        sig = (c.base_container_ref, tuple(sorted(sig_items)))
-        if not sig_items:
-            continue
-        if sig in by_signature:
-            raise ContainerConflict(
-                name_a=by_signature[sig], name_b=c.name,
-                signature={k: v for k, v in sig_items},
-            )
-        by_signature[sig] = c.name
+    # Top-level containers (base_container_ref=None) MAY share a packet
+    # predicate — they fan out to multiple domains. Concrete children are
+    # disambiguated by parent_args, not packet predicates, so a duplicate
+    # at this level can only arise between top-level siblings, which is
+    # legal. The check is intentionally a no-op; the walker iterates all
+    # matching parents.
+    return
 
 
 def _check_type_graph_cycles(parameter_types: Mapping[str, ParameterType]) -> None:

@@ -232,14 +232,26 @@ class ContainerMatcher:
         self._top_level = tuple(top_level)
         self._children_by_parent = {k: tuple(v) for k, v in children.items()}
 
-    def match_parent(self, pkt: WalkerPacket) -> SequenceContainer | None:
+    def match_parents(self, pkt: WalkerPacket) -> tuple[SequenceContainer, ...]:
+        """All top-level containers matching this packet, in YAML order.
+
+        Multiple containers may legally share a packet predicate when fanning
+        out to different domains; the walker invokes each match independently
+        with its own cursor.
+        """
+        matches: list[SequenceContainer] = []
         for c in self._top_level:
             rc = c.restriction_criteria
             if rc is None or not rc.packet:
                 continue
             if all(_check(p, pkt.header) for p in rc.packet):
-                return c
-        return None
+                matches.append(c)
+        return tuple(matches)
+
+    def match_parent(self, pkt: WalkerPacket) -> SequenceContainer | None:
+        """First matching top-level container (legacy compatibility)."""
+        matches = self.match_parents(pkt)
+        return matches[0] if matches else None
 
     def resolve_concrete(
         self, parent_name: str, parent_decoded: Mapping[str, Any],
@@ -581,39 +593,40 @@ class DeclarativeWalker:
         return self._matcher.match_parent(pkt)
 
     def extract(self, pkt: WalkerPacket, now_ms: int) -> Iterator[TelemetryFragment]:
-        parent = self.match_parent(pkt)
-        if parent is None:
+        parents = self._matcher.match_parents(pkt)
+        if not parents:
             return
-        cursor = (
-            BitCursor(pkt.args_raw) if parent.layout == "binary"
-            else TokenCursor(pkt.args_raw)
-        )
-        parent_decoded: dict[str, Any] = {}
-        try:
-            yield from self._entries.walk(
-                parent, cursor, now_ms=now_ms,
-                decoded_into=parent_decoded, matcher=self._matcher,
+        for parent in parents:
+            cursor = (
+                BitCursor(pkt.args_raw) if parent.layout == "binary"
+                else TokenCursor(pkt.args_raw)
             )
-        except IndexError:
-            self._handle_short(parent)
-            return
-        if not self._matcher.has_concrete_children(parent.name):
-            return
-        concrete = self._matcher.resolve_concrete(parent.name, parent_decoded)
-        if concrete is None:
-            if parent.abstract:
-                self.log.warning(
-                    "no concrete child for abstract parent %s; decoded=%r",
-                    parent.name, parent_decoded,
+            parent_decoded: dict[str, Any] = {}
+            try:
+                yield from self._entries.walk(
+                    parent, cursor, now_ms=now_ms,
+                    decoded_into=parent_decoded, matcher=self._matcher,
                 )
-            return
-        try:
-            yield from self._entries.walk(
-                concrete, cursor, now_ms=now_ms,
-                decoded_into={}, matcher=self._matcher,
-            )
-        except IndexError:
-            self._handle_short(concrete)
+            except IndexError:
+                self._handle_short(parent)
+                continue
+            if not self._matcher.has_concrete_children(parent.name):
+                continue
+            concrete = self._matcher.resolve_concrete(parent.name, parent_decoded)
+            if concrete is None:
+                if parent.abstract:
+                    self.log.warning(
+                        "no concrete child for abstract parent %s; decoded=%r",
+                        parent.name, parent_decoded,
+                    )
+                continue
+            try:
+                yield from self._entries.walk(
+                    concrete, cursor, now_ms=now_ms,
+                    decoded_into={}, matcher=self._matcher,
+                )
+            except IndexError:
+                self._handle_short(concrete)
 
     def encode_args(self, cmd_id: str, args: Mapping[str, Any]) -> bytes:
         return self._cmd_encoder.encode_args(cmd_id, args)
