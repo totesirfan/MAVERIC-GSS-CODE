@@ -70,31 +70,55 @@ def _display_from_prepared(prepared: "PreparedCommand") -> dict[str, Any]:
     }
 
 
-def make_mission_cmd(payload: dict[str, Any], runtime: "WebRuntime | None" = None) -> MissionCmdItem:
-    """Build one mission-command queue item from a mission-specific payload.
+def make_mission_cmd(
+    payload: str | dict[str, Any],
+    runtime: "WebRuntime | None" = None,
+) -> MissionCmdItem:
+    """Build one mission-command queue item from a CLI string or builder dict.
 
     Calls the active mission command ops to validate, encode, and produce
     display metadata. Does NOT check MTU — use
     validate_mission_cmd() for full admission.
 
-    The original payload is stored so it can be re-built on queue restore.
+    The persisted ``payload`` field is normalized to a canonical flat dict
+    (``{cmd_id, args, dest, echo, ptype}``) derived from the encoded
+    mission_payload, so queue restore round-trips uniformly whether the
+    operator entered a CLI line, the TX builder sent a flat dict, or the
+    mission emits a header sub-dict.
     """
     if runtime is None:
         raise ValueError("mission command validation requires a runtime")
 
     prepared = runtime.platform.prepare_tx(payload)
-    mission_payload = prepared.encoded.mission_payload
+    mp = prepared.encoded.mission_payload or {}
+    payload_dict = payload if isinstance(payload, dict) else {}
+
+    # Prefer the canonical declarative shape (cmd_id at top, header sub-dict)
+    # for the persisted payload; fall back to legacy missions that emit a
+    # nested {payload: {...}} envelope.
+    header = mp.get("header") or {}
+    if mp.get("cmd_id") is not None:
+        canonical_payload: dict[str, Any] = {
+            "cmd_id": mp.get("cmd_id"),
+            "args":   mp.get("args", {}),
+            "dest":   header.get("dest"),
+            "echo":   header.get("echo"),
+            "ptype":  header.get("ptype"),
+        }
+    else:
+        canonical_payload = mp.get("payload", payload_dict if payload_dict else {})
+
     return {
         "type": "mission_cmd",
         "raw_cmd": prepared.encoded.raw,
         "display": _display_from_prepared(prepared),
-        "guard": bool(payload.get("guard", prepared.encoded.guard)),
-        "payload": mission_payload.get("payload", payload),
+        "guard": bool(payload_dict.get("guard", prepared.encoded.guard)),
+        "payload": canonical_payload,
     }
 
 
 def validate_mission_cmd(
-    payload: dict[str, Any],
+    payload: str | dict[str, Any],
     runtime: "WebRuntime | None" = None,
 ) -> MissionCmdItem:
     """Validate and build a mission-command queue item.
