@@ -18,6 +18,8 @@ class BitCursor:
     __slots__ = ("_buf", "_byte_pos", "_bit_remainder", "_bit_remainder_size")
 
     def __init__(self, buf: bytes) -> None:
+        if buf is None:
+            buf = b""
         self._buf = buf
         self._byte_pos = 0
         self._bit_remainder = 0
@@ -74,6 +76,8 @@ class TokenCursor:
     __slots__ = ("_buf", "_tokens", "_idx", "_post_whitespace_offset")
 
     def __init__(self, buf: bytes) -> None:
+        if buf is None:
+            buf = b""
         self._buf = buf
         text = buf.decode("ascii", errors="replace")
         self._tokens = text.split()
