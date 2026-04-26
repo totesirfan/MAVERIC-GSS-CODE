@@ -102,7 +102,7 @@ def _parse(
     parameters = {
         name: Parameter(name=name, type_ref=p.type,
                         description=p.description, domain=p.domain,
-                        tags=dict(p.tags))
+                        tags=dict(p.tags), alarm=p.alarm)
         for name, p in doc.parameters.items()
     }
     sequence_containers = _project_sequence_containers(doc, parameter_types, bitfield_types)
@@ -265,6 +265,8 @@ def _project_sequence_containers(
             on_short_payload=c.on_short_payload,
             on_decode_error=c.on_decode_error,
             description=c.description,
+            stale=c.stale,
+            expected_period_ms=c.expected_period_ms or 0,
         )
     _check_container_conflicts(out)
     return out

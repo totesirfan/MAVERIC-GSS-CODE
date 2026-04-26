@@ -36,6 +36,8 @@ class PacketFlags:
     is_duplicate: bool = False
     is_unknown: bool = False
     is_uplink_echo: bool = False
+    # None = not checked / not applicable; True = CRC pass; False = CRC fail.
+    integrity_ok: bool | None = None
 
 
 @dataclass(slots=True)

@@ -25,6 +25,7 @@ class Parameter:
     description: str = ""
     domain: str | None = None
     tags: Mapping[str, Any] = field(default_factory=dict)
+    alarm: Any | None = None
 
 
 __all__ = ["Parameter"]

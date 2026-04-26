@@ -15,7 +15,7 @@ Three entry kinds: ParameterRefEntry (named field), RepeatEntry
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,6 +70,8 @@ class SequenceContainer:
     on_short_payload: Literal["skip", "raise", "emit_partial"] = "skip"
     on_decode_error: Literal["skip", "raise", "emit_partial"] = "raise"
     description: str = ""
+    stale: dict[str, Any] | None = None
+    expected_period_ms: int = 0
 
 
 __all__ = [

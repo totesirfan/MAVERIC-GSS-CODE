@@ -130,6 +130,7 @@ class _Parameter(_Strict):
     description: str = ""
     domain: str | None = None
     tags: dict[str, Any] = Field(default_factory=dict)
+    alarm: Any | None = None
 
 
 class _ParameterRefEntry(_Strict):
@@ -159,6 +160,8 @@ class _SequenceContainer(_Strict):
     on_short_payload: Literal["skip", "raise", "emit_partial"] = "skip"
     on_decode_error: Literal["skip", "raise", "emit_partial"] = "raise"
     description: str = ""
+    stale: dict[str, Any] | None = None
+    expected_period_ms: int | None = None
 
 
 class _Argument(_Strict):

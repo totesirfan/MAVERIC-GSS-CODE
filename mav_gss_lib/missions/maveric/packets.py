@@ -104,10 +104,12 @@ class DeclarativePacketsAdapter(PacketOps):
 
     def classify(self, packet: MissionPacket) -> PacketFlags:
         payload: MaverMissionPayload = packet.payload
+        integrity = bool(payload.valid_crc) if hasattr(payload, "valid_crc") else None
         return PacketFlags(
             duplicate_key=_duplicate_fingerprint(payload),
             is_unknown=(payload.header is None),
             is_uplink_echo=_is_uplink_echo(payload, self.codec),
+            integrity_ok=integrity,
         )
 
     def match_verifiers(self, envelope, open_instances, *, now_ms, rx_event_id=""):

@@ -60,3 +60,7 @@ class MissionSpec:
     # surfaced in /ws/preflight payload and the spec logger at startup.
     # Empty for hand-built missions; populated by the declarative YAML path.
     parse_warnings: tuple[Any, ...] = ()
+    # Alarm predicate registry: maps plugin key → callable(value) -> (Any, str).
+    # Used by the alarm engine to evaluate mission-declared python-rule alarms.
+    # Defaults to empty dict (missions without alarm predicates omit this field).
+    alarm_plugins: Mapping[str, Callable[[Any], tuple[Any, str]]] = field(default_factory=dict)
