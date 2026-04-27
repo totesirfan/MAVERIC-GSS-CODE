@@ -167,7 +167,7 @@ Web runtime (`mav_gss_lib/server/`):
 | `ws/rx.py` / `ws/tx.py` | `/ws/rx` and `/ws/tx` WebSocket handlers.                           |
 | `ws/session.py`       | `/ws/session` WebSocket.                                              |
 | `ws/preflight.py`     | `/ws/preflight` WebSocket and preflight broadcast loop.               |
-| `ws/update.py`        | Update-check scheduling and WebSocket.                                |
+| `ws/update.py`        | Update-check scheduling + apply-update phase broadcast (delivered over `/ws/preflight`). |
 | `ws/alarms.py`        | `/ws/alarms` snapshot + change stream + ack endpoint.                 |
 | `ws/_utils.py`        | Shared WebSocket helpers.                                             |
 | `security.py`         | CORS / CSP headers / API-token check.                                 |

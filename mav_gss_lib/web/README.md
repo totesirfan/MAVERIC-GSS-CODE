@@ -64,8 +64,8 @@ src/
     ConfigSidebar.tsx    Runtime config editor sidebar (top-level — single-file)
     rx/                  RxPanel, RxPanelHeader, RxDetailPane, PacketList/Row/Detail,
                          SessionBanner, BlackoutPill
-    tx/                  TxPanel, TxQueue, QueueItem, CommandInput, ImportDialog, SentHistory,
-                         DelayItem, NoteItem
+    tx/                  TxPanel, TxQueue, QueueItem, CommandInput, ImportDialog,
+                         DelayItem, NoteItem, VerifierDetailBlock, VerifierTickStrip
     shared/
       atoms/             StatusDot, TogglePill, ValueBadge
       dialogs/           ConfirmDialog, PromptDialog, HelpModal
@@ -99,6 +99,9 @@ src/
     useReceivingDetection.ts  Silence/burst detection
     useShortcuts.ts      Global keyboard shortcuts
     useAlarms.ts         Alarm strip state
+    useContainerFreshness.ts  Per-container freshness lookup
+    useFollowScroll.ts   Auto-follow scroll state for streaming lists
+    useNowMs.ts          Shared monotonic-clock hook (+ unit test)
     usePluginServices.ts Plugin service discovery
     usePopOutBootstrap.ts Bootstrap for pop-out windows
     usePreflight.ts      Preflight state subscription
@@ -107,8 +110,9 @@ src/
     colors.ts            Semantic tone tokens (danger/warning/info/success/active/neutral)
     columns.ts           Column-driven rendering helpers
     types.ts             Shared types (RxPacket, RxStatus, ColumnDef, etc.)
-    nodes.ts             Node resolution helpers
-    auth.ts              Session token handling
+    rendering.ts         Cell/RenderingData helpers used by shared rendering components
+    navigation.ts        Tab/plugin navigation builders
+    auth.ts              Session token handling (+ unit test)
     ws.ts                WebSocket helpers (createSocket)
     utils.ts             Misc DOM/utility helpers (isInputFocused, cn)
     cmdkFilter.ts        Filter predicate for the Ctrl+K command palette
@@ -119,6 +123,7 @@ src/
       TxBuilder.tsx      MAVERIC command picker (mission TX builder)
       plugins.ts         Plugin page manifest
       providers.ts       Mission provider manifest
+      staleness.ts       Shared staleness thresholds + opacity scale
       ImagingPage.tsx    Imaging downlink viewer
       imaging/           Imaging subcomponents
       eps/               EPS dashboard widgets and provider
@@ -136,7 +141,7 @@ Providers are deliberately placed under `src/state/` rather than `src/hooks/`. `
 1. `SessionProvider` — session identity, rename/new-session state
 2. `TxProvider` — TX WebSocket, queue, guard/send/history
 3. `RxProvider` — RX WebSocket, packets, status, display toggles
-4. `TelemetryProvider` — platform telemetry-domain state and catalog cache
+4. `ParametersProvider` — `ParameterCache` snapshot + freshness, fed by `/api/parameters` and `/ws/rx`
 5. `MissionProviders` — mission-declared providers from `plugins/<mission>/providers.ts`
 6. `AppShell` — renders `GlobalHeader`, `TabViewport`, and lazy-loaded modals (`ConfigSidebar`, `LogViewer`, `HelpModal`, `CommandPalette`)
 
@@ -167,6 +172,7 @@ WebSocket endpoints:
 | `/ws/tx` | TX queue ops: `queue` (raw CLI), `queue_mission_cmd` (mission builder), send/abort/guard/reorder |
 | `/ws/session` | Session identity, new-session and rename events |
 | `/ws/preflight` | Preflight check state and updater progress |
+| `/ws/alarms` | Alarm snapshot + change stream + ack |
 
 HTTP endpoints (see `mav_gss_lib/server/api/`):
 
@@ -182,6 +188,8 @@ HTTP endpoints (see `mav_gss_lib/server/api/`):
 | `GET /api/tx/capabilities` | Mission TX capabilities (builder metadata) |
 | `GET /api/logs` | List log sessions |
 | `GET /api/logs/{session_id}` | Fetch log records for replay |
+| `GET /api/logs/{session_id}/parameters` | Parameter snapshot for replay |
+| `GET /api/identity` | Operator / host / station capture |
 | `GET /api/session` | Current session info |
 | `POST /api/session/new` | Start a new session |
 | `PATCH /api/session` | Rename the current session tag |
@@ -191,6 +199,7 @@ HTTP endpoints (see `mav_gss_lib/server/api/`):
 | `GET /api/import/{filename}/preview` | Preview a queue import |
 | `POST /api/import/{filename}` | Apply a queue import |
 | `POST /api/export-queue` | Export the current queue |
+| `POST /api/tx/clear-sent` | Clear the sent-history buffer |
 
 Boundaries:
 
