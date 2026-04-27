@@ -8,9 +8,9 @@ the operator dashboard.
 Layout:
 
     platform/    — mission/platform boundary (contract/, rx/, tx/, config/,
-                   framing/, telemetry/) + PlatformRuntime + loader
+                   framing/) + PlatformRuntime + loader
     missions/    — concrete missions (maveric + echo_v2 + balloon_v2)
-    server/      — FastAPI backend (app, ws/, rx/, tx/, api/, telemetry)
+    server/      — FastAPI backend (app, ws/, rx/, tx/, api/)
     web/         — React + Vite frontend (src/ + committed dist/)
 
     logging/     — session logging (SessionLog for RX, TXLog for TX)

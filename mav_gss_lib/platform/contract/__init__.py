@@ -11,6 +11,15 @@ This subpackage holds the mission/platform boundary:
     rendering.py   — Cell + ColumnDef + PacketRendering + DetailBlock + IntegrityBlock
     ui.py          — UiOps
 
+Naming convention used across `platform/`:
+
+    contract/X.py    — defines the protocol/dataclass surface (e.g. PacketOps, CommandOps)
+    rx/X.py / tx/X.py — implements the platform-side machinery for that surface
+
+Same basename, different role. Always import explicitly:
+    from mav_gss_lib.platform.contract.packets import PacketOps
+    from mav_gss_lib.platform.rx.packet_pipeline import PacketPipeline
+
 Core nouns are re-exported here for ergonomic mid-level imports:
     from mav_gss_lib.platform.contract import MissionSpec, PacketOps, CommandOps
 
