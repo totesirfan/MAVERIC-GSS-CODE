@@ -83,16 +83,6 @@ def ts_result(envelope: "PacketEnvelope") -> tuple | None:
     return None
 
 
-def _ts_for_row(envelope: "PacketEnvelope") -> str:
-    """Format the time column. Prefers ts_result (satellite time from
-    fragments); falls back to GS receive time."""
-    ts = ts_result(envelope)
-    if ts is None:
-        return envelope.received_at_short
-    _, dt_local, _ = ts
-    return f"{dt_local.hour:02d}:{dt_local.minute:02d}:{dt_local.second:02d}"
-
-
 # =============================================================================
 #  RX Packet List
 # =============================================================================
@@ -124,7 +114,7 @@ def packet_list_row(payload: "MaverMissionPayload", envelope: "PacketEnvelope") 
     return {
         "values": {
             "num":   envelope.seq,
-            "time":  _ts_for_row(envelope),
+            "time":  envelope.received_at_short,
             "frame": envelope.frame_type,
             "src":   str(h.get("src", "")),
             "echo":  str(h.get("echo", "")),
