@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { Card } from './Card'
 import { FlagDot } from '../shared/FlagDot'
-import { ageMs, formatAge, staleLevel } from '../../shared/staleness'
+import { ageMs, formatAge, staleLevel } from '../../staleness'
 import type { GncState, StatBitfield, ActErrBitfield, SenErrBitfield } from '../types'
 import styles from './FlagsStrip.module.css'
 

@@ -3,7 +3,7 @@ import { fmt } from './derive'
 import { FIELD_DEFS, GROUP_DEFS, type EpsFieldMap, type GroupId } from './types'
 import {
   ageMs, formatAge, staleLevel, STALE_OPACITY, NO_DATA_OPACITY,
-} from '../shared/staleness'
+} from '../staleness'
 
 interface Props {
   fields: EpsFieldMap

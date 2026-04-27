@@ -34,7 +34,7 @@ import { isInputFocused } from '@/lib/utils'
 import { authFetch } from '@/lib/auth'
 import type { CommandPaletteActions } from '@/components/shared/overlays/CommandPalette'
 
-const ConfigSidebar = lazy(() => import('@/components/config/ConfigSidebar').then((m) => ({ default: m.ConfigSidebar })))
+const ConfigSidebar = lazy(() => import('@/components/ConfigSidebar').then((m) => ({ default: m.ConfigSidebar })))
 const LogViewer = lazy(() => import('@/components/logs/LogViewer').then((m) => ({ default: m.LogViewer })))
 const HelpModal = lazy(() => import('@/components/shared/dialogs/HelpModal').then((m) => ({ default: m.HelpModal })))
 const CommandPalette = lazy(() => import('@/components/shared/overlays/CommandPalette').then((m) => ({ default: m.CommandPalette })))
