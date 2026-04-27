@@ -195,7 +195,13 @@ def _eval_python(rule: PythonRule, target: Any,
 
 
 def _safe_for_context(value):
-    if isinstance(value, (int, float, str, bool)) or value is None:
+    # NaN / +Inf / -Inf must be replaced before this value reaches a
+    # `json.dumps` site: browsers reject `NaN`/`Infinity` literals and the
+    # entire WS frame is silently dropped on JSON.parse, so an alarm
+    # transition would never reach the operator.
+    if isinstance(value, float):
+        return None if math.isnan(value) or math.isinf(value) else value
+    if isinstance(value, (int, str, bool)) or value is None:
         return value
     if isinstance(value, dict):
         return {k: _safe_for_context(v) for k, v in value.items()}
