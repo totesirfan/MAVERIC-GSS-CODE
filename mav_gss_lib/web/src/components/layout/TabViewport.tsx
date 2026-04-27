@@ -1,6 +1,6 @@
 import { Suspense, useRef, type ReactNode } from 'react'
 import { Skeleton } from '@/components/ui/skeleton'
-import { TabActiveProvider } from '@/components/layout/TabActiveContext'
+import { TabActiveProvider } from '@/state/TabActiveContext'
 import { colors } from '@/lib/colors'
 import type { PluginPageDef } from '@/plugins/registry'
 

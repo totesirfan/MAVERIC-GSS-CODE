@@ -1,7 +1,7 @@
 import { useState, useMemo, Suspense, useCallback, useRef } from 'react'
 import { useEffect } from 'react'
 import { useShortcuts } from '@/hooks/useShortcuts'
-import { useTabActive } from '@/components/layout/TabActiveContext'
+import { useTabActive } from '@/state/TabActiveContext'
 import { motion } from 'framer-motion'
 import { FileUp, StopCircle, Send as SendIcon, ShieldCheck, X, ExternalLink, Wrench } from 'lucide-react'
 import { Button } from '@/components/ui/button'

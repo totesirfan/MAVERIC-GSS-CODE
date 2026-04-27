@@ -6,7 +6,7 @@ import {
 } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { Trash2, Send, Timer, Save, ArrowDownToLine, ArrowUpToLine, History } from 'lucide-react'
-import { useTabActive } from '@/components/layout/TabActiveContext'
+import { useTabActive } from '@/state/TabActiveContext'
 import { useShortcuts, type Shortcut } from '@/hooks/useShortcuts'
 import { useFollowScroll } from '@/hooks/useFollowScroll'
 import { isInputFocused } from '@/lib/utils'

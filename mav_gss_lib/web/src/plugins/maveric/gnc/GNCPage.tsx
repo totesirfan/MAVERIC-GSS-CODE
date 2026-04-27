@@ -6,7 +6,7 @@ import { NaviGuiderCard } from './dashboard/NaviGuiderCard'
 import { FlagsStrip } from './dashboard/FlagsStrip'
 import { RegistersTable } from './registers/RegistersTable'
 import type { CatalogEntry, GncState, RegisterValue } from './types'
-import { useTabActive } from '@/components/layout/TabActiveContext'
+import { useTabActive } from '@/state/TabActiveContext'
 import { colors } from '@/lib/colors'
 
 type TabId = 'dashboard' | 'registers'
