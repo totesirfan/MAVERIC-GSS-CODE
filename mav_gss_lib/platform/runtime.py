@@ -24,13 +24,19 @@ from .tx.commands import PreparedCommand, frame_command, prepare_command
 from .tx.verifiers import VerifierRegistry
 
 
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
+
 def _resolve_log_dir(platform_cfg: dict[str, Any]) -> str:
     general = platform_cfg.get("general") or {}
     log_dir = general.get("log_dir")
-    if log_dir:
-        return str(log_dir)
-    logs_block = platform_cfg.get("logs") or {}
-    return str(logs_block.get("dir", "logs"))
+    if not log_dir:
+        logs_block = platform_cfg.get("logs") or {}
+        log_dir = logs_block.get("dir", "logs")
+    p = Path(log_dir)
+    if not p.is_absolute():
+        p = _PROJECT_ROOT / p
+    return str(p)
 
 
 @dataclass(slots=True)
