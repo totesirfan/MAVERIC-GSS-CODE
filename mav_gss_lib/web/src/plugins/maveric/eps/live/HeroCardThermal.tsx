@@ -86,10 +86,9 @@ function HeroCardThermalInner({ T_DIE, TS_ADC, prev_T_DIE, etaSeconds, alarm }: 
             {Number.isFinite(T_DIE) && <div className="marker" style={{ left: `${fill}%` }} />}
           </div>
           <div className="soc-axis">
-            <span className="mk edge-l" style={{ left: '0%' }}>−10</span>
             <span className="mk" style={{ left: `${limCold}%` }}>0 cold</span>
             <span className="mk" style={{ left: `${limHot}%` }}>70 hot</span>
-            <span className="mk edge-r" style={{ left: '100%' }}>85 °C</span>
+            <span className="mk" style={{ left: `${limJct}%` }}>85 jct</span>
           </div>
         </div>
         {hasPrev && (

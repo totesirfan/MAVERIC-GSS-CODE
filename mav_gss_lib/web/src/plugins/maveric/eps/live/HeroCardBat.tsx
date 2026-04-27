@@ -89,10 +89,8 @@ function HeroCardBatInner({ V_BAT, I_BAT, prev_V_BAT, chargeDir, soc, alarm }: P
             {Number.isFinite(V_BAT) && <div className="marker" style={{ left: `${fill}%` }} />}
           </div>
           <div className="soc-axis">
-            <span className="mk edge-l" style={{ left: '0%' }}>6.0</span>
             <span className="mk" style={{ left: `${limLo}%` }}>6.5 lo</span>
             <span className="mk" style={{ left: `${limNom}%` }}>8.0 nom</span>
-            <span className="mk edge-r" style={{ left: '100%' }}>8.4 V</span>
           </div>
         </div>
         {hasPrev && (

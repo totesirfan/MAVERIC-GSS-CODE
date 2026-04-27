@@ -86,10 +86,9 @@ function HeroCardBusInner({ V_BUS, I_BUS, prev_V_BUS, alarm }: Props) {
             {Number.isFinite(V_BUS) && <div className="marker" style={{ left: `${fill}%` }} />}
           </div>
           <div className="soc-axis">
-            <span className="mk edge-l" style={{ left: '0%' }}>6.0</span>
             <span className="mk" style={{ left: `${limLo}%` }}>6.5 lo</span>
             <span className="mk" style={{ left: `${limNom}%` }}>8.5 nom</span>
-            <span className="mk edge-r" style={{ left: `${limHi}%` }}>9.5 V</span>
+            <span className="mk" style={{ left: `${limHi}%` }}>9.5 hi</span>
           </div>
         </div>
         {hasPrev && (

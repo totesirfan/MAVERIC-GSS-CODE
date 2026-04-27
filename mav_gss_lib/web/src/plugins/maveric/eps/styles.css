@@ -318,22 +318,18 @@
   transform: translateX(-50%);
   background: var(--text-primary); box-shadow: 0 0 4px rgba(229, 229, 229, 0.6);
 }
-/* Two-row axis: edge labels (.edge-l / .edge-r) own row 1 so the bar's
-   ends always read clean; inner threshold labels (lo / nom / hi) drop
-   to row 2 below, where they get the full bar width without colliding
-   with the edges. */
 .eps-page .soc-axis {
-  position: relative; height: 30px; margin-top: 6px;
+  position: relative; height: 16px; margin-top: 6px;
   font-family: 'JetBrains Mono', monospace; font-size: 12px;
   color: var(--text-disabled); letter-spacing: 0.04em;
 }
 .eps-page .soc-axis .mk {
-  position: absolute; top: 14px;
+  position: absolute; top: 0;
   transform: translateX(-50%);
   white-space: nowrap; line-height: 1;
 }
-.eps-page .soc-axis .mk.edge-l { top: 0; transform: none; }
-.eps-page .soc-axis .mk.edge-r { top: 0; transform: translateX(-100%); }
+.eps-page .soc-axis .mk.edge-l { transform: none; }
+.eps-page .soc-axis .mk.edge-r { transform: translateX(-100%); }
 
 /* ── Δ-since-previous + ETA rows ─────────────────────────── */
 .eps-page .delta-row {
@@ -610,7 +606,11 @@
   color: var(--text-primary);
   background: rgba(255, 255, 255, 0.03);
   font-variant-numeric: tabular-nums;
-  min-width: 96px;
+  /* Floor that fits the longest single-line sub-label
+     ("HOT RAIL · 140 mA", "MCU + quiescent") + padding,
+     so labels never wrap mid-token. */
+  min-width: 168px;
+  flex-shrink: 0;
   overflow: hidden;
 }
 .eps-page .pb-seg::before {
@@ -783,20 +783,15 @@
 }
 .eps-page .solar-row {
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr);
-  grid-template-rows: auto auto auto;
-  align-items: center; column-gap: 8px; row-gap: 2px;
+  grid-template-columns: auto auto minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  column-gap: 8px;
   padding: 6px 10px;
   border: 1px solid var(--border-subtle); border-radius: 3px;
   background: #0a0a0a;
-  font: 500 12px/1.15 'JetBrains Mono', monospace;
+  font: 500 11px/1.15 'JetBrains Mono', monospace;
   font-variant-numeric: tabular-nums;
 }
-.eps-page .solar-row .s-name  { grid-column: 1; grid-row: 1 / -1; align-self: center; }
-.eps-page .solar-row .s-badge { grid-column: 2; grid-row: 1 / -1; align-self: center; }
-.eps-page .solar-row .s-v { grid-column: 3; grid-row: 1; }
-.eps-page .solar-row .s-i { grid-column: 3; grid-row: 2; }
-.eps-page .solar-row .s-p { grid-column: 3; grid-row: 3; }
 .eps-page .solar-row.gen  { border-color: rgba(60, 201, 142, 0.4); background: rgba(60, 201, 142, 0.05); }
 .eps-page .solar-row.dead { border-color: rgba(255, 56, 56, 0.55); background: rgba(255, 56, 56, 0.07); }
 .eps-page .solar-row .s-name {

@@ -80,10 +80,9 @@ function HeroCardSysInner({ V_SYS, prev_V_SYS, alarm }: Props) {
             {Number.isFinite(V_SYS) && <div className="marker" style={{ left: `${fill}%` }} />}
           </div>
           <div className="soc-axis">
-            <span className="mk edge-l" style={{ left: '0%' }}>5.0</span>
             <span className="mk" style={{ left: `${limLo}%` }}>5.5 lo</span>
             <span className="mk" style={{ left: `${limNom}%` }}>7.0 nom</span>
-            <span className="mk edge-r" style={{ left: '100%' }}>9.0 V</span>
+            <span className="mk" style={{ left: `${limHi}%` }}>8.5 hi</span>
           </div>
         </div>
         {hasPrev && (
