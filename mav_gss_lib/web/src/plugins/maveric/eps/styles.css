@@ -296,12 +296,13 @@
 .eps-page .mini-stats .v .u { font-size: 11px; color: var(--text-disabled); margin-left: 3px; }
 
 /* ── SoC gauge ───────────────────────────────────────────────
-   Homogenized with GNC TempGauge / MtqBars: 10 px bar, 1 px neutral
-   lim ticks, 2 px white precision marker at the fill edge. */
+   Same spirit as GNC TempGauge / MtqBars (neutral lim ticks, white
+   precision marker, faint background, 1 px subtle border) but sized
+   for hero-card density: 16 px bar, 13 px axis labels. */
 .eps-page .soc-gauge {
-  position: relative; height: 10px;
+  position: relative; height: 16px;
   background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--border-subtle); border-radius: 1px;
+  border: 1px solid var(--border-subtle); border-radius: 2px;
 }
 .eps-page .soc-gauge .fill {
   position: absolute; top: 0; bottom: 0; left: 0;
@@ -313,13 +314,13 @@
   background: var(--text-muted); opacity: 0.7; transform: translateX(-50%);
 }
 .eps-page .soc-gauge .marker {
-  position: absolute; top: -2px; bottom: -2px; width: 2px;
+  position: absolute; top: -3px; bottom: -3px; width: 2px;
   transform: translateX(-50%);
   background: var(--text-primary); box-shadow: 0 0 4px rgba(229, 229, 229, 0.6);
 }
 .eps-page .soc-axis {
-  position: relative; height: 14px; margin-top: 4px;
-  font-family: 'JetBrains Mono', monospace; font-size: 10px;
+  position: relative; height: 16px; margin-top: 6px;
+  font-family: 'JetBrains Mono', monospace; font-size: 12px;
   color: var(--text-disabled); letter-spacing: 0.04em;
 }
 .eps-page .soc-axis .mk {
@@ -565,8 +566,11 @@
 }
 .eps-page .pb-row {
   display: grid; grid-template-columns: 96px 1fr 96px;
-  align-items: center; gap: 12px;
+  align-items: stretch; gap: 12px;
+  flex: 1 1 0; min-height: 56px;
 }
+.eps-page .pb-row > div:first-child { align-self: center; }
+.eps-page .pb-row > .total { align-self: center; }
 .eps-page .pb-row .label {
   font: 700 13px/1 'Inter', sans-serif;
   letter-spacing: 0.02em; text-transform: uppercase;
@@ -589,21 +593,20 @@
    is predictable across every kind. Never wraps — sub-label
    auto-hides via container query on segments too narrow to fit it. */
 .eps-page .pb-track {
-  height: 52px; display: flex; gap: 4px;
+  height: 100%; min-height: 52px; display: flex; gap: 4px;
   background: transparent; border: 0; padding: 0;
 }
 .eps-page .pb-seg {
   container-type: inline-size;
   position: relative;
   display: flex; align-items: center;
-  padding: 0 14px 0 18px;
+  padding: 4px 10px 4px 16px;
   border-radius: 4px;
-  font: 500 14px/1 'JetBrains Mono', monospace;
+  font: 500 13px/1.15 'JetBrains Mono', monospace;
   color: var(--text-primary);
   background: rgba(255, 255, 255, 0.03);
   font-variant-numeric: tabular-nums;
-  /* Soft floor — guarantees the main label line always fits. */
-  min-width: 116px;
+  min-width: 96px;
   overflow: hidden;
 }
 .eps-page .pb-seg::before {
@@ -618,17 +621,17 @@
 }
 .eps-page .pb-seg-lines .main {
   color: var(--text-primary);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  white-space: normal; overflow-wrap: anywhere; word-break: break-word;
 }
 .eps-page .pb-seg-lines .sub {
-  font-size: 12px; color: var(--text-muted); font-weight: 400;
+  font-size: 11px; color: var(--text-muted); font-weight: 400;
   letter-spacing: 0.04em;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  white-space: normal; overflow-wrap: anywhere; word-break: break-word;
   display: none;
 }
 /* Sub-label only appears on segments wide enough for the full two-line
    label. Narrow segments gracefully drop it to the main line alone. */
-@container (min-width: 168px) {
+@container (min-width: 148px) {
   .eps-page .pb-seg-lines .sub { display: block; }
 }
 .eps-page .pb-seg.solar      {
