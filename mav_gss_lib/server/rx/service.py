@@ -14,18 +14,21 @@ import logging
 import threading
 import time
 from collections import deque
+from pathlib import Path
 from queue import Empty, Queue
 from typing import TYPE_CHECKING, Any
 
 from mav_gss_lib.config import get_rx_zmq_addr
 
 from .._atomics import AtomicStatus
+from mav_gss_lib.platform._log_envelope import new_event_id
 from mav_gss_lib.platform.rx.logging import (
     parameter_log_records,
     rx_log_record,
     rx_log_text,
 )
 from mav_gss_lib.platform.rx.frame_detect import detect_frame_type, is_noise_frame
+from mav_gss_lib.platform.tx.verifiers import write_instances
 from mav_gss_lib.transport import SUB_STATUS, init_zmq_sub, poll_monitor, receive_pdu, zmq_cleanup
 
 from .._broadcast import broadcast_safe
@@ -182,12 +185,6 @@ class RxService:
                 # name-shape via codec). The rx_event_id is pre-allocated here so
                 # it is shared by both the rx_packet log write and any verifier
                 # match-event back-pointer.
-                from mav_gss_lib.platform._log_envelope import new_event_id
-                from mav_gss_lib.platform.tx.verifiers import (
-                    write_instances as _write_instances,
-                )
-                from pathlib import Path as _Path
-
                 now_ms = int(time.time() * 1000)
                 rx_event_id = new_event_id()
 
@@ -234,8 +231,8 @@ class RxService:
                 # Sweep + persist after any apply (covers timed_out transitions).
                 self.runtime.platform.verifiers.sweep(now_ms=now_ms)
                 try:
-                    _write_instances(
-                        _Path(self.runtime.log_dir) / ".pending_instances.jsonl",
+                    write_instances(
+                        Path(self.runtime.log_dir) / ".pending_instances.jsonl",
                         self.runtime.platform.verifiers.open_instances(),
                     )
                 except Exception as exc:

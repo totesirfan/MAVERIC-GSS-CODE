@@ -282,7 +282,7 @@ async def ws_preflight(websocket: WebSocket) -> None:
 
             if action == "launched":
                 with runtime.update_lock:
-                    runtime.launched = True
+                    runtime.preflight_completed = True
                 continue
 
             if action == "apply_update":

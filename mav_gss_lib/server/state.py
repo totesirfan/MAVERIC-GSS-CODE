@@ -162,7 +162,8 @@ class WebRuntime:
         self.update_status: Optional["UpdateStatus"] = None
         self.update_lock = threading.Lock()
         self.update_in_progress: bool = False
-        self.launched: bool = False
+        # True after the first successful preflight; gates concurrent update checks.
+        self.preflight_completed: bool = False
 
         self.rx = RxService(self)
         self.tx = TxService(self)
@@ -205,10 +206,9 @@ class WebRuntime:
         framing block (which DeclarativeFramer construction will refuse,
         so this is defensive).
         """
-        framing = getattr(self.mission.spec_root, "framing", None) if self.mission.spec_root else None
-        if framing is None:
-            return "raw"
-        return framing.uplink_label or "raw"
+        spec_root = getattr(self.mission, "spec_root", None)
+        framing = getattr(spec_root, "framing", None) if spec_root is not None else None
+        return getattr(framing, "uplink_label", None) or "raw"
 
     @property
     def tx_frequency(self) -> str:

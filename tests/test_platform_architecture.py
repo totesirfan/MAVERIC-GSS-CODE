@@ -1,5 +1,6 @@
 from pathlib import Path
 import io
+import re
 import tokenize
 
 
@@ -55,6 +56,23 @@ def test_maveric_v2_runtime_does_not_import_legacy_adapter_boundary():
             offenders.append(str(path))
 
     assert offenders == []
+
+
+def test_no_flat_runtime_cfg_reads_in_server():
+    """WebRuntime.cfg projection is retired; reads must use typed accessors
+    or runtime.platform_cfg / runtime.mission_cfg directly."""
+    root = Path("mav_gss_lib/server")
+    offenders: list[str] = []
+    for path in root.rglob("*.py"):
+        text = path.read_text()
+        for lineno, line in enumerate(text.splitlines(), 1):
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                continue
+            if re.search(r"\bruntime\.cfg\b", line):
+                offenders.append(f"{path}:{lineno}: {stripped}")
+
+    assert offenders == [], "Flat-config reads found:\n  " + "\n  ".join(offenders)
 
 
 def test_platform_package_does_not_encode_maveric_vocabulary():

@@ -186,7 +186,7 @@ async def _handle_apply_update(runtime: "WebRuntime", websocket: WebSocket) -> N
     status: "UpdateStatus | None" = None
 
     with runtime.update_lock:
-        if runtime.launched:
+        if runtime.preflight_completed:
             fail_reason = "updates disabled after launch"
         elif runtime.update_in_progress:
             fail_reason = "update already in progress"
