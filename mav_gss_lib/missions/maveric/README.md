@@ -17,20 +17,23 @@ maveric/
 ├── __init__.py
 ├── mission.py             MissionSpec assembler (build(ctx) entry point)
 ├── mission.yml            XTCE-lite mission database (gitignored)
+├── mission.example.yml    Public-safe template for mission.yml
 ├── declarative.py         build_declarative_capabilities — Plan A/B wire-up
 ├── codec.py               MaverPacketCodec (PacketCodec) — owns node/ptype tables
 ├── packets.py             DeclarativePacketsAdapter + MaverMissionPayload
-├── plugins.py             Calibrator plugin registry (PLUGINS)
+├── calibrators.py         Calibrator registry (CALIBRATORS) — raw→engineering decoders
+├── alarm_predicates.py    Alarm predicate registry (norm checks, eclipse-aware SV)
+├── plugin_tx_builder.py   FastAPI route feeding the TX builder frontend plugin
 ├── errors.py              Declarative-pipeline error types
 ├── preflight.py           Mission preflight-check factory (mission.yml + libfec)
 │
 ├── ui/                    Presentation — boundary: MavericUiOps
 │   ├── ops.py             UiOps implementation (codec + Mission fields)
 │   ├── rendering.py       row / detail_blocks / protocol_blocks / integrity_blocks
-│   ├── formatters.py      calibrator-plugin dispatch (display_kind / render_value)
+│   ├── formatters.py      calibrator dispatch (display_kind / render_value)
 │   └── log_format.py      JSONL mission-data + text log lines
 │
-└── imaging/               Imaging plugin
+└── imaging/               Imaging frontend plugin (REST + event source)
     ├── assembler.py       ImageAssembler (chunk reassembly, restart recovery)
     ├── router.py          /api/plugins/imaging FastAPI router
     └── events.py          MavericImagingEvents (EventOps source)
@@ -51,9 +54,18 @@ maveric/
 - **Wire framing** (declared in `mission.yml` under `framing:`) — composed
   by the platform-side `DeclarativeFramer` from a CSP v1 layer + ASM+Golay
   outer framing. No mission-side framer class; the chain is data, not code.
-- **Calibrator plugins** (`plugins.py`) — Python implementations of
+- **Calibrators** (`calibrators.py`) — Python implementations of
   parameter-type calibrators referenced by name in `mission.yml`
   (`maveric.bcd_time`, `maveric.adcs_tmp`, `maveric.gnc_planner_mode`, …).
+  Exposed as the `CALIBRATORS` dict; passed to `parse_yaml(..., plugins=)`
+  (the platform parameter is named `plugins` because it accepts arbitrary
+  Python escape-hatch callables — alarm predicates use the same hook).
+- **Alarm predicates** (`alarm_predicates.py`) — Python predicates that
+  inspect calibrated values and emit `(Severity, message)` for the alarm
+  framework. Wired via `MissionSpec.alarm_plugins`.
+- **Frontend route** (`plugin_tx_builder.py`) — `/api/plugins/maveric/identity`,
+  the read-only feed for `web/src/plugins/maveric/TxBuilder.tsx` (node /
+  ptype / gs_node tables for the dropdowns).
 - **Operator rendering** (`ui/`) — packet list row, detail blocks, protocol
   blocks, integrity blocks. Reads `MaverMissionPayload` attributes +
   `envelope.telemetry` directly. Dispatches value formatting on parameter-type

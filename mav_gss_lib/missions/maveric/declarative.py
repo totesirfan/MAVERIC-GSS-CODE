@@ -1,6 +1,6 @@
 """Build MAVERIC's declarative telemetry + command capabilities.
 
-Reads ``mission.yml`` via ``platform.spec.parse_yaml`` (with PLUGINS
+Reads ``mission.yml`` via ``platform.spec.parse_yaml`` (with CALIBRATORS
 bound), constructs a ``MaverPacketCodec`` from the parsed extensions,
 and a platform ``DeclarativeFramer`` from ``mission.framing``.
 
@@ -34,7 +34,7 @@ from mav_gss_lib.platform.spec import (
 )
 
 from mav_gss_lib.missions.maveric.codec import MaverPacketCodec
-from mav_gss_lib.missions.maveric.plugins import PLUGINS
+from mav_gss_lib.missions.maveric.calibrators import CALIBRATORS
 
 
 _HEADER_FIELDS = ("dest", "echo", "ptype", "src")
@@ -332,7 +332,7 @@ def build_declarative_capabilities(
     its current state per send so /api/config edits to bound sections
     (csp.*) propagate without a MissionSpec rebuild.
     """
-    mission = parse_yaml(Path(mission_yml_path), plugins=PLUGINS)
+    mission = parse_yaml(Path(mission_yml_path), plugins=CALIBRATORS)
     if mission.framing is None:
         raise ValueError(
             f"mission.yml at {mission_yml_path} is missing the 'framing:' "
@@ -342,14 +342,14 @@ def build_declarative_capabilities(
     codec = MaverPacketCodec(extensions=mission.extensions)
     framer = DeclarativeFramer(mission.framing, mission_cfg)
     declarative_ops = build_declarative_command_ops(
-        mission, PLUGINS, packet_codec=codec, framer=framer,
+        mission, CALIBRATORS, packet_codec=codec, framer=framer,
     )
     command_ops = _MaverCommandOpsWrapper(
         inner=declarative_ops, mission=mission, codec=codec,
     )
     return DeclarativeCapabilities(
         mission=mission,
-        plugins=PLUGINS,
+        plugins=CALIBRATORS,
         packet_codec=codec,
         command_ops=command_ops,
         parse_warnings=tuple(mission.parse_warnings),

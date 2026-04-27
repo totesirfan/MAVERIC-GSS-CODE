@@ -1,11 +1,11 @@
-"""FastAPI router for MAVERIC mission identity.
+"""FastAPI route backing the MAVERIC TX builder frontend plugin.
 
 Mounted by ``mission.py::build(ctx)`` under HttpOps. Surfaces the codec's
 node / ptype / gs_node tables (parsed from ``mission.yml extensions``)
-to mission-side frontend plugins (TX builder dropdown, packet badge
-labels) without leaking mission-specific identity into the platform's
-``/api/config`` endpoint. The mission database is the source of truth;
-this route is read-only.
+to ``web/src/plugins/maveric/TxBuilder.tsx`` so its dropdowns and badge
+labels can render without leaking mission-specific identity into the
+platform's ``/api/config`` endpoint. Read-only; the mission database is
+the source of truth.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -21,7 +21,7 @@ from mav_gss_lib.missions.maveric.codec import MaverPacketCodec
 from mav_gss_lib.platform.spec import Mission
 
 
-def get_identity_router(codec: MaverPacketCodec, mission: Mission) -> APIRouter:
+def get_tx_builder_route(codec: MaverPacketCodec, mission: Mission) -> APIRouter:
     router = APIRouter(prefix="/api/plugins/maveric", tags=["maveric"])
 
     @router.get("/identity")

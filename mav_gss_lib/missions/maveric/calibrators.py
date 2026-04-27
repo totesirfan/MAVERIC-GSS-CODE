@@ -1,13 +1,16 @@
-"""Calibrator-plugin registry for MAVERIC's declarative mission.yml.
+"""Calibrator registry for MAVERIC's declarative mission.yml.
 
-Plugin signature (per spec §3.5):
+Calibrator signature (per spec §3.5):
     (raw: int | float) -> tuple[Any, str]
 
 Where ``Any`` is JSON-serializable. The returned ``unit`` string overrides
 the type's declared unit at fragment emission and catalog projection.
 
-Plugins are referenced from mission.yml via ``calibrator: {python: <key>}``
-and resolved by ``parse_yaml(path, plugins=PLUGINS)``.
+Calibrators are referenced from mission.yml via
+``calibrator: {python: <key>}`` and resolved by
+``parse_yaml(path, plugins=CALIBRATORS)``. The platform parser parameter
+is named ``plugins`` because it accepts arbitrary Python escape-hatch
+callables; the mission's local vocabulary is calibrators.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -16,7 +19,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-PluginCallable = Callable[..., tuple[Any, str]]
+CalibratorCallable = Callable[..., tuple[Any, str]]
 
 
 def _bcd_byte(value: int) -> int:
@@ -90,7 +93,7 @@ def _maveric_gnc_planner_mode(raw: int) -> tuple[dict, str]:
     return ({"mode": mode, "mode_name": _GNC_PLANNER_MODE_NAMES.get(mode, "Unknown")}, "")
 
 
-PLUGINS: dict[str, PluginCallable] = {
+CALIBRATORS: dict[str, CalibratorCallable] = {
     "maveric.bcd_time": _maveric_bcd_time,
     "maveric.bcd_date": _maveric_bcd_date,
     "maveric.adcs_tmp": _maveric_adcs_tmp,

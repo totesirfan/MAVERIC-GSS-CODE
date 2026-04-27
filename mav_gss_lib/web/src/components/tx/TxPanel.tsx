@@ -80,7 +80,7 @@ export function TxPanel({
   }, [])
 
   const sending = sendProgress !== null
-  const missionName = config?.mission.config.mission_name ?? 'Mission'
+  const missionName = config?.mission.name ?? 'MAVERIC'
 
   return (
     <div className="flex flex-col h-full gap-3">

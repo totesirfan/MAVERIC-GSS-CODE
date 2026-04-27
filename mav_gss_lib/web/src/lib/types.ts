@@ -268,6 +268,7 @@ export interface GssConfig {
   platform: PlatformConfig
   mission: {
     id: string
+    name: string
     config: MavericMissionConfig
   }
 }

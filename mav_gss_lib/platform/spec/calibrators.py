@@ -2,7 +2,8 @@
 
 Two flavours; absence (`None`) means identity:
   - PolynomialCalibrator : engineering = sum(c_i * raw^i). Scalar only.
-  - PythonCalibrator     : callable resolved from the mission's `PLUGINS` dict.
+  - PythonCalibrator     : callable resolved from the mission's plugin
+                           registry passed to ``parse_yaml(..., plugins=)``.
 
 When a calibrator is present, its `unit` overrides the bound ParameterType's
 `unit` at fragment emission time and in catalog projection.
@@ -29,8 +30,9 @@ class PythonCalibrator:
     """YAML: calibrator: {python: 'module.function'}
 
     `callable_ref` resolves at MissionSpec wiring time against the
-    mission's `PLUGINS: dict[str, Callable]` registry. Scalar (int/float)
-    types only in v1. Plugin signature is fixed to:
+    mission's plugin registry (a ``dict[str, Callable]`` passed to
+    ``parse_yaml`` as the ``plugins=`` argument). Scalar (int/float)
+    types only in v1. Callable signature is fixed to:
         (raw: int | float) -> tuple[Any, str]    # (value, unit)
     """
 

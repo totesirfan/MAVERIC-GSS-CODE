@@ -137,12 +137,12 @@ function AppShell() {
   }, [])
 
   useEffect(() => {
-    const missionName = config?.mission.config.mission_name ?? 'Mission'
+    const missionName = config?.mission.name ?? 'MAVERIC'
     document.title = `${missionName} GSS`
-  }, [config?.mission.config.mission_name])
+  }, [config?.mission.name])
 
   const version = config?.platform.general.version ?? '...'
-  const missionName = config?.mission.config.mission_name ?? 'Mission'
+  const missionName = config?.mission.name ?? 'MAVERIC'
 
   // Derived state
   const activeTabId = page ?? '__dashboard__'

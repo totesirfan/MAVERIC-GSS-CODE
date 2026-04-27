@@ -125,6 +125,7 @@ async def api_config_get(request: Request) -> dict[str, Any]:
         "platform": runtime.platform_cfg,
         "mission": {
             "id": runtime.mission_id,
+            "name": runtime.mission_name,
             "config": runtime.mission_cfg,
         },
     }

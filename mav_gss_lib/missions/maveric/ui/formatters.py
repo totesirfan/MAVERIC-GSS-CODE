@@ -1,9 +1,10 @@
-"""MAVERIC display helpers — calibrator-plugin dispatch.
+"""MAVERIC display helpers — calibrator dispatch.
 
 The legacy shape predicates (`is_bcd_display`, `is_nvg_sensor`, …)
 inspected the value dict to detect what the extractor produced. The
 declarative replacement dispatches on the parameter type's calibrator —
-the plugin name conveys "what kind of value the walker emitted".
+the calibrator name (e.g. `maveric.bcd_time`) conveys "what kind of
+value the walker emitted".
 
 Used by both the detail-block renderer (rendering.py) and the text-log
 formatter (log_format.py).
@@ -74,14 +75,14 @@ def display_label(key: str) -> str:
     return _DISPLAY_LABELS.get(key, key)
 
 
-# ---------- calibrator-plugin dispatch ----------
+# ---------- calibrator dispatch ----------
 
 def display_kind(mission: Mission, key: str) -> str | None:
     """Pick a render dispatch tag for a fragment key.
 
     Returns:
-      - the calibrator plugin name (e.g. 'maveric.bcd_time'), if the
-        parameter type uses a Python plugin
+      - the calibrator name (e.g. 'maveric.bcd_time'), if the parameter
+        type uses a Python calibrator
       - '_enum' if the parameter type is an EnumeratedParameterType
       - '_absolute_time' if the parameter type is absolute_time
       - '_bitfield' if the parameter references a bitfield_types entry
@@ -128,7 +129,7 @@ def render_detail_fields(value: Any, dispatch: str | None, unit: str = "") -> li
     """Render a single fragment value as a list of {name, value} rows for
     the packet-detail block layout. Mirror of `render_value` but
     structured. Falls through to a single-row representation when no
-    plugin dispatch matches."""
+    calibrator dispatch matches."""
     if dispatch == "maveric.bcd_time" and isinstance(value, dict):
         return _bcd_time_detail(value)
     if dispatch == "maveric.bcd_date" and isinstance(value, dict):
@@ -150,23 +151,25 @@ def render_detail_fields(value: Any, dispatch: str | None, unit: str = "") -> li
     return [{"name": "Value", "value": f"{value}{suffix}"}]
 
 
-# Plugin-name parity guard: every plugin path render_value dispatches on
-# must exist in plugins.PLUGINS — otherwise mission.yml or the dispatch
-# table is out of sync and we'd silently fall through to scalar formatting.
-def _assert_dispatch_plugins_registered(plugins: Mapping[str, Any]) -> None:
+# Calibrator-name parity guard: every calibrator path render_value
+# dispatches on must exist in calibrators.CALIBRATORS — otherwise
+# mission.yml or the dispatch table is out of sync and we'd silently fall
+# through to scalar formatting.
+def _assert_dispatch_calibrators_registered(calibrators: Mapping[str, Any]) -> None:
     expected = {
         "maveric.bcd_time", "maveric.bcd_date",
         "maveric.adcs_tmp", "maveric.fss_tmp",
         "maveric.gnc_planner_mode",
     }
-    missing = expected - set(plugins.keys())
+    missing = expected - set(calibrators.keys())
     if missing:
         raise RuntimeError(
-            f"render_value dispatches on plugins not in PLUGINS registry: {sorted(missing)}"
+            f"render_value dispatches on calibrators not in CALIBRATORS "
+            f"registry: {sorted(missing)}"
         )
 
 
-# ---------- per-plugin formatters ----------
+# ---------- per-calibrator formatters ----------
 
 def _format_bcd_time(value: Any) -> str:
     if isinstance(value, dict):
@@ -222,7 +225,7 @@ def _format_enum(value: Any) -> str:
 
 def _format_absolute_time(value: Any) -> str:
     """absolute_time values arrive as either an int unix_ms scalar OR a
-    dict {unix_ms, iso_utc, display} when the walker plugin pre-formatted
+    dict {unix_ms, iso_utc, display} when the calibrator pre-formatted
     the time (e.g. BcdTime emits a dict, millis_u64 emits a scalar)."""
     if isinstance(value, dict):
         return (

@@ -446,8 +446,10 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
                                       <span className="font-bold uppercase" style={{ color: colors.sep }}>value</span>
                                       <span className="font-bold uppercase" style={{ color: colors.sep }}>unit</span>
                                       {fragments.map((frag, fi) => {
-                                        const dom = String(frag.domain ?? '')
-                                        const k = String(frag.key ?? '')
+                                        const fullName = String(frag.name ?? '')
+                                        const dot = fullName.indexOf('.')
+                                        const dom = dot >= 0 ? fullName.slice(0, dot) : ''
+                                        const k = dot >= 0 ? fullName.slice(dot + 1) : fullName
                                         const v = frag.value
                                         const unit = String(frag.unit ?? '')
                                         const display = typeof v === 'object' && v !== null

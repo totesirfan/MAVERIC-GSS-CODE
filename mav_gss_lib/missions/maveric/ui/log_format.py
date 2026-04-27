@@ -33,10 +33,10 @@ def build_log_mission_data(
 ) -> dict[str, Any]:
     """Return the mission sub-block of the rx_packet JSONL envelope.
 
-    Telemetry fragments are NOT included here — the platform emits each
-    one as its own `event_kind="telemetry"` record, back-pointing to the
-    parent packet via `rx_event_id`. CRC-related fields are emitted as
-    structured booleans/ints so SQL ingest doesn't have to strip prefixes.
+    Parameter values are NOT included here — the platform emits each
+    `ParamUpdate` as its own `event_kind="parameter"` record, back-pointing
+    to the parent packet via `rx_event_id`. CRC-related fields are emitted
+    as structured booleans/ints so SQL ingest doesn't have to strip prefixes.
     """
     h = payload.header or {}
     out: dict[str, Any] = {

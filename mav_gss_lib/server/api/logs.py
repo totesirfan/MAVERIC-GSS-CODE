@@ -193,8 +193,9 @@ async def api_log_entries(
       - ``from`` / ``to``: HH:MM or HH:MM:SS, compared against ts_ms using
         the session's calendar day as the reference midnight.
       - ``event_kind``: comma-separated whitelist. Defaults to
-        ``rx_packet,tx_command`` so telemetry noise does not flood the
-        viewer's packet list.
+        ``rx_packet,tx_command`` so parameter rows do not flood the
+        viewer's packet list (they are fetched separately via the
+        ``/parameters`` endpoint).
     """
     runtime = get_runtime(request)
     log_file = _resolve_log_file(runtime, session_id)

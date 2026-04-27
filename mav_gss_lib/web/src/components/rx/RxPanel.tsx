@@ -223,7 +223,7 @@ export function RxPanel({ config, packets, status, packetStats, columns, replayM
 
   const selectedPacket = selectedNum !== null ? filtered.find(p => p.num === selectedNum) ?? null : null
   const isLive = autoScroll && selectedNum === lastNum
-  const missionName = config?.mission.config.mission_name ?? 'Mission'
+  const missionName = config?.mission.name ?? 'MAVERIC'
 
   return (
     <div className="flex flex-col h-full gap-3 relative">

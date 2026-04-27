@@ -204,7 +204,7 @@ class RxService:
 
                 # rx_seq used as the `seq` field on cmd_verifier events so the
                 # SQL archive can join verifier rows to the parent rx_packet by
-                # seq. Matches the envelope rule "telemetry inherits parent
+                # seq. Matches the envelope rule "parameter inherits parent
                 # rx_packet seq".
                 rx_seq = getattr(pkt, "seq", 0)
                 for instance_id, verifier_id, outcome in transitions:
