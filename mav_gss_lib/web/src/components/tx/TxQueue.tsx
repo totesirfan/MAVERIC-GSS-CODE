@@ -99,22 +99,31 @@ export function TxQueue({
     }
   }, [pendingItems.length])
 
-  // When a send completes, the TxBuilder slides back in and the queue
-  // pane shrinks vertically — preserved scrollTop leaves the just-sent
-  // item stranded mid-list. Snap to bottom on the active → idle edge so
-  // the most recent history row is always visible.
+  // When a send completes, the TxBuilder/CLI block slides back in via a
+  // Framer Motion spring (~500 ms), so the queue's container height
+  // shrinks gradually. A one-shot scrollTo fires before the layout has
+  // actually reflowed, leaving the just-sent row stranded mid-list. Pin
+  // scrollTop to scrollHeight every frame for the full settle window so
+  // the bottom stays glued through the whole animation.
   const prevSendingRef = useRef(sendProgress !== null)
   useEffect(() => {
     const wasSending = prevSendingRef.current
     const isSending = sendProgress !== null
     prevSendingRef.current = isSending
-    if (wasSending && !isSending) {
-      const c = scrollRef.current
-      if (!c) return
-      requestAnimationFrame(() => {
-        c.scrollTo({ top: c.scrollHeight, behavior: 'smooth' })
-      })
+    if (!(wasSending && !isSending)) return
+    const c = scrollRef.current
+    if (!c) return
+    let raf = 0
+    const start = performance.now()
+    const pin = () => {
+      const el = scrollRef.current
+      if (el) el.scrollTop = el.scrollHeight
+      if (performance.now() - start < 700) {
+        raf = requestAnimationFrame(pin)
+      }
     }
+    raf = requestAnimationFrame(pin)
+    return () => { if (raf) cancelAnimationFrame(raf) }
   }, [sendProgress])
 
   const queueShortcuts = useMemo<Shortcut[]>(() => [
