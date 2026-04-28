@@ -53,6 +53,9 @@ function entryCmdId(e: LogEntry): string {
   const top = e.cmd_id
   if (typeof top === 'string' && top) return top
   const mission = e.mission as Record<string, unknown> | undefined
+  const header = mission?.header as Record<string, unknown> | undefined
+  const fromHeader = header?.cmd_id
+  if (typeof fromHeader === 'string' && fromHeader) return fromHeader
   const cmd = mission?.cmd as Record<string, unknown> | undefined
   const inner = cmd?.cmd_id
   return typeof inner === 'string' ? inner : ''

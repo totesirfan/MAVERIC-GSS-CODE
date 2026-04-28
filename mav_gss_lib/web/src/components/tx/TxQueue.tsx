@@ -99,6 +99,24 @@ export function TxQueue({
     }
   }, [pendingItems.length])
 
+  // When a send completes, the TxBuilder slides back in and the queue
+  // pane shrinks vertically — preserved scrollTop leaves the just-sent
+  // item stranded mid-list. Snap to bottom on the active → idle edge so
+  // the most recent history row is always visible.
+  const prevSendingRef = useRef(sendProgress !== null)
+  useEffect(() => {
+    const wasSending = prevSendingRef.current
+    const isSending = sendProgress !== null
+    prevSendingRef.current = isSending
+    if (wasSending && !isSending) {
+      const c = scrollRef.current
+      if (!c) return
+      requestAnimationFrame(() => {
+        c.scrollTo({ top: c.scrollHeight, behavior: 'smooth' })
+      })
+    }
+  }, [sendProgress])
+
   const queueShortcuts = useMemo<Shortcut[]>(() => [
     {
       key: 'ArrowUp',

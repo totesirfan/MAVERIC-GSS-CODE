@@ -565,7 +565,7 @@
   flex: 1 1 auto; min-height: 0;
 }
 .eps-page .pb-row {
-  display: grid; grid-template-columns: 96px 1fr 96px;
+  display: grid; grid-template-columns: 96px minmax(0, 1fr) 96px;
   align-items: stretch; gap: 12px;
   flex: 1 1 0; min-height: 56px;
 }
@@ -606,11 +606,7 @@
   color: var(--text-primary);
   background: rgba(255, 255, 255, 0.03);
   font-variant-numeric: tabular-nums;
-  /* Floor that fits the longest single-line sub-label
-     ("HOT RAIL · 140 mA", "MCU + quiescent") + padding,
-     so labels never wrap mid-token. */
-  min-width: 168px;
-  flex-shrink: 0;
+  min-width: 64px;
   overflow: hidden;
 }
 .eps-page .pb-seg::before {
@@ -625,13 +621,18 @@
 }
 .eps-page .pb-seg-lines .main {
   color: var(--text-primary);
-  white-space: normal; overflow-wrap: anywhere; word-break: break-word;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  min-width: 0;
 }
 .eps-page .pb-seg-lines .sub {
   font-size: 11px; color: var(--text-muted); font-weight: 400;
   letter-spacing: 0.04em;
-  white-space: normal; overflow-wrap: anywhere; word-break: break-word;
-  display: block;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  display: block; min-width: 0;
+}
+/* Drop the sub-label entirely on segments too narrow to read it. */
+@container (max-width: 130px) {
+  .eps-page .pb-seg-lines .sub { display: none; }
 }
 .eps-page .pb-seg.solar      {
   --seg-accent: var(--state-success);
@@ -789,19 +790,19 @@
   padding: 6px 10px;
   border: 1px solid var(--border-subtle); border-radius: 3px;
   background: #0a0a0a;
-  font: 500 11px/1.15 'JetBrains Mono', monospace;
+  font: 500 13px/1.15 'JetBrains Mono', monospace;
   font-variant-numeric: tabular-nums;
 }
 .eps-page .solar-row.gen  { border-color: rgba(60, 201, 142, 0.4); background: rgba(60, 201, 142, 0.05); }
 .eps-page .solar-row.dead { border-color: rgba(255, 56, 56, 0.55); background: rgba(255, 56, 56, 0.07); }
 .eps-page .solar-row .s-name {
-  font: 700 12px/1 'Inter', sans-serif;
+  font: 700 14px/1 'Inter', sans-serif;
   color: var(--text-primary); letter-spacing: 0.02em;
 }
 .eps-page .solar-row.idle .s-name { color: var(--text-secondary); }
 .eps-page .solar-row .s-badge {
-  font: 500 10px/1 'JetBrains Mono', monospace;
-  padding: 2px 4px; border: 1px solid var(--border-strong); border-radius: 1px;
+  font: 500 11px/1 'JetBrains Mono', monospace;
+  padding: 2px 5px; border: 1px solid var(--border-strong); border-radius: 1px;
   color: var(--text-disabled); letter-spacing: 0.06em; text-align: center;
 }
 .eps-page .solar-row.gen  .s-badge { color: var(--state-success); border-color: rgba(60, 201, 142, 0.4); }
