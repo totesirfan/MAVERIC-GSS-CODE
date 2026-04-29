@@ -277,6 +277,14 @@ export interface PlatformConfig {
     zmq_addr: string
     tx_blackout_ms?: number
   }
+  radio?: {
+    enabled?: boolean
+    autostart?: boolean
+    script?: string
+    python?: string
+    args?: string[]
+    log_lines?: number
+  }
   general: {
     version: string
     build_sha?: string

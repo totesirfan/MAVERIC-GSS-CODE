@@ -78,6 +78,23 @@ class TestDefaultPlatformSpec(unittest.TestCase):
         # Existing stations dict is untouched; updates to it are refused.
         self.assertEqual(platform["stations"], {"pad-0": "PAD"})
 
+    def test_radio_section_is_operator_editable(self):
+        platform = {"radio": {"script": "gnuradio/MAV_DUO.py"}}
+        apply_platform_config_update(platform, {
+            "radio": {
+                "enabled": True,
+                "autostart": False,
+                "script": "gnuradio/ALT.py",
+                "log_lines": 500,
+            },
+        })
+        self.assertEqual(platform["radio"], {
+            "script": "gnuradio/ALT.py",
+            "enabled": True,
+            "autostart": False,
+            "log_lines": 500,
+        })
+
 
 class TestCustomSpec(unittest.TestCase):
     def test_extending_the_spec_adds_platform_sections_without_route_edits(self):

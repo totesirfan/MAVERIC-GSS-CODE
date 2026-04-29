@@ -1,4 +1,4 @@
-import { Gauge } from 'lucide-react'
+import { Gauge, Radio } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { PluginPageDef } from '@/plugins/registry'
 
@@ -10,6 +10,15 @@ export type NavigationTabDef =
       description: string
       icon: LucideIcon
       category: 'mission'
+      order: number
+    }
+  | {
+      kind: 'radio'
+      id: '__radio__'
+      name: string
+      description: string
+      icon: LucideIcon
+      category: 'platform'
       order: number
     }
   | {
@@ -33,14 +42,26 @@ export const DASHBOARD_TAB: NavigationTabDef = {
   order: -Infinity,
 }
 
-/** Sort: mission group first, then platform. Within each group: order ascending, then alphabetical. */
+export const RADIO_TAB: NavigationTabDef = {
+  kind: 'radio',
+  id: '__radio__',
+  name: 'Radio',
+  description: 'GNU Radio process supervisor',
+  icon: Radio,
+  category: 'platform',
+  order: -1000,
+}
+
+/** Sort: Dashboard first, then explicit order, then category, then alphabetical. */
 export function navTabCompare(a: NavigationTabDef, b: NavigationTabDef): number {
-  const catOrder = (t: NavigationTabDef) => t.category === 'mission' ? 0 : 1
-  const catDiff = catOrder(a) - catOrder(b)
-  if (catDiff !== 0) return catDiff
+  if (a.id === '__dashboard__') return -1
+  if (b.id === '__dashboard__') return 1
   const orderA = a.order ?? Infinity
   const orderB = b.order ?? Infinity
   if (orderA !== orderB) return orderA - orderB
+  const catOrder = (t: NavigationTabDef) => t.category === 'mission' ? 0 : 1
+  const catDiff = catOrder(a) - catOrder(b)
+  if (catDiff !== 0) return catDiff
   return a.name.localeCompare(b.name)
 }
 
@@ -56,5 +77,5 @@ export function buildNavigationTabs(plugins: PluginPageDef[]): NavigationTabDef[
     order: p.order,
     plugin: p,
   }))
-  return [DASHBOARD_TAB, ...pluginNavs].sort(navTabCompare)
+  return [DASHBOARD_TAB, RADIO_TAB, ...pluginNavs].sort(navTabCompare)
 }

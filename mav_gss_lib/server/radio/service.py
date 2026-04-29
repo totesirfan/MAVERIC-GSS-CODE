@@ -1,0 +1,318 @@
+"""
+mav_gss_lib.server.radio.service -- GNU Radio Process Supervisor
+
+Owns the optional GNU Radio flowgraph child process used by the web runtime.
+The flowgraph remains an external Qt/GNU Radio process; this service only
+starts/stops it, captures stdout/stderr, and fans log lines out to browser
+clients.
+
+Author:  Irfan Annuar - USC ISI SERC
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import os
+import signal
+import shutil
+import subprocess
+import sys
+import threading
+import time
+from collections import deque
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+from mav_gss_lib.config import resolve_project_path
+
+from .._broadcast import broadcast_safe
+
+if TYPE_CHECKING:
+    from ..state import WebRuntime
+
+
+DEFAULT_RADIO_SCRIPT = "gnuradio/MAV_DUO.py"
+DEFAULT_LOG_LINES = 1000
+STOP_TIMEOUT_S = 5.0
+
+
+class RadioService:
+    """Supervise one optional GNU Radio flowgraph process."""
+
+    def __init__(self, runtime: "WebRuntime") -> None:
+        self.runtime = runtime
+        self.clients: list = []
+        self.lock = threading.Lock()
+        self.proc: subprocess.Popen[str] | None = None
+        self.started_at: float | None = None
+        self.last_exit_code: int | None = None
+        self.last_error: str = ""
+        self.last_stop_expected: bool = False
+        self._reader_thread: threading.Thread | None = None
+        self._wait_thread: threading.Thread | None = None
+        self._state_lock = threading.Lock()
+        self._stopping = False
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._log: deque[str] = deque(maxlen=DEFAULT_LOG_LINES)
+
+    def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        self._loop = loop
+
+    def config(self) -> dict[str, Any]:
+        radio = self.runtime.platform_cfg.get("radio")
+        return radio if isinstance(radio, dict) else {}
+
+    def enabled(self) -> bool:
+        cfg = self.config()
+        return bool(cfg.get("enabled", True))
+
+    def autostart(self) -> bool:
+        cfg = self.config()
+        return bool(cfg.get("autostart", False))
+
+    def log_capacity(self) -> int:
+        cfg = self.config()
+        try:
+            return max(100, min(int(cfg.get("log_lines", DEFAULT_LOG_LINES)), 10000))
+        except (TypeError, ValueError):
+            return DEFAULT_LOG_LINES
+
+    def _resize_log_if_needed(self) -> None:
+        capacity = self.log_capacity()
+        if self._log.maxlen == capacity:
+            return
+        self._log = deque(self._log, maxlen=capacity)
+
+    def _script_path(self) -> Path:
+        cfg = self.config()
+        raw_script = str(cfg.get("script") or DEFAULT_RADIO_SCRIPT)
+        return resolve_project_path(raw_script)
+
+    def _python_path(self) -> str:
+        cfg = self.config()
+        raw_python = cfg.get("python")
+        return str(raw_python) if raw_python else sys.executable
+
+    def _args(self) -> list[str]:
+        cfg = self.config()
+        raw_args = cfg.get("args", [])
+        if not isinstance(raw_args, list):
+            return []
+        return [str(arg) for arg in raw_args]
+
+    def command(self) -> list[str]:
+        return [self._python_path(), "-u", str(self._script_path()), *self._args()]
+
+    def status(self) -> dict[str, Any]:
+        with self._state_lock:
+            proc = self.proc
+            started_at = self.started_at
+            last_exit_code = self.last_exit_code
+            last_error = self.last_error
+            last_stop_expected = self.last_stop_expected
+            stopping = self._stopping
+
+        running = proc is not None and proc.poll() is None
+        if running:
+            state = "stopping" if stopping else "running"
+            pid = proc.pid
+            exit_code = None
+        else:
+            pid = None
+            exit_code = last_exit_code
+            if exit_code is None or exit_code == 0 or last_stop_expected:
+                state = "stopped"
+            else:
+                state = "crashed"
+
+        script = self._script_path()
+        return {
+            "enabled": self.enabled(),
+            "autostart": self.autostart(),
+            "state": state,
+            "running": running,
+            "pid": pid,
+            "started_at_ms": int(started_at * 1000) if started_at else None,
+            "uptime_s": max(0.0, time.time() - started_at) if running and started_at else 0.0,
+            "exit_code": exit_code,
+            "error": last_error,
+            "script": str(script),
+            "cwd": str(script.parent),
+            "command": self.command(),
+            "log_lines": self.log_capacity(),
+        }
+
+    def log_snapshot(self) -> list[str]:
+        with self._state_lock:
+            self._resize_log_if_needed()
+            return list(self._log)
+
+    def _append_log(self, line: str) -> None:
+        with self._state_lock:
+            self._resize_log_if_needed()
+            self._log.append(line)
+        self._schedule_broadcast({"type": "log", "line": line})
+
+    async def broadcast(self, msg: dict[str, Any] | str) -> None:
+        text = json.dumps(msg) if isinstance(msg, dict) else msg
+        await broadcast_safe(self.clients, self.lock, text)
+
+    def _schedule_broadcast(self, msg: dict[str, Any]) -> None:
+        loop = self._loop
+        if loop is None or loop.is_closed():
+            return
+        try:
+            asyncio.run_coroutine_threadsafe(self.broadcast(msg), loop)
+        except RuntimeError:
+            pass
+
+    def _set_error(self, message: str) -> None:
+        with self._state_lock:
+            self.last_error = message
+
+    def start(self) -> dict[str, Any]:
+        if not self.enabled():
+            self._set_error("radio integration disabled")
+            return self.status()
+
+        already_running = False
+        with self._state_lock:
+            if self.proc is not None and self.proc.poll() is None:
+                already_running = True
+        if already_running:
+            return self.status()
+
+        script = self._script_path()
+        if not script.is_file():
+            self._set_error(f"radio script not found: {script}")
+            self._schedule_broadcast({"type": "status", "status": self.status()})
+            return self.status()
+
+        python = self._python_path()
+        python_exists = Path(python).is_file() or shutil.which(python) is not None
+        if not python_exists:
+            self._set_error(f"python executable not found: {python}")
+            self._schedule_broadcast({"type": "status", "status": self.status()})
+            return self.status()
+
+        cmd = [python, "-u", str(script), *self._args()]
+        env = os.environ.copy()
+        env["PYTHONUNBUFFERED"] = "1"
+        command_text = " ".join(cmd)
+
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(script.parent),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                env=env,
+            )
+        except OSError as exc:
+            self._set_error(f"radio start failed: {exc}")
+            self._schedule_broadcast({"type": "status", "status": self.status()})
+            return self.status()
+
+        with self._state_lock:
+            self.proc = proc
+            self.started_at = time.time()
+            self.last_exit_code = None
+            self.last_error = ""
+            self.last_stop_expected = False
+            self._stopping = False
+            self._resize_log_if_needed()
+            self._log.clear()
+
+        self._append_log(f"Executing: {command_text}")
+        self._reader_thread = threading.Thread(
+            target=self._reader,
+            args=(proc,),
+            daemon=True,
+            name=f"{self.runtime.mission_id}-radio-log",
+        )
+        self._wait_thread = threading.Thread(
+            target=self._waiter,
+            args=(proc,),
+            daemon=True,
+            name=f"{self.runtime.mission_id}-radio-wait",
+        )
+        self._reader_thread.start()
+        self._wait_thread.start()
+        self._schedule_broadcast({"type": "status", "status": self.status()})
+        return self.status()
+
+    def _reader(self, proc: subprocess.Popen[str]) -> None:
+        stream = proc.stdout
+        if stream is None:
+            return
+        try:
+            for line in stream:
+                self._append_log(line.rstrip("\n"))
+        except Exception as exc:
+            logging.warning("radio stdout reader failed: %s", exc)
+        finally:
+            try:
+                stream.close()
+            except Exception:
+                pass
+
+    def _waiter(self, proc: subprocess.Popen[str]) -> None:
+        code = proc.wait()
+        with self._state_lock:
+            if self.proc is proc:
+                self.last_exit_code = code
+                self.proc = None
+                self.started_at = None
+                was_stopping = self._stopping
+                self.last_stop_expected = was_stopping
+                self._stopping = False
+                if code not in (0, None) and not was_stopping and not self.last_error:
+                    self.last_error = f"radio process exited with code {code}"
+        self._schedule_broadcast({"type": "exit", "code": code, "status": self.status()})
+
+    def stop(self) -> dict[str, Any]:
+        already_stopped = False
+        with self._state_lock:
+            proc = self.proc
+            if proc is None or proc.poll() is not None:
+                self._stopping = False
+                already_stopped = True
+            else:
+                self._stopping = True
+        if already_stopped:
+            return self.status()
+
+        self._schedule_broadcast({"type": "status", "status": self.status()})
+        code: int | None = None
+        try:
+            proc.send_signal(signal.SIGTERM)
+            code = proc.wait(timeout=STOP_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            self._append_log("Radio process did not exit after SIGTERM; sending SIGKILL")
+            proc.kill()
+            try:
+                code = proc.wait(timeout=STOP_TIMEOUT_S)
+            except subprocess.TimeoutExpired:
+                self._set_error("radio process did not exit after SIGKILL")
+        except OSError as exc:
+            self._set_error(f"radio stop failed: {exc}")
+        if code is not None:
+            with self._state_lock:
+                if self.proc is proc:
+                    self.last_exit_code = code
+                    self.proc = None
+                    self.started_at = None
+                    self.last_stop_expected = True
+                    self._stopping = False
+        return self.status()
+
+    def restart(self) -> dict[str, Any]:
+        self.stop()
+        return self.start()
+
+    def shutdown(self) -> None:
+        self.stop()

@@ -72,6 +72,12 @@ _DEFAULTS = {
         "zmq_addr": DEFAULT_RX_ZMQ_ADDR,
         "tx_blackout_ms": 0,
     },
+    "radio": {
+        "enabled": True,
+        "autostart": False,
+        "script": "gnuradio/MAV_DUO.py",
+        "log_lines": 1000,
+    },
     "general": {
         "mission":      DEFAULT_MISSION,
         "version":      _read_version(),

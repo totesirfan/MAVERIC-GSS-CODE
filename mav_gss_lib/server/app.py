@@ -30,6 +30,7 @@ from mav_gss_lib.logging import SessionLog
 
 from .api import router as api_router
 from .ws.rx import router as rx_router
+from .ws.radio import router as radio_router
 from .tx.queue import sanitize_queue_items
 from .ws.session import router as session_router
 from .ws.preflight import (
@@ -73,6 +74,7 @@ async def lifespan(app: FastAPI) -> "AsyncIterator[None]":
 
     tx_addr = get_tx_zmq_addr(runtime.platform_cfg)
     runtime.tx.restart_pub(tx_addr)
+    runtime.radio.bind_loop(asyncio.get_running_loop())
 
     rx_addr = get_rx_zmq_addr(runtime.platform_cfg)
     runtime.rx.log = SessionLog(
@@ -117,6 +119,8 @@ async def lifespan(app: FastAPI) -> "AsyncIterator[None]":
     runtime.rx.start_receiver()
     runtime.rx.broadcast_task = asyncio.create_task(runtime.rx.broadcast_loop())
     runtime.rx.broadcast_task.add_done_callback(log_task_exception("rx-broadcast"))
+    if runtime.radio.autostart():
+        runtime.radio.start()
 
     # Kick off the update check on a worker thread so it overlaps with the
     # mission checks streaming over the preflight WS. Resolved at the end of
@@ -195,6 +199,10 @@ async def _shutdown_runtime(runtime: "WebRuntime") -> None:
             zmq_cleanup(runtime.tx.zmq_monitor, PUB_STATUS, "OFFLINE", runtime.tx.zmq_sock, runtime.tx.zmq_ctx)
         except Exception:
             pass
+    try:
+        await asyncio.to_thread(runtime.radio.shutdown)
+    except Exception:
+        logging.exception("radio shutdown")
 
 
 async def _verifier_sweep_loop(runtime: "WebRuntime") -> None:
@@ -234,11 +242,19 @@ def _tick_once(runtime, container_specs, now_ms):
         max(0.0, time.time() - runtime.rx.last_rx_at)
         if runtime.rx.last_rx_at > 0 else 0.0
     )
+    radio_status = runtime.radio.status()
+    radio_enabled = bool(radio_status.get("enabled"))
+    radio_state = str(radio_status.get("state") or "")
+    radio_running = radio_state.lower() == "running"
     inputs = PlatformAlarmInputs(
         silence_s=silence_s,
         zmq_state=runtime.rx.status.get(),
+        rx_zmq_expected=not radio_enabled or radio_running,
         crc_event_ms=tuple(runtime.rx.crc_window),
         dup_event_ms=tuple(runtime.rx.dup_window),
+        radio_enabled=radio_enabled,
+        radio_autostart=bool(radio_status.get("autostart")),
+        radio_state=radio_state,
     )
     for v in evaluate_platform(inputs, now_ms):
         dispatch.emit(runtime.alarm_registry.observe(v, now_ms), now_ms)
@@ -272,6 +288,7 @@ def create_app() -> FastAPI:
 
     app.include_router(api_router)
     app.include_router(rx_router)
+    app.include_router(radio_router)
     app.include_router(tx_router)
     app.include_router(session_router)
     app.include_router(preflight_router)

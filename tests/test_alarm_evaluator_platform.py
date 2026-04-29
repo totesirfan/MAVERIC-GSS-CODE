@@ -44,6 +44,16 @@ class TestPlatformEvaluator(unittest.TestCase):
             PlatformAlarmInputs(silence_s=0.0, zmq_state="RETRY"), now_ms=0))
         self.assertEqual(v["platform.zmq"].severity, Severity.WARNING)
 
+    def test_zmq_retry_clear_when_rx_not_expected(self):
+        v = _by_id(evaluate_platform(
+            PlatformAlarmInputs(
+                silence_s=0.0,
+                zmq_state="RETRY",
+                rx_zmq_expected=False,
+            ),
+            now_ms=0))
+        self.assertIsNone(v["platform.zmq"].severity)
+
     def test_crc_warning_band(self):
         now = 1_000_000
         events = tuple(now - i * 1000 for i in range(CRC_WARNING_THRESHOLD))
@@ -75,6 +85,51 @@ class TestPlatformEvaluator(unittest.TestCase):
             PlatformAlarmInputs(silence_s=0, zmq_state="OK", dup_event_ms=events),
             now_ms=now))
         self.assertIsNone(v["platform.dup"].severity)
+
+    def test_radio_running_clear(self):
+        v = _by_id(evaluate_platform(
+            PlatformAlarmInputs(
+                silence_s=0, zmq_state="OK",
+                radio_enabled=True, radio_state="running",
+            ),
+            now_ms=0))
+        self.assertIsNone(v["platform.radio"].severity)
+
+    def test_radio_manual_stopped_clear(self):
+        v = _by_id(evaluate_platform(
+            PlatformAlarmInputs(
+                silence_s=0, zmq_state="OK",
+                radio_enabled=True, radio_state="stopped",
+            ),
+            now_ms=0))
+        self.assertIsNone(v["platform.radio"].severity)
+
+    def test_radio_autostart_stopped_warning(self):
+        v = _by_id(evaluate_platform(
+            PlatformAlarmInputs(
+                silence_s=0, zmq_state="OK",
+                radio_enabled=True, radio_autostart=True, radio_state="stopped",
+            ),
+            now_ms=0))
+        self.assertEqual(v["platform.radio"].severity, Severity.WARNING)
+
+    def test_radio_crashed_critical(self):
+        v = _by_id(evaluate_platform(
+            PlatformAlarmInputs(
+                silence_s=0, zmq_state="OK",
+                radio_enabled=True, radio_state="crashed",
+            ),
+            now_ms=0))
+        self.assertEqual(v["platform.radio"].severity, Severity.CRITICAL)
+
+    def test_radio_disabled_clear(self):
+        v = _by_id(evaluate_platform(
+            PlatformAlarmInputs(
+                silence_s=0, zmq_state="OK",
+                radio_enabled=False, radio_state="crashed",
+            ),
+            now_ms=0))
+        self.assertIsNone(v["platform.radio"].severity)
 
 
 if __name__ == "__main__":

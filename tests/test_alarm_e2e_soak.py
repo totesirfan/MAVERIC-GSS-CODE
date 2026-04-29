@@ -110,6 +110,10 @@ class TestTickOnce(unittest.TestCase):
                 dup_window=deque(),
                 last_arrival_ms={"tlm_beacon": int(time.time() * 1000) - 50_000_000},
             ),
+            radio=SimpleNamespace(
+                enabled=lambda: False,
+                status=lambda: {"state": "disabled"},
+            ),
         )
         container_specs = {
             "tlm_beacon": ContainerStaleSpec(
@@ -123,6 +127,53 @@ class TestTickOnce(unittest.TestCase):
         ids = sorted(c.event.id for c in audited)
         self.assertIn("platform.silence", ids)
         self.assertIn("container.tlm_beacon.stale", ids)
+
+    def test_idle_manual_radio_suppresses_startup_zmq_and_radio_alarms(self):
+        from collections import deque
+        from types import SimpleNamespace
+        from mav_gss_lib.platform.alarms.dispatch import AlarmDispatch
+        from mav_gss_lib.server.app import _tick_once
+
+        registry = AlarmRegistry()
+        audited: list = []
+
+        class _Sink:
+            def write_alarm(self, ch, ts_ms):
+                audited.append(ch)
+
+        class _NoopTarget:
+            async def broadcast_text(self, _text):
+                pass
+
+        dispatch = AlarmDispatch(
+            audit_sink=_Sink(),
+            broadcast_target=_NoopTarget(),
+            loop=None,
+        )
+
+        runtime = SimpleNamespace(
+            alarm_registry=registry,
+            _alarm_dispatch=dispatch,
+            rx=SimpleNamespace(
+                last_rx_at=0,
+                status=SimpleNamespace(get=lambda: "RETRY"),
+                crc_window=deque(),
+                dup_window=deque(),
+                last_arrival_ms={},
+            ),
+            radio=SimpleNamespace(
+                status=lambda: {
+                    "enabled": True,
+                    "autostart": False,
+                    "state": "stopped",
+                },
+            ),
+        )
+
+        _tick_once(runtime, {}, int(time.time() * 1000))
+
+        self.assertEqual(audited, [])
+        self.assertEqual(registry.snapshot(), [])
 
 
 if __name__ == "__main__":

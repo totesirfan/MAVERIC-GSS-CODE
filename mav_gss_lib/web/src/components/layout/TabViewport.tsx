@@ -8,12 +8,14 @@ interface TabViewportProps {
   plugins: PluginPageDef[]
   activeId: string
   renderDashboard: () => ReactNode
+  renderRadio: () => ReactNode
 }
 
-export function TabViewport({ plugins, activeId, renderDashboard }: TabViewportProps) {
+export function TabViewport({ plugins, activeId, renderDashboard, renderRadio }: TabViewportProps) {
   const dashboardActive = activeId === '__dashboard__'
+  const radioActive = activeId === '__radio__'
   const knownIds = new Set(plugins.map(p => p.id))
-  const isKnownPage = dashboardActive || knownIds.has(activeId)
+  const isKnownPage = dashboardActive || radioActive || knownIds.has(activeId)
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
@@ -21,6 +23,12 @@ export function TabViewport({ plugins, activeId, renderDashboard }: TabViewportP
       <TabActiveProvider value={dashboardActive}>
         <div hidden={!dashboardActive} className="flex-1 min-h-0 flex flex-col">
           {renderDashboard()}
+        </div>
+      </TabActiveProvider>
+
+      <TabActiveProvider value={radioActive}>
+        <div hidden={!radioActive} className="flex-1 min-h-0 flex flex-col">
+          {renderRadio()}
         </div>
       </TabActiveProvider>
 

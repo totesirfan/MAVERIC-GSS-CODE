@@ -34,6 +34,7 @@ const ConfigSidebar = lazy(() => import('@/components/ConfigSidebar').then((m) =
 const LogViewer = lazy(() => import('@/components/logs/LogViewer').then((m) => ({ default: m.LogViewer })))
 const HelpModal = lazy(() => import('@/components/shared/dialogs/HelpModal').then((m) => ({ default: m.HelpModal })))
 const CommandPalette = lazy(() => import('@/components/shared/overlays/CommandPalette').then((m) => ({ default: m.CommandPalette })))
+const RadioPage = lazy(() => import('@/components/radio/RadioPage').then((m) => ({ default: m.RadioPage })))
 
 /** Read the ?page= param for plugin page routing */
 function getPageMode(): string | null {
@@ -180,6 +181,15 @@ function AppShell() {
             confirmSendSignal={confirmSendSignal}
             confirmClearSignal={confirmClearSignal}
           />
+        )}
+        renderRadio={() => (
+          <Suspense fallback={
+            <div className="flex-1 flex items-center justify-center">
+              <span className="text-[11px]" style={{ color: colors.textMuted }}>Loading radio...</span>
+            </div>
+          }>
+            <RadioPage />
+          </Suspense>
         )}
       />
       {/* Lazy modals */}

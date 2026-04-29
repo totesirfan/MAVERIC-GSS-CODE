@@ -20,6 +20,13 @@ platform:
   rx:
     zmq_addr: tcp://127.0.0.1:52001
     tx_blackout_ms: 0
+  radio:
+    enabled: true
+    autostart: false
+    # Relative to the repository root. The backend launches this with the
+    # same Python interpreter running MAV_WEB.py and sets cwd to gnuradio/.
+    script: gnuradio/MAV_DUO.py
+    log_lines: 1000
   general:
     log_dir: logs
     generated_commands_dir: generated_commands

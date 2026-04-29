@@ -27,16 +27,21 @@ DUP_WARNING_THRESHOLD = 5
 class PlatformAlarmInputs:
     silence_s: float
     zmq_state: str  # "OK" | "RETRY" | "DOWN"
+    rx_zmq_expected: bool = True
     crc_event_ms: tuple[int, ...] = field(default_factory=tuple)
     dup_event_ms: tuple[int, ...] = field(default_factory=tuple)
+    radio_enabled: bool = False
+    radio_autostart: bool = False
+    radio_state: str = ""  # "running" | "stopping" | "stopped" | "crashed"
 
 
 def evaluate_platform(inputs: PlatformAlarmInputs, now_ms: int) -> list[Verdict]:
     return [
         _silence(inputs.silence_s),
-        _zmq(inputs.zmq_state),
+        _zmq(inputs.zmq_state, expected=inputs.rx_zmq_expected),
         _crc(inputs.crc_event_ms, now_ms),
         _dup(inputs.dup_event_ms, now_ms),
+        _radio(inputs.radio_enabled, inputs.radio_autostart, inputs.radio_state),
     ]
 
 
@@ -51,9 +56,11 @@ def _silence(silence_s: float) -> Verdict:
                    label="SILENCE", severity=sev, detail=detail)
 
 
-def _zmq(state: str) -> Verdict:
+def _zmq(state: str, *, expected: bool = True) -> Verdict:
     state = (state or "").upper()
-    if state == "DOWN":
+    if not expected:
+        sev, detail = None, ""
+    elif state == "DOWN":
         sev, detail = Severity.CRITICAL, "ZMQ socket disconnected"
     elif state == "RETRY":
         sev, detail = Severity.WARNING, "ZMQ socket reconnecting"
@@ -84,6 +91,28 @@ def _dup(event_ms: tuple[int, ...], now_ms: int) -> Verdict:
     return Verdict(id="platform.dup", source=AlarmSource.PLATFORM, label="DUP",
                    severity=sev, detail=f"{count} duplicates in 60s" if sev else "",
                    context={"count": count, "window_ms": DUP_WINDOW_MS})
+
+
+def _radio(enabled: bool, autostart: bool, state: str) -> Verdict:
+    state = (state or "").lower()
+    if not enabled or state == "running":
+        sev, detail = None, ""
+    elif state == "crashed":
+        sev, detail = Severity.CRITICAL, "GNU Radio process crashed"
+    elif autostart and state == "stopping":
+        sev, detail = Severity.WARNING, "GNU Radio process stopping"
+    elif autostart:
+        sev, detail = Severity.WARNING, "GNU Radio process stopped"
+    else:
+        sev, detail = None, ""
+    return Verdict(
+        id="platform.radio",
+        source=AlarmSource.PLATFORM,
+        label="RADIO",
+        severity=sev,
+        detail=detail,
+        context={"state": state, "enabled": enabled, "autostart": autostart},
+    )
 
 
 __all__ = [

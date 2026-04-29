@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Settings, HelpCircle, FileText, Satellite } from 'lucide-react'
+import { Settings, HelpCircle, FileText } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
@@ -123,7 +123,11 @@ export function GlobalHeader({
         {/* Brand */}
         <div className="usc-brand flex items-center gap-2 mr-4 cursor-default relative">
           <img src="/usc-shield.png" alt="" className="h-[20px] w-auto" />
-          <Satellite className="usc-icon size-[18px]" aria-hidden="true" />
+          <img
+            src="/maveric-patch.webp"
+            alt="MAVERIC mission patch"
+            className="usc-icon h-[22px] w-[22px] object-contain"
+          />
           <div className="flex items-center">
             <span className="usc-mission font-bold text-[13px] tracking-wide transition-colors" style={{ color: colors.value }}>{missionName}</span>
             <span className="usc-gss font-bold text-[13px] tracking-wide transition-colors" style={{ color: colors.value }}>&nbsp;GSS</span>

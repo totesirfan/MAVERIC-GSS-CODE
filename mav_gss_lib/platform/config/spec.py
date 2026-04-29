@@ -22,6 +22,6 @@ class PlatformConfigSpec:
 
 
 DEFAULT_PLATFORM_CONFIG_SPEC = PlatformConfigSpec(
-    editable_sections=frozenset({"tx", "rx"}),
+    editable_sections=frozenset({"tx", "rx", "radio"}),
     editable_general_keys=frozenset({"log_dir", "generated_commands_dir"}),
 )
