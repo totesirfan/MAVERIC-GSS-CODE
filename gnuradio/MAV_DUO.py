@@ -77,7 +77,7 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.zmq_port_tx = zmq_port_tx = "52002"
         self.zmq_port_rx = zmq_port_rx = "52001"
         self.tx_amp = tx_amp = 0.7
-        self.samp_ratetx = samp_ratetx = 1920000
+        self.samp_ratetx = samp_ratetx = 2400000
         self.samp_rate = samp_rate = 1000000
         self.rf_gain = rf_gain = 50
         self.modindex = modindex = 1/1.5

@@ -117,8 +117,8 @@ blocks:
 - name: samp_ratetx
   id: variable
   parameters:
-    comment: Fixed 1.92 Msps = 61.44MHz/32 (clean B210 divisor at both baud rates)
-    value: '1920000'
+    comment: Fixed 2.4 Msps = 48MHz/20 with RX at 1Msps (clean B210 divisor at both baud rates)
+    value: '2400000'
   states:
     bus_sink: false
     bus_source: false
