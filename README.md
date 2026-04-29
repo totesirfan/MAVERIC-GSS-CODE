@@ -49,7 +49,7 @@ The platform is mission-agnostic. Transport, queueing, logging, protocol primiti
 
 ## Features
 
-- **Single-radio, full-duplex capable** — one USRP B210 drives both uplink and downlink channels via the `MAV_DUPLEX` GNU Radio flowgraph. The deployed station operates half-duplex over a single UHF antenna switched between TX and RX by a coax switch.
+- **Single-radio, full-duplex capable** — one USRP B210 drives both uplink and downlink channels via the `MAV_DUO` GNU Radio flowgraph. The deployed station operates half-duplex over a single UHF antenna switched between TX and RX by a coax switch.
 - **Declarative wire framing** — MAVERIC's chain (CSP v1 → ASM+Golay with CCSDS + Reed-Solomon FEC) is declared in `mission.yml` and assembled by the platform `DeclarativeFramer`. The `FRAMERS` registry also ships `ax25` for missions that need HDLC + G3RUH.
 - **Mission-agnostic core** — swap the mission package to retarget the platform; a single `MissionSpec` contract (packets / commands / events / HTTP / config / preflight) is enforced at load time.
 - **Drag-to-reorder command queue** with delay and note items, JSONL import/export, guard confirmation, and persistent recovery after restart.
@@ -73,7 +73,7 @@ python3 MAV_WEB.py
 
 The dashboard opens in the default browser at `http://127.0.0.1:8080`. The server exits about two seconds after the last browser tab closes.
 
-For live uplink and downlink, start the `MAV_DUPLEX` GNU Radio flowgraph before launching `MAV_WEB.py`.
+For live uplink and downlink, start the `MAV_DUO` GNU Radio flowgraph before launching `MAV_WEB.py`.
 
 ## Requirements
 
@@ -130,7 +130,7 @@ The platform sits between the operator and GNU Radio. RX traffic arrives as PMT-
 flowchart LR
     Op([Operator]):::op --> UI[React dashboard<br/>Vite + Tailwind]
     UI <--> RT[FastAPI runtime<br/>server/*]
-    RT -- ZMQ PUB<br/>PMT PDU --> GR[GNU Radio<br/>MAV_DUPLEX flowgraph]
+    RT -- ZMQ PUB<br/>PMT PDU --> GR[GNU Radio<br/>MAV_DUO flowgraph]
     GR -- ZMQ SUB<br/>PMT PDU --> RT
     GR <--> Radio[USRP B210]
     Radio <-. UHF 430-440 MHz .-> Sat([MAVERIC<br/>CubeSat])

@@ -51,7 +51,6 @@ mav_gss_lib/gss.yml
 # Legacy config names (pre-consolidation)
 maveric_commands.yml
 maveric_gss.yml
-maveric_decoder.yml
 
 # === OS / Editor ===
 .DS_Store

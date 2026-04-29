@@ -190,7 +190,7 @@ def decode_golay_via_flowgraph(frame: bytes) -> tuple[bytes, dict]:
             do_unpack=True,
         )
         fg = gr_satellites_flowgraph(
-            file=str(ROOT / "MAVERIC GNURADIO" / "MAVERIC_DECODER.yml"),
+            file=str(CODE / "gnuradio" / "MAVERIC_DECODER.yml"),
             samp_rate=1920000,
             iq=True,
             grc_block=True,
