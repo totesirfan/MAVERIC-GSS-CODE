@@ -6,10 +6,15 @@ FailedVerifier, ...). Each spec carries an opaque mission-assigned id
 plus the display + window metadata the platform consumes to drive the
 verifier state machine and the per-command UI tick strip.
 
-`VerifierRules.by_dest` maps a destination node name to the ordered list
-of verifier_ids expected for commands sent to that destination — the
-declarative analogue of XTCE's `<BaseMetaCommand>` inheritance pattern,
-where the rule table is the "base" and per-command overrides specialize.
+`VerifierRules` maps a mission-selected key to the ordered list of verifier
+ids expected for matching commands — the declarative analogue of XTCE's
+`<BaseMetaCommand>` inheritance pattern, where the rule table is the "base"
+and per-command overrides specialize. `selector` is a mission-facts path
+resolved by the mission command adapter, not by the platform send loop.
+
+`VerifierOverrideByKey` gives a command-stage override the same keyed
+selection behavior, for commands whose response source depends on the
+encoded packet header.
 
 Author: Irfan Annuar - USC ISI SERC
 """
@@ -36,7 +41,20 @@ class VerifierSpecDecl:
 
 @dataclass(frozen=True, slots=True)
 class VerifierRules:
-    by_dest: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    selector: str = ""
+    by_key: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
 
 
-__all__ = ["VerifierSpecDecl", "VerifierRules", "VerifierStage", "VerifierTone"]
+@dataclass(frozen=True, slots=True)
+class VerifierOverrideByKey:
+    selector: str = ""
+    by_key: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+
+
+__all__ = [
+    "VerifierOverrideByKey",
+    "VerifierSpecDecl",
+    "VerifierRules",
+    "VerifierStage",
+    "VerifierTone",
+]

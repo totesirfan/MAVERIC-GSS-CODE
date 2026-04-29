@@ -2,12 +2,10 @@
 mav_gss_lib.config -- Shared Configuration Loader
 
 Reads gss.yml from the mav_gss_lib package directory and returns split
-runtime state `(platform_cfg, mission_id, mission_cfg)`. Operator files may
-be stored either in the legacy flat shape or the native split-state
-`{platform, mission}` shape; both are accepted. Mission-specific defaults
-are seeded by the active mission's own `build(ctx)` at MissionSpec load time
-(see e.g. `missions/maveric/defaults.py`). Falls back to hardcoded platform
-defaults if the file is missing.
+runtime state `(platform_cfg, mission_id, mission_cfg)`. Operator files must
+use the native split-state `{platform, mission}` shape. Mission-specific
+defaults are seeded by the active mission's own `build(ctx)` at MissionSpec
+load time. Falls back to hardcoded platform defaults if the file is missing.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -85,17 +83,7 @@ _DEFAULTS = {
 }
 
 _PLATFORM_GENERAL_KEYS = {"log_dir", "generated_commands_dir"}
-_MISSION_TOP_KEYS = {"nodes", "ptypes", "node_descriptions", "csp", "imaging", "image_dir"}
-_MISSION_GENERAL_KEYS = {
-    "mission_name",
-    "gs_node",
-    "command_defs",
-    "command_defs_resolved",
-    "command_defs_warning",
-    "rx_title",
-    "tx_title",
-    "splash_subtitle",
-}
+_NATIVE_TOP_KEYS = {"platform", "mission"}
 
 
 def deep_merge(base: dict, override: dict) -> dict:
@@ -114,71 +102,49 @@ def deep_merge(base: dict, override: dict) -> dict:
     return merged
 
 
-def _is_native_operator_config(cfg: dict) -> bool:
-    return isinstance(cfg.get("platform"), dict) or isinstance(cfg.get("mission"), dict)
+def _native_operator_config(raw: dict, *, default_mission: str = DEFAULT_MISSION) -> dict:
+    """Return a validated native `{platform, mission}` operator config."""
+    if not raw:
+        return {"platform": {}, "mission": {"id": default_mission, "config": {}}}
+    extra_top_keys = set(raw) - _NATIVE_TOP_KEYS
+    if extra_top_keys:
+        keys = ", ".join(sorted(str(k) for k in extra_top_keys))
+        raise ValueError(f"gss.yml has unsupported top-level key(s): {keys}")
+    if "platform" not in raw and "mission" not in raw:
+        raise ValueError("gss.yml must use native split shape: {platform, mission}")
 
+    native = copy.deepcopy(raw)
+    platform = native.get("platform", {})
+    if platform is None:
+        platform = {}
+    if not isinstance(platform, dict):
+        raise ValueError("gss.yml platform section must be a mapping")
 
-def _canonical_operator_config(raw: dict, *, default_mission: str = DEFAULT_MISSION) -> dict:
-    """Return the native `{platform, mission}` operator config shape.
+    mission = native.get("mission", {})
+    if mission is None:
+        mission = {}
+    if not isinstance(mission, dict):
+        raise ValueError("gss.yml mission section must be a mapping")
 
-    Native files pass through; legacy flat files are accepted and converted
-    so existing on-disk operator configs keep loading.
-    """
-    if _is_native_operator_config(raw):
-        native = copy.deepcopy(raw)
-        native.setdefault("platform", {})
-        native.setdefault("mission", {})
-        mission = native["mission"]
-        if not isinstance(mission, dict):
-            mission = {}
-            native["mission"] = mission
-        mission.setdefault("id", default_mission)
-        mission.setdefault("config", {})
-        return native
+    mission_config = mission.get("config", {})
+    if mission_config is None:
+        mission_config = {}
+    if not isinstance(mission_config, dict):
+        raise ValueError("gss.yml mission.config section must be a mapping")
 
-    raw = copy.deepcopy(raw)
-    general = raw.get("general", {}) if isinstance(raw.get("general"), dict) else {}
-    platform: dict = {}
-    for key in ("tx", "rx", "stations"):
-        value = raw.get(key)
-        if isinstance(value, dict) and value:
-            platform[key] = copy.deepcopy(value)
-    platform_general = {
-        key: copy.deepcopy(value)
-        for key, value in general.items()
-        if key in _PLATFORM_GENERAL_KEYS
-    }
-    if platform_general:
-        platform["general"] = platform_general
-
-    mission_config: dict = {}
-    for key in _MISSION_TOP_KEYS:
-        value = raw.get(key)
-        if key == "image_dir":
-            if value:
-                mission_config[key] = value
-            continue
-        if isinstance(value, dict) and value:
-            mission_config[key] = copy.deepcopy(value)
-    for key in _MISSION_GENERAL_KEYS:
-        if key in general:
-            mission_config[key] = copy.deepcopy(general[key])
-
-    return {
-        "platform": platform,
-        "mission": {
-            "id": str(general.get("mission", default_mission)),
-            "config": mission_config,
-        },
-    }
+    mission["id"] = str(mission.get("id") or default_mission)
+    mission["config"] = mission_config
+    native["platform"] = platform
+    native["mission"] = mission
+    return native
 
 
 def load_split_config(path: str | None = None) -> tuple[dict, str, dict]:
     """Load operator config as native split state.
 
     Returns (platform_cfg, mission_id, mission_cfg) derived from the operator
-    file and the platform defaults. Accepts both native `{platform, mission}`
-    and legacy flat files on disk.
+    file and the platform defaults. Operator files must use the native
+    `{platform, mission}` shape.
     """
     if path is None:
         path = str(_DEFAULT_GSS_PATH)
@@ -186,9 +152,13 @@ def load_split_config(path: str | None = None) -> tuple[dict, str, dict]:
     if os.path.isfile(path):
         with open(path, "r") as f:
             loaded = yaml.safe_load(f)
-        if isinstance(loaded, dict):
+        if loaded is None:
+            raw = {}
+        elif isinstance(loaded, dict):
             raw = loaded
-    native = _canonical_operator_config(raw)
+        else:
+            raise ValueError("gss.yml must be a mapping")
+    native = _native_operator_config(raw)
 
     platform_defaults = copy.deepcopy(_DEFAULTS)
     platform_defaults.pop("general", None)
@@ -219,9 +189,6 @@ def split_to_persistable(platform_cfg: dict, mission_id: str, mission_cfg: dict)
     stray mission-general snapshots left in platform_cfg).
     """
     persistable_platform = copy.deepcopy(platform_cfg)
-    # Strip legacy operator-mode knob — pre-declarative-framing artifact.
-    # New saves don't write tx.uplink_mode; old gss.yml files with the key
-    # silently lose it on next save.
     tx = persistable_platform.get("tx")
     if isinstance(tx, dict):
         tx.pop("uplink_mode", None)
@@ -300,5 +267,3 @@ def save_operator_config(cfg: dict, path: str | None = None) -> None:
         except OSError:
             pass
         raise
-
-

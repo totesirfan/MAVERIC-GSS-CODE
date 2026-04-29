@@ -79,7 +79,13 @@ from .runtime import (
 from .time_codec import decode_millis_u64, encode_millis_u64
 from .types import ByteOrder, HeaderValue
 from .walker_packet import WalkerPacket
-from .verifier_decls import VerifierRules, VerifierSpecDecl, VerifierStage, VerifierTone
+from .verifier_decls import (
+    VerifierOverrideByKey,
+    VerifierRules,
+    VerifierSpecDecl,
+    VerifierStage,
+    VerifierTone,
+)
 from .verifier_runtime import derive_verifier_set
 from .yaml_parse import parse_yaml, parse_yaml_for_tooling
 from .yaml_schema import MissionDocument
@@ -88,6 +94,11 @@ from mav_gss_lib.platform.spec.framing import (
     FramerSpec,
     FramingSpec,
     parse_framing_section,
+)
+from mav_gss_lib.platform.spec.ui import (
+    UiColumn,
+    UiSpec,
+    parse_ui_section,
 )
 
 
@@ -126,12 +137,15 @@ __all__ = [
     # Factories
     "build_declarative_command_ops", "DeclarativeCommandOpsAdapter",
     # Verifiers
-    "VerifierSpecDecl", "VerifierRules", "VerifierStage", "VerifierTone",
+    "VerifierOverrideByKey", "VerifierSpecDecl", "VerifierRules",
+    "VerifierStage", "VerifierTone",
     "derive_verifier_set",
     # YAML
     "MissionDocument", "parse_yaml", "parse_yaml_for_tooling",
     # Framing spec
     "FramerSpec", "FramingSpec", "parse_framing_section",
+    # UI spec
+    "UiColumn", "UiSpec", "parse_ui_section",
     # Errors
     "SpecError", "ParseError", "SpecRuntimeError",
     "UnknownTypeRef", "DuplicateTypeName", "ContainerConflict",

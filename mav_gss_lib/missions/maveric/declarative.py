@@ -4,10 +4,9 @@ Reads ``mission.yml`` via ``platform.spec.parse_yaml`` (with CALIBRATORS
 bound), constructs a ``MaverPacketCodec`` from the parsed extensions,
 and a platform ``DeclarativeFramer`` from ``mission.framing``.
 
-Wraps the declarative command_ops with a frontend-compat translator
-that accepts both the legacy MAVERIC flat shape
-(``{cmd_id, args, dest, echo, ptype, guard}``) and the canonical
-declarative shape (``{cmd_id, args:dict, packet:dict}``).
+Wraps the declarative command_ops with MAVERIC's operator grammar:
+shortcut CLI commands, full routing-form CLI commands, and canonical
+declarative dict payloads (``{cmd_id, args:dict, packet:dict}``).
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -19,12 +18,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from mav_gss_lib.platform.contract import CommandOps
-from mav_gss_lib.platform.contract.commands import (
-    CommandDraft,
-    CommandRendering,
-    EncodedCommand,
-)
-from mav_gss_lib.platform.contract.rendering import Cell, ColumnDef, DetailBlock
+from mav_gss_lib.platform.contract.commands import CommandDraft
 from mav_gss_lib.platform.framing import DeclarativeFramer
 from mav_gss_lib.platform.spec import (
     Mission,
@@ -55,19 +49,6 @@ def _coerce_token(token: str) -> Any:
     return token
 
 
-# Column definitions for the TX queue/history list. The `verifiers` column
-# is rendered client-side from the verification WS stream — its row value
-# stays empty, so it's declared without `hide_if_all` so the tick strip is
-# visible on every row whether or not a registered instance currently maps.
-_TX_QUEUE_COLUMNS: tuple[dict, ...] = (
-    {"id": "dest",      "label": "dest",      "width": "w-[52px]"},
-    {"id": "echo",      "label": "echo",      "width": "w-[52px]", "hide_if_all": ["NONE"]},
-    {"id": "ptype",     "label": "type",      "width": "w-[52px]", "badge": True},
-    {"id": "cmd",       "label": "id / args", "flex": True},
-    {"id": "verifiers", "label": "verify",    "width": "w-[78px]", "align": "right"},
-)
-
-
 @dataclass(frozen=True, slots=True)
 class DeclarativeCapabilities:
     mission: Mission
@@ -84,20 +65,20 @@ class _MaverCommandOpsWrapper:
 
     * **CLI grammars** (parse_input on a string):
         - shortcut: ``CMD [arg1 arg2 ...]`` — declarative pass-through.
-        - full:     ``[SRC] DEST ECHO TYPE CMD [arg1 arg2 ...]`` — legacy
-          MAVERIC operator format. SRC/DEST/ECHO accept node names or
+        - full:     ``[SRC] DEST ECHO TYPE CMD [arg1 arg2 ...]`` — routed
+          MAVERIC operator form. SRC/DEST/ECHO accept node names or
           numeric ids; TYPE accepts ptype names or ids. SRC defaults to
           the GS node when 4-token form is detected.
 
-    * **Frontend dict shape** (parse_input on a dict): legacy flat
-      ``{cmd_id, args, dest, echo, ptype, src}`` is canonicalized to
-      declarative ``{cmd_id, args:dict, packet:dict}``.
+    * **Frontend dict shape** (parse_input on a dict): canonical declarative
+      ``{cmd_id, args:dict, packet:dict}``; packet header fields must live
+      under ``packet``.
 
-    Plus an `rx_only` admission gate, an operator-friendly `schema()`
-    reshape (frontend-compatible flat ``{cmd_id: {tx_args, dest, echo,
-    ptype, nodes, ...}}``), and a static `tx_columns` providing the
-    MAVERIC TX queue/history column list. All other CommandOps methods
-    delegate to the inner declarative adapter via ``__getattr__``.
+    Plus an `rx_only` admission gate and an operator-friendly `schema()`
+    shape (``{cmd_id: {tx_args, dest, echo, ptype, nodes, ...}}``). All
+    other CommandOps methods delegate to the
+    inner declarative adapter via ``__getattr__``. TX columns are read
+    from ``mission.yml::ui.tx_columns`` by the platform.
     """
 
     __slots__ = ("inner", "mission", "_codec")
@@ -148,48 +129,6 @@ class _MaverCommandOpsWrapper:
             }
         return out
 
-    def tx_columns(self) -> list[ColumnDef]:
-        return [ColumnDef.from_dict(col) for col in _TX_QUEUE_COLUMNS]
-
-    def render(self, encoded: EncodedCommand) -> CommandRendering:
-        """Build display row + detail blocks from the encoded mission_payload.
-
-        The declarative inner adapter only fills title/subtitle. The TX
-        queue column ids (`dest`, `echo`, `ptype`, `cmd`) need populated
-        Cells so the row renders. `cmd` shows the command id plus a
-        compact arg summary; `ptype` is rendered as a badge per the
-        column def.
-        """
-        mp = encoded.mission_payload or {}
-        cmd_id = str(mp.get("cmd_id", "?"))
-        header = mp.get("header") or {}
-        args = mp.get("args") or {}
-        dest  = str(header.get("dest", ""))
-        echo  = str(header.get("echo", ""))
-        ptype = str(header.get("ptype", ""))
-        cmd_cell = cmd_id
-        if isinstance(args, dict) and args:
-            arg_str = " ".join(f"{k}={v}" for k, v in args.items())
-            cmd_cell = f"{cmd_id} {arg_str}"
-        row: dict[str, Cell] = {
-            "dest":  Cell(value=dest),
-            "echo":  Cell(value=echo),
-            "ptype": Cell(value=ptype, badge=True),
-            "cmd":   Cell(value=cmd_cell),
-        }
-        detail_blocks: list[DetailBlock] = []
-        if isinstance(args, dict) and args:
-            detail_blocks.append(DetailBlock(
-                kind="args", label="Args",
-                fields=[{"name": k, "value": str(v)} for k, v in args.items()],
-            ))
-        return CommandRendering(
-            title=cmd_id,
-            subtitle=dest,
-            row=row,
-            detail_blocks=detail_blocks,
-        )
-
     def __getattr__(self, name: str) -> Any:
         return getattr(self.inner, name)
 
@@ -239,12 +178,20 @@ class _MaverCommandOpsWrapper:
         args_dict: dict[str, Any] = {}
         for arg, token in zip(meta.argument_list, parts[cmd_idx + 1:]):
             args_dict[arg.name] = _coerce_token(token)
-        payload: dict[str, Any] = {
-            "cmd_id": cmd_id, "args": args_dict,
-            "dest": dest, "echo": echo, "ptype": ptype,
+        meta_packet = meta.packet
+        allowed = meta.allowed_packet
+        parsed_packet = {
+            "dest": dest,
+            "echo": echo,
+            "ptype": ptype,
+            **({"src": src_name} if src_name is not None else {}),
         }
-        if src_name is not None:
-            payload["src"] = src_name
+        packet = {
+            field: value
+            for field, value in parsed_packet.items()
+            if field in allowed or (field in meta_packet and meta_packet[field] != value)
+        }
+        payload: dict[str, Any] = {"cmd_id": cmd_id, "args": args_dict, "packet": packet}
         return self.inner.parse_input(self._canonicalize(payload))
 
     def _resolve_node_name(self, token: str, field: str) -> str:
@@ -281,43 +228,18 @@ class _MaverCommandOpsWrapper:
             return False
 
     def _canonicalize(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Convert legacy MAVERIC flat shape into the declarative shape.
-
-        Lifts top-level ``dest`` / ``echo`` / ``ptype`` / ``src`` into
-        ``packet``, but only when the meta_command actually allows the
-        override (and the operator's value differs from the default).
-        Overriding a field with its own meta_command default would raise
-        ``HeaderFieldNotOverridable`` unnecessarily."""
+        """Validate and normalize MAVERIC's canonical declarative dict shape."""
+        leaked = [field for field in _HEADER_FIELDS if field in payload]
+        if leaked:
+            fields = ", ".join(leaked)
+            raise ValueError(f"header field(s) must be under 'packet': {fields}")
         canonical: dict[str, Any] = {"cmd_id": payload.get("cmd_id", "")}
         args = payload.get("args", {})
-        canonical["args"] = args if isinstance(args, dict) else {}
+        if not isinstance(args, dict):
+            raise ValueError("'args' must be an object")
+        canonical["args"] = args
         packet = payload.get("packet")
         canonical["packet"] = dict(packet) if isinstance(packet, dict) else {}
-
-        meta = self.mission.meta_commands.get(canonical["cmd_id"])
-        if meta is None:
-            # Walker will reject the unknown cmd_id with a clear validation
-            # error. Lift everything in case downstream cares.
-            for field in _HEADER_FIELDS:
-                if field in payload and field not in canonical["packet"]:
-                    canonical["packet"][field] = payload[field]
-            return canonical
-
-        meta_packet = meta.packet
-        allowed = meta.allowed_packet
-        for field in _HEADER_FIELDS:
-            if field not in payload or field in canonical["packet"]:
-                continue
-            value = payload[field]
-            # Skip lifting fields that already match the meta_command's
-            # default — overriding with the same value triggers
-            # HeaderFieldNotOverridable when the field isn't in
-            # allowed_packet. The walker uses meta_packet[field] anyway.
-            if field in meta_packet and meta_packet[field] == value:
-                continue
-            # Lift only fields the meta_command exposes as overridable.
-            if field in allowed:
-                canonical["packet"][field] = value
         return canonical
 
 

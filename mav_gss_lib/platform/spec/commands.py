@@ -4,8 +4,7 @@
 codec-agnostic way. The §3.6 encode pipeline composes
 `meta_cmd.packet` defaults with operator overrides, allowlist-checks
 against `meta_cmd.allowed_packet`, then the codec's
-`complete_header` injects codec-side defaults (e.g. MAVERIC's `src`
-from `gs_node`).
+`complete_header` injects codec-side defaults.
 """
 
 from __future__ import annotations
@@ -13,7 +12,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
+from .verifier_decls import VerifierOverrideByKey, VerifierStage
 from .types import HeaderValue
+
+
+VerifierOverrideValue = tuple[str, ...] | VerifierOverrideByKey
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,7 +44,7 @@ class MetaCommand:
     rx_count_from: str | None = None
     rx_index_field: str | None = None
     description: str = ""
-    verifier_override: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    verifier_override: Mapping[VerifierStage, VerifierOverrideValue] = field(default_factory=dict)
 
 
-__all__ = ["Argument", "MetaCommand"]
+__all__ = ["Argument", "MetaCommand", "VerifierOverrideValue"]

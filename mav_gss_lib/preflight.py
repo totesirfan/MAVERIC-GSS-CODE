@@ -62,21 +62,17 @@ def run_preflight(cfg: dict | None = None,
     """Yield check results as each check executes.
 
     Args:
-        cfg: Pre-loaded platform config dict (native `platform_cfg` shape or
-            legacy flat runtime cfg — both expose `tx.frequency`,
-            `rx.zmq_addr`, `tx.zmq_addr` at the same paths). If None, loads
-            from gss.yml.
+        cfg: Pre-loaded platform config dict (`platform_cfg` shape). If None,
+            loads from gss.yml.
         mission_cfg: Mission-config dict for mission-specific checks such as
-            command-schema path resolution. Optional for legacy callers.
+            command-schema path resolution.
         mission: Optional `MissionSpec` whose `preflight()` hook, if set, is
             called after the platform-neutral checks. Mission-specific checks
             (command schema file presence, radio capability probes, etc.)
             live under `MissionSpec.preflight` — the platform preflight no
             longer branches on mission id.
-        mission_id: Active mission id. When None, falls back to
-            `cfg.general.mission` (legacy) or `mission.id` when a MissionSpec
-            is provided. Preferred in newer callers since `platform_cfg` does
-            not carry `general.mission`.
+        mission_id: Active mission id. When None, falls back to `mission.id`
+            when a MissionSpec is provided, otherwise to the default mission.
         lib_dir: Library directory for path resolution. Defaults to mav_gss_lib/.
         operator, host, station: Inject identity captured elsewhere (e.g. from
             the already-running WebRuntime). When any of these is None, the
@@ -150,7 +146,7 @@ def run_preflight(cfg: dict | None = None,
         if mission is not None and getattr(mission, "id", None):
             mission_id = str(mission.id)
         else:
-            mission_id = cfg.get("general", {}).get("mission", DEFAULT_MISSION)
+            mission_id = DEFAULT_MISSION
     mission_dir = lib_dir / "missions" / mission_id
     if mission_dir.is_dir():
         yield CheckResult("config", f"Mission: {mission_id}", "ok")

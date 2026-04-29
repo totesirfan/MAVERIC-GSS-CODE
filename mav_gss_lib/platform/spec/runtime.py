@@ -5,7 +5,7 @@ ContainerMatcher, EntryDecoder, CommandEncoder — each split by
 responsibility but tested through the public façade.
 
 This module is mission-agnostic above the WalkerPacket boundary and
-contains zero MAVERIC identifiers (enforced by
+contains zero mission package identifiers (enforced by
 `tests/test_walker_no_mission_specifics.py`).
 """
 
@@ -126,7 +126,13 @@ class TypeCodec:
         if isinstance(t, StringParameterType):
             if t.encoding == "fixed":
                 assert t.fixed_size_bytes is not None
-                return cursor.read_bytes(t.fixed_size_bytes).decode(t.charset, errors="replace")
+                buf = cursor.read_bytes(t.fixed_size_bytes)
+                # Fixed-width ASCII fields are null-padded (C `strncpy` into a
+                # fixed buffer): take everything up to the first null byte.
+                nul = buf.find(b"\x00")
+                if nul >= 0:
+                    buf = buf[:nul]
+                return buf.decode(t.charset, errors="replace")
             if t.encoding == "null_terminated":
                 acc = bytearray()
                 while True:
@@ -174,7 +180,11 @@ class TypeCodec:
         if isinstance(t, BinaryParameterType):
             return bytes(value)
         if isinstance(t, StringParameterType):
-            return str(value).encode(t.charset)
+            raw = str(value).encode(t.charset)
+            if t.encoding == "fixed":
+                assert t.fixed_size_bytes is not None
+                return raw[: t.fixed_size_bytes].ljust(t.fixed_size_bytes, b"\x00")
+            return raw
         if isinstance(t, ArrayParameterType):
             return b"".join(self.encode_binary(t.array_type_ref, elem) for elem in value)
         if isinstance(t, AggregateParameterType):
@@ -249,7 +259,7 @@ class ContainerMatcher:
         return tuple(matches)
 
     def match_parent(self, pkt: WalkerPacket) -> SequenceContainer | None:
-        """First matching top-level container (legacy compatibility)."""
+        """First matching top-level container, preserving the historic API."""
         matches = self.match_parents(pkt)
         return matches[0] if matches else None
 
@@ -536,8 +546,8 @@ class CommandEncoder:
         meta = self._meta[cmd_id]
         if not meta.argument_list:
             return b""
-        # ASCII tokens by default (matches MAVERIC). Mission codec is
-        # responsible for binary-args commands (none in MAVERIC today).
+        # ASCII tokens by default. Mission codecs are responsible for
+        # binary-args commands.
         tokens: list[str] = []
         for arg in meta.argument_list:
             value = args.get(arg.name)

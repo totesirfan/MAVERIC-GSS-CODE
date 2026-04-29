@@ -67,10 +67,7 @@ async def api_status(request: Request) -> dict[str, Any]:
         "auth_token": runtime.session_token,
         "log_dir": runtime.log_dir,
         "logging": runtime.rx.log is not None,
-        "rx_log_text": runtime.rx.log.text_path if runtime.rx.log else None,
-        "rx_log_json": runtime.rx.log.jsonl_path if runtime.rx.log else None,
-        "tx_log_text": runtime.tx.log.text_path if runtime.tx.log else None,
-        "tx_log_json": runtime.tx.log.jsonl_path if runtime.tx.log else None,
+        "session_log_json": runtime.rx.log.jsonl_path if runtime.rx.log else None,
     }
 
 

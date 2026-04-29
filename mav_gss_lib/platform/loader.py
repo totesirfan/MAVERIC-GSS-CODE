@@ -60,8 +60,7 @@ def load_mission_spec(cfg: dict[str, Any], *, data_dir: str | Path = "logs") -> 
 
     Production code paths (`PlatformRuntime.from_split`, `WebRuntime`) call
     `load_mission_spec_from_split` directly with the split tuple. This wrapper
-    keeps test ergonomics ergonomic without smuggling the flat legacy shape
-    back into the loader surface.
+    keeps test setup concise while still requiring the native split shape.
     """
 
     mission_section = cfg.get("mission") or {}
@@ -84,6 +83,6 @@ def validate_mission_spec(spec: MissionSpec) -> None:
         raise ValueError("MissionSpec.id must be a non-empty string")
     if not isinstance(spec.name, str) or not spec.name:
         raise ValueError("MissionSpec.name must be a non-empty string")
-    for attr in ("packets", "ui", "config"):
+    for attr in ("packets", "config"):
         if getattr(spec, attr, None) is None:
             raise ValueError(f"MissionSpec.{attr} is required")

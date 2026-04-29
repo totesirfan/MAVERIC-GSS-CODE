@@ -13,7 +13,7 @@ Layout:
     server/      — FastAPI backend (app, ws/, rx/, tx/, api/)
     web/         — React + Vite frontend (src/ + committed dist/)
 
-    logging/     — session logging (SessionLog for RX, TXLog for TX)
+    logging/     — unified session logging (SessionLog)
     updater/     — self-updater + pre-import dependency bootstrap
     config.py    — split-state operator-config loader
     transport.py — ZMQ + PMT PDU helpers

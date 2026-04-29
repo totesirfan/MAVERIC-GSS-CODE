@@ -20,18 +20,12 @@ maveric/
 ├── mission.example.yml    Public-safe template for mission.yml
 ├── declarative.py         build_declarative_capabilities — Plan A/B wire-up
 ├── codec.py               MaverPacketCodec (PacketCodec) — owns node/ptype tables
-├── packets.py             DeclarativePacketsAdapter + MaverMissionPayload
+├── packets.py             DeclarativePacketsAdapter + MaverMissionPayload + mission facts
 ├── calibrators.py         Calibrator registry (CALIBRATORS) — raw→engineering decoders
 ├── alarm_predicates.py    Alarm predicate registry (norm checks, eclipse-aware SV)
 ├── plugin_tx_builder.py   FastAPI route feeding the TX builder frontend plugin
 ├── errors.py              Declarative-pipeline error types
 ├── preflight.py           Mission preflight-check factory (mission.yml + libfec)
-│
-├── ui/                    Presentation — boundary: MavericUiOps
-│   ├── ops.py             UiOps implementation (codec + Mission fields)
-│   ├── rendering.py       row / detail_blocks / protocol_blocks / integrity_blocks
-│   ├── formatters.py      calibrator dispatch (display_kind / render_value)
-│   └── log_format.py      JSONL mission-data + text log lines
 │
 └── imaging/               Imaging frontend plugin (REST + event source)
     ├── assembler.py       ImageAssembler (chunk reassembly, restart recovery)
@@ -50,7 +44,8 @@ maveric/
 - **`DeclarativePacketsAdapter`** (`packets.py`) — wraps the codec into platform
   `PacketOps` (normalize → parse → classify → match_verifiers). Owns CSP V1
   4-byte strip, body CRC and CSP CRC32 verification, duplicate fingerprinting,
-  and uplink-echo detection. Returns `MaverMissionPayload` instances.
+  uplink-echo detection, and MAVERIC `mission.facts` for RX UI/log filtering.
+  Returns `MaverMissionPayload` instances as the internal walker payload.
 - **Wire framing** (declared in `mission.yml` under `framing:`) — composed
   by the platform-side `DeclarativeFramer` from a CSP v1 layer + ASM+Golay
   outer framing. No mission-side framer class; the chain is data, not code.
@@ -66,13 +61,9 @@ maveric/
 - **Frontend route** (`plugin_tx_builder.py`) — `/api/plugins/maveric/identity`,
   the read-only feed for `web/src/plugins/maveric/TxBuilder.tsx` (node /
   ptype / gs_node tables for the dropdowns).
-- **Operator rendering** (`ui/`) — packet list row, detail blocks, protocol
-  blocks, integrity blocks. Reads `MaverMissionPayload` attributes +
-  `envelope.telemetry` directly. Dispatches value formatting on parameter-type
-  calibrator (`PythonCalibrator.callable_ref` / `EnumeratedParameterType` /
-  `absolute_time`).
-- **Log formatting** (`ui/log_format.py`) — mission-specific JSONL `mission`
-  sub-block and the multi-line text log entry.
+- **RX mission facts** (`packets.py`) — structured MAVERIC header/protocol/
+  integrity fields under `mission.facts`; the frontend derives rows and detail
+  panes from those facts plus platform parameter updates.
 - **Imaging plugin** (`imaging/`) — chunk reassembly, REST endpoints, the
   packet event source that drives the assembler from inbound imaging commands.
 - **Frontend plugin surface** — TX builder + imaging page + GNC page under

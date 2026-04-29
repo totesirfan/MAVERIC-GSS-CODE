@@ -1,9 +1,9 @@
 """Top-level mission spec — the single mission/platform boundary.
 
 A `MissionSpec` bundles the mission's packet/command/telemetry/event
-capabilities, its UI surface, its optional HTTP routers, its preflight
-hook, and its config-shape declaration. Missions build one at load time;
-the platform consumes it.
+capabilities, its optional HTTP routers, its preflight hook, and its
+config-shape declaration. Missions build one at load time; the platform
+consumes it.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -18,7 +18,6 @@ from .commands import CommandOps
 from .events import EventOps
 from .http import HttpOps
 from .packets import PacketOps
-from .ui import UiOps
 
 if TYPE_CHECKING:
     from mav_gss_lib.platform.spec.mission import Mission
@@ -48,7 +47,6 @@ class MissionSpec:
     id: str
     name: str
     packets: PacketOps
-    ui: UiOps
     config: MissionConfigSpec
     commands: CommandOps | None = None
     spec_root: "Mission | None" = None

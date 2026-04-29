@@ -1,4 +1,4 @@
-"""FastAPI server backing the MAVERIC GSS dashboard.
+"""FastAPI server backing the GSS dashboard.
 
     app.py       — create_app + lifespan (RX thread, TX send loop,
                    preflight + updater scheduling)
@@ -11,7 +11,6 @@
     tx/          — TX service + queue + actions
     api/         — REST endpoints (config, identity, logs, queue_io,
                    schema, session)
-    telemetry/   — REST catalog endpoint + one-shot legacy-snapshot reset
 
 Author: Irfan Annuar — USC ISI SERC
 """

@@ -10,7 +10,7 @@ Author:  Irfan Annuar - USC ISI SERC
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal, TypedDict
 
 from mav_gss_lib.missions.maveric.codec import MaverPacketCodec
 from mav_gss_lib.platform import (
@@ -47,6 +47,11 @@ class MaverMissionPayload:
     stripped_hdr: str | None
 
 
+class MavericMissionFacts(TypedDict):
+    id: Literal["maveric"]
+    facts: dict[str, Any]
+
+
 @dataclass(frozen=True, slots=True)
 class DeclarativePacketsAdapter(PacketOps):
     codec: MaverPacketCodec
@@ -65,8 +70,8 @@ class DeclarativePacketsAdapter(PacketOps):
         )
 
     def parse(self, normalized: NormalizedPacket) -> MissionPacket:
-        # Parse CSP V1 header from the FIRST 4 bytes of the inner payload —
-        # legacy parse_packet did this; codec.unwrap expects CSP-stripped bytes.
+        # Parse CSP V1 header from the FIRST 4 bytes of the inner payload;
+        # codec.unwrap expects CSP-stripped bytes.
         inner = normalized.payload
         csp_header, csp_plausible = try_parse_csp_v1(inner)
         cmd_bytes = inner[_CSP_V1_HEADER_LEN:] if len(inner) > _CSP_V1_HEADER_LEN else b""
@@ -100,11 +105,16 @@ class DeclarativePacketsAdapter(PacketOps):
             csp_crc32_valid=csp_crc32_valid,
             stripped_hdr=normalized.stripped_header,
         )
-        return MissionPacket(payload=payload, warnings=list(normalized.warnings))
+        mission = build_mission_facts(payload)
+        return MissionPacket(
+            payload=payload,
+            warnings=list(normalized.warnings),
+            mission=mission,
+        )
 
     def classify(self, packet: MissionPacket) -> PacketFlags:
         payload: MaverMissionPayload = packet.payload
-        integrity = bool(payload.valid_crc) if hasattr(payload, "valid_crc") else None
+        integrity = _overall_integrity_ok(packet.mission)
         return PacketFlags(
             duplicate_key=_duplicate_fingerprint(payload),
             is_unknown=(payload.header is None),
@@ -135,6 +145,59 @@ def _is_uplink_echo(payload: MaverMissionPayload, codec: MaverPacketCodec) -> bo
     if h is None or codec.gs_node_name is None:
         return False
     return h.get("src") == codec.gs_node_name
+
+
+def build_mission_facts(payload: MaverMissionPayload) -> MavericMissionFacts:
+    header = _mission_header(payload)
+    integrity = _mission_integrity(payload)
+    protocol: dict[str, Any] = {
+        "args_hex": payload.args_raw.hex(),
+        "csp_plausible": payload.csp_plausible,
+        "stripped_header": payload.stripped_hdr,
+    }
+    if payload.csp_header is not None:
+        protocol["csp_header"] = dict(payload.csp_header)
+    return {
+        "id": "maveric",
+        "facts": {
+            "header": header,
+            "protocol": protocol,
+            "integrity": integrity,
+        },
+    }
+
+
+def _mission_header(payload: MaverMissionPayload) -> dict[str, Any]:
+    h = payload.header or {}
+    return {
+        "cmd_id": h.get("cmd_id", ""),
+        "src": h.get("src", ""),
+        "dest": h.get("dest", ""),
+        "echo": h.get("echo", ""),
+        "ptype": h.get("ptype", ""),
+    }
+
+
+def _mission_integrity(payload: MaverMissionPayload) -> dict[str, Any]:
+    csp_ok = payload.csp_crc32_valid
+    overall_ok = bool(payload.valid_crc) and csp_ok is not False
+    return {
+        "overall_ok": overall_ok,
+        "body_crc_ok": bool(payload.valid_crc),
+        "csp_crc32": payload.csp_crc32,
+        "csp_crc32_ok": csp_ok,
+    }
+
+
+def _overall_integrity_ok(mission: dict[str, Any]) -> bool | None:
+    facts = mission.get("facts")
+    if not isinstance(facts, dict):
+        return None
+    integrity = facts.get("integrity")
+    if not isinstance(integrity, dict):
+        return None
+    overall = integrity.get("overall_ok")
+    return overall if isinstance(overall, bool) else None
 
 
 def match_verifiers(envelope, open_instances, *, now_ms: int, rx_event_id: str = "") -> list:
@@ -181,6 +244,8 @@ def match_verifiers(envelope, open_instances, *, now_ms: int, rx_event_id: str =
 
 __all__ = [
     "DeclarativePacketsAdapter",
+    "MavericMissionFacts",
     "MaverMissionPayload",
+    "build_mission_facts",
     "match_verifiers",
 ]

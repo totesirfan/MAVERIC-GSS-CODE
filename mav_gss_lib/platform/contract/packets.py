@@ -9,7 +9,6 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Hashable, Protocol
 
 from .parameters import ParamUpdate
-from .rendering import PacketRendering
 
 if TYPE_CHECKING:
     from mav_gss_lib.platform.tx.verifiers import CommandInstance, VerifierOutcome
@@ -28,6 +27,10 @@ class NormalizedPacket:
 class MissionPacket:
     payload: Any
     warnings: list[str] = field(default_factory=list)
+    # Opaque, mission-owned structured facts safe to forward to clients/logs.
+    # Generic platform code may read only ``mission["id"]``; everything under
+    # ``facts`` is mission-specific and must stay out of platform contracts.
+    mission: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,8 +47,6 @@ class PacketFlags:
 class PacketEnvelope:
     seq: int
     received_at_ms: int
-    received_at_text: str
-    received_at_short: str
     raw: bytes
     payload: bytes
     frame_type: str
@@ -53,8 +54,8 @@ class PacketEnvelope:
     warnings: list[str]
     mission_payload: Any
     flags: PacketFlags
+    mission: dict[str, Any] = field(default_factory=dict)
     parameters: tuple[ParamUpdate, ...] = ()
-    rendering: PacketRendering | None = None
 
 
 class PacketOps(Protocol):
@@ -82,14 +83,13 @@ class PacketOps(Protocol):
     """Match this inbound packet envelope against open instances.
 
     Takes the full PacketEnvelope because:
-      - `envelope.mission_payload` holds the mission-parsed dict (what the
-        MAVERIC rx/parser emits: {"cmd": {...}, "ptype": ..., ...}).
+      - `envelope.mission_payload` holds mission-private parse output.
       - `rx_event_id` (passed in by the server before log write) goes
         onto `VerifierOutcome.match_event_id` so verifier outcomes can
         back-point to the matched rx_packet log entry.
 
     Returns a list of (instance_id, verifier_id, outcome) transitions to apply.
     Empty list when the packet doesn't match any open verifier. Mission-private
-    logic handles newest-instance-wins, ptype/src → verifier_id mapping, and
+    logic handles newest-instance-wins, response routing, and
     pass/fail discrimination.
     """

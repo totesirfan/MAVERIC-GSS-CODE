@@ -187,7 +187,16 @@ class _VerifierSpecDecl(_Strict):
 
 
 class _VerifierRules(_Strict):
-    by_dest: dict[str, list[str]] = Field(default_factory=dict)
+    selector: str = ""
+    by_key: dict[str, list[str]] = Field(default_factory=dict)
+
+
+class _VerifierOverrideByKey(_Strict):
+    selector: str = ""
+    by_key: dict[str, list[str]] = Field(default_factory=dict)
+
+
+_VerifierOverrideValue = list[str] | _VerifierOverrideByKey
 
 
 class _MetaCommand(_Strict):
@@ -202,7 +211,7 @@ class _MetaCommand(_Strict):
     rx_count_from: str | None = None
     rx_index_field: str | None = None
     description: str = ""
-    verifier_override: dict[str, list[str]] | None = None
+    verifier_override: dict[str, _VerifierOverrideValue] | None = None
 
 
 class _Header(_Strict):
@@ -227,6 +236,7 @@ class MissionDocument(_Strict):
     verifier_specs: dict[str, _VerifierSpecDecl] = Field(default_factory=dict)
     verifier_rules: _VerifierRules | None = None
     framing: dict[str, Any] | None = None
+    ui: dict[str, Any] | None = None
 
     @field_validator("schema_version")
     @classmethod

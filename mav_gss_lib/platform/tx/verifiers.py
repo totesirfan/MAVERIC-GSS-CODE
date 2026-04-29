@@ -89,14 +89,15 @@ def _derive_stage(inst: CommandInstance) -> InstanceStage:
     """Compute an instance's stage from its verifier outcomes.
 
     Rules (spec §4.4):
-      0. Empty VerifierSet ("verification disabled" — e.g. FTDI dest or
-         fixture missions): terminal as Complete. There's nothing to wait
+      0. Empty VerifierSet ("verification disabled" or fixture missions):
+         terminal as Complete. There's nothing to wait
          for; keeping it non-terminal would block the admission gate
          indefinitely.
       1. Any FailedVerifier passed → Failed (NACK wins, even after Complete).
       2. Else CompleteVerifier passed → Complete.
-      3. Else all verifier windows closed → TimedOut.
-      4. Else transient: Accepted | Received | Released.
+      3. Else an ACK-only set with any ReceivedVerifier passed → Complete.
+      4. Else all verifier windows closed → TimedOut.
+      5. Else transient: Accepted | Received | Released.
     """
     if not inst.verifier_set.verifiers:
         return "complete"
@@ -115,6 +116,13 @@ def _derive_stage(inst: CommandInstance) -> InstanceStage:
         if inst.outcomes.get(spec.verifier_id, VerifierOutcome.pending()).state == "passed":
             return "complete"
 
+    received_passed = sum(
+        1 for v in received_specs
+        if inst.outcomes.get(v.verifier_id, VerifierOutcome.pending()).state == "passed"
+    )
+    if received_specs and not complete_specs and received_passed > 0:
+        return "complete"
+
     # 3. TimedOut — every window closed (passed or window_expired, not pending).
     all_closed = all(
         inst.outcomes.get(v.verifier_id, VerifierOutcome.pending()).state != "pending"
@@ -124,10 +132,6 @@ def _derive_stage(inst: CommandInstance) -> InstanceStage:
         return "timed_out"
 
     # 4. Transient.
-    received_passed = sum(
-        1 for v in received_specs
-        if inst.outcomes.get(v.verifier_id, VerifierOutcome.pending()).state == "passed"
-    )
     if received_specs and received_passed == len(received_specs):
         return "accepted"
     if received_passed > 0:

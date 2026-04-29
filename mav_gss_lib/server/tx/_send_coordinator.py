@@ -65,19 +65,17 @@ class _SendCoordinator:
     ) -> bool:
         """Block until no non-terminal verifier instance is open, or abort.
 
-        Honors spec §3 invariant ("no two sends to the same (cmd_id, dest) in
-        flight or within CheckWindow simultaneously") via the simpler global
-        rule operators expect: at most one verification window is open at a
-        time. The next mission_cmd waits until the prior instance reaches a
-        terminal stage (complete / failed / timed_out) before publishing.
+        Honors the mission correlation invariant via the simpler global rule
+        operators expect: at most one verification window is open at a time.
+        The next mission_cmd waits until the prior instance reaches a terminal
+        stage (complete / failed / timed_out) before publishing.
 
         Cross-target batches serialize too — accepted tradeoff for predictable
         per-row UI: each row's rail/dots tell a clean story without overlap.
 
-        Hard cap of `max_wait_ms` (default 35s, slightly past the longest
-        MAVERIC CheckWindow = 30s) prevents the queue from stalling forever
-        if the periodic sweeper somehow fails to advance an instance to
-        terminal — proceed with the next send rather than freeze.
+        Hard cap of `max_wait_ms` prevents the queue from stalling forever if
+        the periodic sweeper somehow fails to advance an instance to terminal;
+        proceed with the next send rather than freeze.
 
         Returns True if aborted.
         """
@@ -136,7 +134,8 @@ class _SendCoordinator:
         svc.guard_ok.clear()
         await svc.broadcast({
             "type": "guard_confirm", "index": 0,
-            "display": item.get("display", {}),
+            "cmd_id": item.get("cmd_id", ""),
+            "mission": item.get("mission", {}),
         })
         guard_task = asyncio.ensure_future(svc.guard_ok.wait())
         abort_task = asyncio.ensure_future(svc.abort.wait())
@@ -157,7 +156,7 @@ class _SendCoordinator:
                 svc.sending["guarding"] = False
         return svc.abort.is_set()
 
-    def _frame_mission_cmd(self, item: QueueItem) -> FramedCommand:
+    def _frame_mission_cmd(self, item: QueueItem) -> tuple[FramedCommand, EncodedCommand]:
         """Ask the active mission to frame the command's encoded bytes.
 
         Queue items persist mission-opaque bytes only, not the EncodedCommand
@@ -168,15 +167,18 @@ class _SendCoordinator:
         svc = self.service
         encoded_raw = item.get("raw_cmd", b"")
         encoded = svc.runtime.mission.commands.encode(
-            svc.runtime.mission.commands.parse_input({**(item.get("payload") or {})})
+            svc.runtime.mission.commands.parse_input(item.get("payload") or {})
         )
         if encoded_raw and encoded.raw != encoded_raw:
             encoded = EncodedCommand(
                 raw=encoded_raw,
+                cmd_id=encoded.cmd_id,
+                src=encoded.src,
                 guard=encoded.guard,
-                mission_payload=encoded.mission_payload,
+                mission_facts=encoded.mission_facts,
+                parameters=encoded.parameters,
             )
-        return svc.runtime.mission.commands.frame(encoded)
+        return svc.runtime.mission.commands.frame(encoded), encoded
 
     async def _finalize_send(self, sent: int) -> None:
         """Common cleanup path for send_complete / send_aborted."""
@@ -205,14 +207,14 @@ class _SendCoordinator:
 
         raw_cmd = item.get("raw_cmd", b"")
         if not raw_cmd:
-            await svc.broadcast({"type": "send_error", "error": f"empty raw_cmd for {item.get('display', {}).get('title', '?')}"})
+            await svc.broadcast({"type": "send_error", "error": f"empty raw_cmd for {item.get('cmd_id', '?')}"})
             svc._pop_and_renumber()
             return _RunResult(aborted=True, sent_delta=0)
 
         try:
-            framed = self._frame_mission_cmd(item)
+            framed, encoded_for_verifier = self._frame_mission_cmd(item)
         except Exception as exc:
-            logging.error("Frame build failed for %s: %s", item.get("cmd", "?"), exc)
+            logging.error("Frame build failed for %s: %s", item.get("cmd_id", "?"), exc)
             await svc.broadcast({"type": "send_error", "error": f"frame build failed: {exc}"})
             svc._pop_and_renumber()
             return _RunResult(aborted=True, sent_delta=0)
@@ -242,7 +244,7 @@ class _SendCoordinator:
                     await svc.send_queue_update()
 
         if not send_pdu(ctx.sock, framed.wire):
-            logging.error("ZMQ send failed for %s", item.get("cmd", "?"))
+            logging.error("ZMQ send failed for %s", item.get("cmd_id", "?"))
             await svc.broadcast({"type": "send_error", "error": "ZMQ send failed"})
             svc._pop_and_renumber()
             return _RunResult(aborted=True, sent_delta=0)
@@ -280,32 +282,21 @@ class _SendCoordinator:
 
         tx_event_id = new_event_id()
 
-        # Re-encode the queue payload to recover the mission's canonical
-        # ``mission_payload`` (with header sub-dict, args, etc.) so the
-        # mission's verifier_set / correlation_key see the same shape
-        # the encode pipeline produced. Mission encode is deterministic;
-        # we keep the persisted raw bytes as the authoritative wire.
+        from mav_gss_lib.platform.spec import derive_verifier_set
+        from mav_gss_lib.platform.tx.verifiers import VerifierSet
         try:
-            replay = svc.runtime.mission.commands.encode(
-                svc.runtime.mission.commands.parse_input({**(item.get("payload") or {})})
-            )
-            encoded_for_verifier = EncodedCommand(
-                raw=raw_cmd,
-                guard=bool(item.get("guard", False)),
-                mission_payload=replay.mission_payload,
-            )
-        except Exception:
-            # Fall back to a legacy-shaped envelope so verifier lookup
-            # missions that ignore mission_payload still keep working.
-            encoded_for_verifier = EncodedCommand(
-                raw=raw_cmd,
-                guard=bool(item.get("guard", False)),
-                mission_payload={
-                    "payload": item.get("payload", {}),
-                    "display": item.get("display", {}),
-                },
-            )
-        vset = svc.runtime.mission.commands.verifier_set(encoded_for_verifier)
+            spec_root = getattr(svc.runtime.mission, "spec_root", None)
+            if spec_root is None:
+                vset = VerifierSet(verifiers=())
+            else:
+                vset = derive_verifier_set(
+                    spec_root,
+                    cmd_id=encoded_for_verifier.cmd_id,
+                    mission_facts=encoded_for_verifier.mission_facts,
+                )
+        except Exception as exc:
+            logging.warning("verifier_set derivation failed: %s", exc)
+            vset = VerifierSet(verifiers=())
 
         instance: CommandInstance | None = None
         if vset.verifiers:  # skip register when mission declares "verification disabled"
@@ -364,7 +355,7 @@ class _SendCoordinator:
 
         new_sent = ctx.sent + 1
         await svc.broadcast({"type": "sent", "data": hist_entry})
-        current_label = item.get("display", {}).get("title", "?")
+        current_label = item.get("cmd_id", "?")
         await svc.broadcast({"type": "send_progress", "sent": new_sent, "total": ctx.total, "current": current_label, "waiting": False})
 
         # Post-send visible dwell. The sent item stays at queue-front for

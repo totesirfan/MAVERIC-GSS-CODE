@@ -56,7 +56,9 @@ async def preview_import(filename: str, request: Request) -> dict[str, Any] | JS
             continue
         preview.append({
             "type": "mission_cmd",
-            "display": item.get("display", {}),
+            "cmd_id": item.get("cmd_id", ""),
+            "mission": item.get("mission", {}),
+            "parameters": item.get("parameters", []),
             "guard": item.get("guard", False),
             "size": len(item.get("raw_cmd", b"")),
         })

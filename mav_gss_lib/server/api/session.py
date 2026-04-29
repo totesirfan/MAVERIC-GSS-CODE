@@ -30,6 +30,15 @@ if TYPE_CHECKING:
 router = APIRouter()
 
 
+def _active_logs(runtime: "WebRuntime") -> list[Any]:
+    """Return unique active log writer objects for session lifecycle actions."""
+    logs = []
+    for log in (runtime.rx.log, runtime.tx.log):
+        if log is not None and not any(log is existing for existing in logs):
+            logs.append(log)
+    return logs
+
+
 def _session_info(runtime: "WebRuntime") -> dict[str, Any]:
     """Build session info dict from runtime state."""
     s = runtime.session
@@ -66,7 +75,8 @@ async def api_session_new(body: dict[str, Any], request: Request) -> dict[str, A
         return denied
 
     session_tag = body.get("session_tag") or body.get("tag") or "untitled"
-    if not runtime.rx.log and not runtime.tx.log:
+    logs = _active_logs(runtime)
+    if not logs:
         return JSONResponse(status_code=400, content={"error": "No active session"})
 
     old_gen = runtime.session.session_generation
@@ -81,49 +91,36 @@ async def api_session_new(body: dict[str, Any], request: Request) -> dict[str, A
     )
 
     # -- Prepare phase: open new files without closing old ones --
-    rx_prepared = None
-    tx_prepared = None
+    prepared_logs: list[tuple[Any, dict[str, Any]]] = []
     try:
-        if runtime.rx.log:
-            rx_prepared = runtime.rx.log.prepare_new_session(session_tag)
-        if runtime.tx.log:
-            tx_prepared = runtime.tx.log.prepare_new_session(session_tag)
+        for log in logs:
+            prepared_logs.append((log, log.prepare_new_session(session_tag)))
     except Exception as exc:
         # Cleanup any prepared files on failure
-        for prepared in (rx_prepared, tx_prepared):
+        for _, prepared in prepared_logs:
             if prepared is not None:
-                for key in ("text_f", "jsonl_f"):
-                    try:
-                        prepared[key].close()
-                    except Exception:
-                        pass
-                for key in ("text_path", "jsonl_path"):
-                    try:
-                        if os.path.isfile(prepared[key]):
-                            os.remove(prepared[key])
-                    except OSError:
-                        pass
+                try:
+                    prepared["jsonl_f"].close()
+                except Exception:
+                    pass
+                try:
+                    if os.path.isfile(prepared["jsonl_path"]):
+                        os.remove(prepared["jsonl_path"])
+                except OSError:
+                    pass
         logging.error("Session prepare failed: %s", exc)
         return JSONResponse(status_code=500, content={"error": f"prepare failed: {exc}"})
 
-    # -- Commit phase: commit each log independently --
-    # True cross-log atomicity is not possible without a transaction manager.
-    # We commit each side independently and always update session state.
-    # If one side fails, we report partial success — the session is still valid
-    # but one log may be on the old files.
+    # -- Commit phase: commit each unique active log writer --
+    # RX and TX normally share one SessionLog; identity de-duplication keeps
+    # this safe if a test runtime wires the same object through both services.
     commit_errors = []
-    if rx_prepared:
+    for log, prepared in prepared_logs:
         try:
-            runtime.rx.log.commit_new_session(rx_prepared)
+            log.commit_new_session(prepared)
         except Exception as exc:
-            logging.error("RX log commit failed: %s", exc)
-            commit_errors.append(f"RX: {exc}")
-    if tx_prepared:
-        try:
-            runtime.tx.log.commit_new_session(tx_prepared)
-        except Exception as exc:
-            logging.error("TX log commit failed: %s", exc)
-            commit_errors.append(f"TX: {exc}")
+            logging.error("Session log commit failed: %s", exc)
+            commit_errors.append(f"session: {exc}")
     # Always update session — even partial rotation is better than stale state
     runtime.session = new_session
 
@@ -173,43 +170,30 @@ async def api_session_rename(body: dict[str, Any], request: Request) -> dict[str
     session_tag = (body.get("session_tag") or body.get("tag") or "").strip() or "untitled"
 
     # Preflight: check both log rename targets
-    rx_new_text = rx_new_jsonl = None
-    tx_new_text = tx_new_jsonl = None
     try:
-        if runtime.rx.log:
-            rx_new_text, rx_new_jsonl = runtime.rx.log.rename_preflight(session_tag)
-        if runtime.tx.log:
-            tx_new_text, tx_new_jsonl = runtime.tx.log.rename_preflight(session_tag)
+        for log in _active_logs(runtime):
+            log.rename_preflight(session_tag)
     except (FileExistsError, ValueError) as exc:
         return JSONResponse(status_code=409, content={"error": str(exc)})
 
-    # Save original paths for rollback
-    rx_old_text = runtime.rx.log.text_path if runtime.rx.log else None
-    rx_old_jsonl = runtime.rx.log.jsonl_path if runtime.rx.log else None
+    # Save original path for rollback
+    logs = _active_logs(runtime)
+    old_paths = [(log, log.jsonl_path) for log in logs]
 
-    # Rename RX
+    # Rename active session logs
     try:
-        if runtime.rx.log:
-            runtime.rx.log.rename(session_tag)
+        for log in logs:
+            log.rename(session_tag)
     except Exception as exc:
-        logging.error("RX rename failed: %s", exc)
-        return JSONResponse(status_code=500, content={"error": f"RX rename failed: {exc}"})
-
-    # Rename TX — rollback RX on failure
-    try:
-        if runtime.tx.log:
-            runtime.tx.log.rename(session_tag)
-    except Exception as exc:
-        logging.error("TX rename failed: %s, rolling back RX", exc)
-        if runtime.rx.log and rx_old_text and rx_old_jsonl:
+        logging.error("Session rename failed: %s, rolling back", exc)
+        for log, old_jsonl in old_paths:
             try:
-                os.rename(runtime.rx.log.text_path, rx_old_text)
-                os.rename(runtime.rx.log.jsonl_path, rx_old_jsonl)
-                runtime.rx.log.text_path = rx_old_text
-                runtime.rx.log.jsonl_path = rx_old_jsonl
+                if log.jsonl_path != old_jsonl and os.path.exists(log.jsonl_path):
+                    os.rename(log.jsonl_path, old_jsonl)
+                log.jsonl_path = old_jsonl
             except Exception as rb_exc:
-                logging.error("RX rollback also failed: %s", rb_exc)
-        return JSONResponse(status_code=500, content={"error": f"TX rename failed: {exc}"})
+                logging.error("Session rollback also failed: %s", rb_exc)
+        return JSONResponse(status_code=500, content={"error": f"session rename failed: {exc}"})
 
     # Update session tag
     runtime.session.session_tag = session_tag
@@ -231,4 +215,3 @@ async def api_session_rename(body: dict[str, Any], request: Request) -> dict[str
     info = _session_info(runtime)
     info["ok"] = True
     return info
-

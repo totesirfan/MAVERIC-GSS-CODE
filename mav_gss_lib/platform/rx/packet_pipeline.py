@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import time
 from collections import OrderedDict, deque
-from datetime import datetime
 from typing import Any
 
 from ..contract.mission import MissionSpec
@@ -49,7 +48,6 @@ class PacketPipeline:
     def process(self, meta: dict[str, Any], raw: bytes) -> PacketEnvelope:
         now = time.time()
         now_ms = int(now * 1000)
-        now_dt = datetime.now().astimezone()
 
         normalized = self.mission.packets.normalize(meta, raw)
         assert isinstance(normalized.raw, (bytes, bytearray)), \
@@ -74,30 +72,25 @@ class PacketPipeline:
         self._update_rate(now, is_uplink_echo, is_unknown)
         self.last_arrival = now
 
-        tz = now_dt.tzname() or ""
-        received_at_text = (
-            f"{now_dt.year:04d}-{now_dt.month:02d}-{now_dt.day:02d} "
-            f"{now_dt.hour:02d}:{now_dt.minute:02d}:{now_dt.second:02d} {tz}"
-        )
-        received_at_short = f"{now_dt.hour:02d}:{now_dt.minute:02d}:{now_dt.second:02d}"
         warnings = list(normalized.warnings) + list(mission_packet.warnings)
+        mission = dict(mission_packet.mission or {})
 
         return PacketEnvelope(
             seq=self.total_count,
             received_at_ms=now_ms,
-            received_at_text=received_at_text,
-            received_at_short=received_at_short,
             raw=normalized.raw,
             payload=normalized.payload,
             frame_type=normalized.frame_type,
             transport_meta=dict(meta),
             warnings=warnings,
             mission_payload=mission_packet.payload,
+            mission=mission,
             flags=PacketFlags(
                 duplicate_key=flags.duplicate_key,
                 is_duplicate=is_dup,
                 is_unknown=is_unknown,
                 is_uplink_echo=is_uplink_echo,
+                integrity_ok=flags.integrity_ok,
             ),
         )
 

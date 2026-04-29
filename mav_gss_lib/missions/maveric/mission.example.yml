@@ -47,3 +47,71 @@ framing:
   downlink:
     accept_frame_types: [ASM+GOLAY]
     on_unexpected: warn
+
+# ── RX packet-list columns (declarative) ──────────────────────────
+#
+# Each entry maps to one column in the RX packet list. `path:` is a
+# dotted lookup against `packet.mission.facts.*` (the dict produced by
+# the mission's PacketOps.parse). Platform shell columns — num, time,
+# frame, flags, size — are hardcoded in the frontend and do not appear
+# here. Cells are pure declarative: missing values render as "--".
+ui:
+  rx_columns:
+    - id: src
+      label: src
+      width: w-[52px]
+      path: header.src
+    - id: echo
+      label: echo
+      width: w-[52px]
+      toggle: showEcho
+      path: header.echo
+    - id: ptype
+      label: type
+      width: w-[52px]
+      badge: true
+      path: header.ptype
+      value_icons:
+        CMD: command
+        REQ: command
+        RES: response
+        ACK: ack
+        TLM: telemetry
+        FILE: file
+      default_icon: unknown
+    - id: cmd
+      label: cmd
+      flex: true
+      path: header.cmd_id
+  tx_columns:
+    - id: dest
+      label: dest
+      width: w-[52px]
+      path: header.dest
+    - id: echo
+      label: echo
+      width: w-[52px]
+      hide_if_all: [NONE]
+      path: header.echo
+    - id: ptype
+      label: type
+      width: w-[52px]
+      badge: true
+      path: header.ptype
+      value_icons:
+        CMD: command
+        REQ: command
+        RES: response
+        ACK: ack
+        TLM: telemetry
+        FILE: file
+      default_icon: unknown
+    - id: cmd
+      label: cmd
+      flex: true
+      path: header.cmd_id
+    - id: verify
+      label: verify
+      width: w-[78px]
+      align: right
+      kind: verifiers

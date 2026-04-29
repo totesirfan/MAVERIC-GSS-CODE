@@ -8,9 +8,6 @@ This subpackage holds the mission/platform boundary:
     mission.py     — MissionSpec + MissionContext + MissionConfigSpec + MissionPreflightFn
     packets.py     — PacketOps + envelope + normalized + flags
     parameters.py  — ParamUpdate (walker emit type, sole live-state input)
-    rendering.py   — Cell + ColumnDef + PacketRendering + DetailBlock + IntegrityBlock
-    ui.py          — UiOps
-
 Naming convention used across `platform/`:
 
     contract/X.py    — defines the protocol/dataclass surface (e.g. PacketOps, CommandOps)
@@ -29,7 +26,6 @@ Author:  Irfan Annuar - USC ISI SERC
 from .commands import (
     CommandDraft,
     CommandOps,
-    CommandRendering,
     EncodedCommand,
     FramedCommand,
     ValidationIssue,
@@ -45,21 +41,14 @@ from .packets import (
     PacketOps,
 )
 from .parameters import ParamUpdate
-from .rendering import Cell, ColumnDef, DetailBlock, IntegrityBlock, PacketRendering
-from .ui import UiOps
 
 __all__ = [
-    "Cell",
-    "ColumnDef",
     "CommandDraft",
     "CommandOps",
-    "CommandRendering",
-    "DetailBlock",
     "EncodedCommand",
     "EventOps",
     "FramedCommand",
     "HttpOps",
-    "IntegrityBlock",
     "MissionConfigSpec",
     "MissionContext",
     "MissionPacket",
@@ -70,8 +59,6 @@ __all__ = [
     "PacketEventSource",
     "PacketFlags",
     "PacketOps",
-    "PacketRendering",
     "ParamUpdate",
-    "UiOps",
     "ValidationIssue",
 ]

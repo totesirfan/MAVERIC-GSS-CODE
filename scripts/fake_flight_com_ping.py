@@ -2,10 +2,9 @@
 """Fake flight-side responder for com_ping verification testing.
 
 Subscribes to the GSS /ws/tx event stream (which broadcasts a structured
-"sent" event carrying cleartext cmd_id + dest — no radio decode needed)
-and publishes exactly the right response sequence on the RX ZMQ socket
-for the destination that just went out. No duplicate ACKs, no rogue
-cross-destination RES.
+"sent" event carrying mission facts — no radio decode needed) and publishes
+exactly the right response sequence on the RX ZMQ socket for the destination
+that just went out. No duplicate ACKs, no rogue cross-destination RES.
 
 Routing:
   com_ping -> LPPM: UPPM ACK ~0.4s -> LPPM ACK ~1.2s -> LPPM RES "pong" ~2.5s
@@ -58,6 +57,20 @@ FLOWS: dict[str, tuple[str | None, str]] = {
     "ASTR": ("ASTR", "ASTR"),
     "EPS":  (None, "EPS"),    # EPS has no ack, only RES
 }
+
+
+def _sent_cmd_and_dest(data: dict) -> tuple[str, str]:
+    """Extract command id + MAVERIC destination from a TX history row.
+
+    Current GSS rows expose command routing as mission facts; payload remains
+    only the operator's verbatim input and is not used for routing.
+    """
+    mission = data.get("mission") if isinstance(data.get("mission"), dict) else {}
+    facts = mission.get("facts") if isinstance(mission.get("facts"), dict) else {}
+    header = facts.get("header") if isinstance(facts.get("header"), dict) else {}
+    cmd_id = str(header.get("cmd_id") or data.get("cmd_id") or "")
+    dest = str(header.get("dest") or "")
+    return cmd_id, dest.upper()
 
 
 def _build_response(codec, src: str, ptype: str, cmd_id: str, args: str = "") -> bytes:
@@ -145,9 +158,7 @@ async def run(http_base: str, ws_base: str, rx_addr: str,
                 if msg.get("type") != "sent":
                     continue
                 data = msg.get("data") or {}
-                payload = data.get("payload") or {}
-                cmd_id = payload.get("cmd_id", "")
-                dest = (payload.get("dest") or "").upper()
+                cmd_id, dest = _sent_cmd_and_dest(data)
                 if only != "ANY" and dest != only:
                     print(f"[{time.strftime('%H:%M:%S')}] skip {cmd_id} -> {dest} (only={only})")
                     continue

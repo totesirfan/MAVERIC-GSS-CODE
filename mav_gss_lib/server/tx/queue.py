@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import tempfile
+from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict, Union
 
@@ -30,10 +31,14 @@ if TYPE_CHECKING:
 class MissionCmdItem(TypedDict):
     type: Literal["mission_cmd"]
     raw_cmd: NotRequired[bytes]
-    display: dict[str, Any]
-    payload: dict[str, Any]
+    cmd_id: str
+    mission: dict[str, Any]                  # {id, facts}
+    parameters: list[dict[str, Any]]         # typed args from EncodedCommand.parameters
+    correlation_key: list[Any]
+    payload: str | dict[str, Any]            # original input — opaque to platform
     guard: bool
     num: NotRequired[int]
+    event_id: NotRequired[str]
 
 
 class DelayItem(TypedDict):
@@ -59,15 +64,22 @@ def make_note(text: Any) -> NoteItem:
     return {"type": "note", "text": " ".join(str(text).split())}
 
 
-def _display_from_prepared(prepared: "PreparedCommand") -> dict[str, Any]:
-    rendering = prepared.rendering
-    return {
-        "title": rendering.title,
-        "subtitle": rendering.subtitle,
-        "row": {key: cell.to_json() for key, cell in rendering.row.items()},
-        "detail_blocks": [block.to_json() for block in rendering.detail_blocks],
-        "_rendering": rendering.to_json(),
-    }
+def _params_as_json(params: tuple) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for p in params:
+        if is_dataclass(p):
+            out.append(asdict(p))
+        elif isinstance(p, dict):
+            out.append(dict(p))
+    return out
+
+
+def _mission_block(mission_id: str, encoded: EncodedCommand) -> dict[str, Any]:
+    return {"id": mission_id, "facts": dict(encoded.mission_facts or {})}
+
+
+def _correlation_key_json(key: tuple[Any, ...]) -> list[Any]:
+    return list(key)
 
 
 def make_mission_cmd(
@@ -76,44 +88,32 @@ def make_mission_cmd(
 ) -> MissionCmdItem:
     """Build one mission-command queue item from a CLI string or builder dict.
 
-    Calls the active mission command ops to validate, encode, and produce
-    display metadata. Does NOT check MTU — use
-    validate_mission_cmd() for full admission.
+    Calls the active mission command ops to validate and encode. Does NOT
+    check MTU — use ``validate_mission_cmd`` for full admission.
 
-    The persisted ``payload`` field is normalized to a canonical flat dict
-    (``{cmd_id, args, dest, echo, ptype}``) derived from the encoded
-    mission_payload, so queue restore round-trips uniformly whether the
-    operator entered a CLI line, the TX builder sent a flat dict, or the
-    mission emits a header sub-dict.
+    The persisted ``payload`` field is the user's original input dict —
+    needed by ``load_queue`` (and import/export) so the mission can rebuild
+    the EncodedCommand on the next session. Free-form (string) inputs are
+    stored as ``{"line": ...}`` since the mission's parse_input handles both.
     """
     if runtime is None:
         raise ValueError("mission command validation requires a runtime")
 
     prepared = runtime.platform.prepare_tx(payload)
-    mp = prepared.encoded.mission_payload or {}
-    payload_dict = payload if isinstance(payload, dict) else {}
-
-    # Prefer the canonical declarative shape (cmd_id at top, header sub-dict)
-    # for the persisted payload; fall back to legacy missions that emit a
-    # nested {payload: {...}} envelope.
-    header = mp.get("header") or {}
-    if mp.get("cmd_id") is not None:
-        canonical_payload: dict[str, Any] = {
-            "cmd_id": mp.get("cmd_id"),
-            "args":   mp.get("args", {}),
-            "dest":   header.get("dest"),
-            "echo":   header.get("echo"),
-            "ptype":  header.get("ptype"),
-        }
-    else:
-        canonical_payload = mp.get("payload", payload_dict if payload_dict else {})
-
+    encoded = prepared.encoded
+    # Persist the user's original input verbatim — string or dict — so
+    # disk-saved queues and import/export files survive a restart.
+    # `load_queue` hands it back to `mission.parse_input` which knows how
+    # to interpret its own grammar; the platform never inspects `payload`.
     return {
         "type": "mission_cmd",
-        "raw_cmd": prepared.encoded.raw,
-        "display": _display_from_prepared(prepared),
-        "guard": bool(payload_dict.get("guard", prepared.encoded.guard)),
-        "payload": canonical_payload,
+        "raw_cmd": encoded.raw,
+        "cmd_id": encoded.cmd_id,
+        "mission": _mission_block(runtime.mission_id, encoded),
+        "parameters": _params_as_json(encoded.parameters),
+        "correlation_key": _correlation_key_json(runtime.mission.commands.correlation_key(encoded)),
+        "guard": bool(payload.get("guard", encoded.guard)) if isinstance(payload, dict) else bool(encoded.guard),
+        "payload": payload,
     }
 
 
@@ -124,28 +124,24 @@ def validate_mission_cmd(
     """Validate and build a mission-command queue item.
 
     Checks: mission-owned build succeeds, mission-owned framing admits the
-    encoded bytes (MTU / FEC-cap / etc). The platform does not inspect the
-    mission's MTU rule — it just runs the mission framer against the
-    encoded bytes and surfaces whatever ValueError the mission raises.
+    encoded bytes (MTU / FEC-cap / etc).
     """
     from ..state import ensure_runtime
 
     runtime = ensure_runtime(runtime)
-
     item = make_mission_cmd(payload, runtime=runtime)
 
-    # Mission framer is the authoritative admission check. It raises
-    # ValueError (or mission-specific errors) when the command won't fit.
     mission = runtime.mission
     if mission.commands is not None:
         encoded = mission.commands.encode(mission.commands.parse_input(payload))
-        # Preserve bytes identity with the queued raw_cmd (mission encode
-        # should be deterministic; guard against accidental drift).
         if encoded.raw != item["raw_cmd"]:
             encoded = EncodedCommand(
                 raw=item["raw_cmd"],
+                cmd_id=encoded.cmd_id,
+                src=encoded.src,
                 guard=encoded.guard,
-                mission_payload=encoded.mission_payload,
+                mission_facts=encoded.mission_facts,
+                parameters=encoded.parameters,
             )
         mission.commands.frame(encoded)
     return item
@@ -177,7 +173,6 @@ def sanitize_queue_items(
             except ValueError:
                 skipped += 1
             continue
-        # Unknown item type — skip
         skipped += 1
     return accepted, skipped
 
@@ -282,18 +277,18 @@ def queue_items_json(queue: list[QueueItem]) -> list[dict[str, Any]]:
         if item["type"] == "note":
             result.append({"type": "note", "text": item["text"]})
             continue
+        raw = item.get("raw_cmd", b"")
         projected: dict[str, Any] = {
             "type": "mission_cmd",
             "num": item.get("num", 0),
-            "display": item.get("display", {}),
+            "cmd_id": item.get("cmd_id", ""),
+            "mission": item.get("mission", {}),
+            "parameters": item.get("parameters", []),
             "guard": item.get("guard", False),
-            "size": len(item.get("raw_cmd", b"")),
+            "size": len(raw),
+            "raw_hex": raw.hex() if raw else "",
             "payload": item.get("payload", {}),
         }
-        # event_id is stamped onto the queue item by the send loop after the
-        # verifier instance registers, so the frontend can render the tick
-        # strip while the row is still in 'sending' state (before it moves
-        # to history). Absent on pending items.
         if item.get("event_id"):
             projected["event_id"] = item["event_id"]
         result.append(projected)

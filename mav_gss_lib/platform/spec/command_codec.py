@@ -3,12 +3,13 @@
 Implements the §3.6 encode pipeline:
   1. start with meta_cmd.packet defaults (copy)
   2. merge operator overrides; check allowed_packet allowlist
-  3. verify adapter-required set ({dest, echo, ptype})
-  4. packet_codec.complete_header(...) — codec injects defaults (e.g. src)
-  5. packet_codec.wrap(completed_header, args_bytes) -> raw
+  3. packet_codec.complete_header(...) — codec injects defaults and validates
+     any mission-required envelope fields
+  4. packet_codec.wrap(completed_header, args_bytes) -> raw
 
-mission_payload['header'] is the COMPLETED header (post defaulting),
-not the working header.
+`encoded.mission_facts['header']` is the COMPLETED header (post defaulting),
+mirroring the RX MissionFacts shape. Header fields remain mission facts; the
+platform does not promote them into typed routing fields.
 """
 
 from __future__ import annotations
@@ -18,28 +19,21 @@ from typing import Any, Callable, Iterable, Mapping
 from mav_gss_lib.platform.contract.commands import (
     CommandDraft,
     CommandOps,
-    CommandRendering,
     EncodedCommand,
     FramedCommand,
     ValidationIssue,
 )
-from mav_gss_lib.platform.contract.rendering import ColumnDef
-from mav_gss_lib.platform.tx.verifiers import VerifierSet
+from mav_gss_lib.platform.contract.parameters import ParamUpdate
 
 from .commands import MetaCommand
 from .errors import (
     HeaderFieldNotOverridable,
     HeaderValueNotAllowed,
-    MissingRequiredHeaderField,
     NonJsonSafeArg,
 )
 from .mission import Mission
 from .packet_codec import CommandHeader, PacketCodec
 from .runtime import DeclarativeWalker
-from .verifier_runtime import derive_verifier_set
-
-
-_ADAPTER_REQUIRED = ("dest", "echo", "ptype")
 
 
 def _json_normalize(value: Any, *, cmd_id: str = "?", path: str = "") -> Any:
@@ -53,6 +47,14 @@ def _json_normalize(value: Any, *, cmd_id: str = "?", path: str = "") -> Any:
     if isinstance(value, (list, tuple)):
         return [_json_normalize(v, cmd_id=cmd_id, path=f"{path}[{i}]") for i, v in enumerate(value)]
     raise NonJsonSafeArg(cmd_id=cmd_id, arg_name=path or "?", value_type=type(value))
+
+
+def _hashable_json(value: Any) -> Any:
+    if isinstance(value, dict):
+        return tuple(sorted((str(k), _hashable_json(v)) for k, v in value.items()))
+    if isinstance(value, list):
+        return tuple(_hashable_json(v) for v in value)
+    return value
 
 
 class DeclarativeCommandOpsAdapter:
@@ -97,10 +99,22 @@ class DeclarativeCommandOpsAdapter:
         if meta is None:
             return [ValidationIssue(message=f"Unknown command {draft.payload['cmd_id']!r}")]
         issues: list[ValidationIssue] = []
+        args = draft.payload["args"]
+        known_args = {arg.name for arg in meta.argument_list}
+        for name in args:
+            if name not in known_args:
+                issues.append(ValidationIssue(
+                    message=f"{name!r} is not an argument for {meta.id!r}",
+                    field=name,
+                ))
         for arg in meta.argument_list:
-            if arg.name not in draft.payload["args"]:
-                continue  # walker tolerates short arg lists
-            v = draft.payload["args"][arg.name]
+            if arg.name not in args or args[arg.name] in (None, ""):
+                issues.append(ValidationIssue(
+                    message=f"missing required argument {arg.name!r}",
+                    field=arg.name,
+                ))
+                continue
+            v = args[arg.name]
             if arg.valid_range is not None:
                 lo, hi = arg.valid_range
                 if not (lo <= v <= hi):
@@ -135,45 +149,48 @@ class DeclarativeCommandOpsAdapter:
                     cmd_id, field, value, allowed=tuple(meta.allowed_packet[field]),
                 )
             working[field] = value
-        for required in _ADAPTER_REQUIRED:
-            if required not in working:
-                raise MissingRequiredHeaderField(cmd_id, required)
-
         args_bytes = self._walker.encode_args(cmd_id, args)
         completed = self._packet_codec.complete_header(CommandHeader(id=cmd_id, fields=working))
         raw = self._packet_codec.wrap(completed, args_bytes)
 
-        return EncodedCommand(
-            raw=raw,
-            guard=meta.guard,
-            mission_payload={
+        completed_fields = dict(completed.fields)
+        normalized_args = {
+            arg.name: _json_normalize(args[arg.name], cmd_id=cmd_id, path=arg.name)
+            for arg in meta.argument_list
+            if arg.name in args
+        }
+        # Surface header (cmd_id + routing) for declarative TX columns.
+        mission_facts = {
+            "header": {"cmd_id": cmd_id, **completed_fields},
+            "protocol": {
                 "args_hex": args_bytes.hex(),
                 "args_len": len(args_bytes),
                 "wire_len": len(raw),
-                "cmd_id": cmd_id,
-                "header": dict(completed.fields),
-                "args": _json_normalize(args, cmd_id=cmd_id),
             },
+        }
+        # Typed args -> parameters (mirrors RX walker emit). The command's
+        # argument_list, not operator payload keys, owns names and order.
+        params = tuple(
+            ParamUpdate(name=name, value=value, ts_ms=0)
+            for name, value in normalized_args.items()
+        )
+
+        return EncodedCommand(
+            raw=raw,
+            cmd_id=cmd_id,
+            src=str(completed_fields.get("src", "")),
+            guard=meta.guard,
+            mission_facts=mission_facts,
+            parameters=params,
         )
 
     def frame(self, encoded: EncodedCommand) -> FramedCommand:
         return self._framer.frame(encoded)
 
-    def render(self, encoded: EncodedCommand) -> CommandRendering:
-        title = encoded.mission_payload.get("cmd_id", "?")
-        subtitle = str(encoded.mission_payload.get("header", {}).get("dest", ""))
-        return CommandRendering(title=title, subtitle=subtitle)
-
     def correlation_key(self, encoded: EncodedCommand) -> tuple:
-        return (
-            encoded.mission_payload["cmd_id"],
-            encoded.mission_payload["header"]["dest"],
-        )
-
-    def verifier_set(self, encoded: EncodedCommand) -> VerifierSet:
-        cmd_id = encoded.mission_payload["cmd_id"]
-        dest = encoded.mission_payload["header"]["dest"]
-        return derive_verifier_set(self._mission, cmd_id=cmd_id, dest=dest)
+        facts = encoded.mission_facts if isinstance(encoded.mission_facts, dict) else {}
+        header = facts.get("header") if isinstance(facts, dict) else None
+        return (encoded.cmd_id, _hashable_json(header or {}))
 
     def schema(self) -> dict[str, Any]:
         return {
@@ -194,9 +211,6 @@ class DeclarativeCommandOpsAdapter:
                 for cmd in self._meta_by_id.values()
             }
         }
-
-    def tx_columns(self) -> list[ColumnDef]:
-        return []
 
 
 def _coerce_token(token: str) -> Any:

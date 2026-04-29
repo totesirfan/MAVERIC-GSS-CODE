@@ -51,7 +51,7 @@ from .errors import (
     UnknownTypeRef,
     UnknownVerifierId,
 )
-from .verifier_decls import VerifierRules, VerifierSpecDecl
+from .verifier_decls import VerifierOverrideByKey, VerifierRules, VerifierSpecDecl
 from .mission import (
     ContainerShadow,
     EnumSliceTruncation,
@@ -134,7 +134,9 @@ def _parse(
         description=doc.header.description,
     )
     from .framing import parse_framing_section
+    from .ui import parse_ui_section
     framing = parse_framing_section(doc.framing)
+    ui = parse_ui_section(doc.ui)
     return Mission(
         id=doc.id, name=doc.name, header=header,
         parameter_types=parameter_types,
@@ -147,6 +149,7 @@ def _parse(
         verifier_specs=verifier_specs,
         verifier_rules=verifier_rules,
         framing=framing,
+        ui=ui,
     )
 
 
@@ -324,10 +327,11 @@ def _project_meta_commands(
 ) -> dict[str, MetaCommand]:
     out: dict[str, MetaCommand] = {}
     for name, m in doc.meta_commands.items():
-        verifier_override: dict[str, tuple[str, ...]] = {}
+        verifier_override: dict[str, tuple[str, ...] | VerifierOverrideByKey] = {}
         if m.verifier_override is not None:
             verifier_override = {
-                stage: tuple(ids) for stage, ids in m.verifier_override.items()
+                stage: _project_verifier_override_value(value)
+                for stage, value in m.verifier_override.items()
             }
         out[name] = MetaCommand(
             id=name,
@@ -354,6 +358,18 @@ def _project_argument(a) -> Argument:
     )
 
 
+def _project_verifier_override_value(value) -> tuple[str, ...] | VerifierOverrideByKey:
+    if hasattr(value, "by_key"):
+        return VerifierOverrideByKey(
+            selector=value.selector,
+            by_key={
+                key: tuple(ids)
+                for key, ids in value.by_key.items()
+            },
+        )
+    return tuple(value)
+
+
 def _project_verifier_specs(doc: MissionDocument) -> dict[str, VerifierSpecDecl]:
     return {
         name: VerifierSpecDecl(
@@ -371,10 +387,14 @@ def _project_verifier_specs(doc: MissionDocument) -> dict[str, VerifierSpecDecl]
 def _project_verifier_rules(doc: MissionDocument) -> VerifierRules | None:
     if doc.verifier_rules is None:
         return None
+    selector = doc.verifier_rules.selector
+    if doc.verifier_rules.by_key and not selector:
+        raise ValueError("verifier_rules.selector is required when verifier_rules.by_key is non-empty")
     return VerifierRules(
-        by_dest={
-            dest: tuple(ids)
-            for dest, ids in doc.verifier_rules.by_dest.items()
+        selector=selector,
+        by_key={
+            key: tuple(ids)
+            for key, ids in doc.verifier_rules.by_key.items()
         }
     )
 
@@ -386,13 +406,25 @@ def _check_verifier_refs(
 ) -> None:
     """Cross-reference: every verifier_id used in rules or overrides must exist in verifier_specs."""
     if verifier_rules is not None:
-        for dest, ids in verifier_rules.by_dest.items():
+        for key, ids in verifier_rules.by_key.items():
             for vid in ids:
                 if vid not in verifier_specs:
-                    raise UnknownVerifierId(vid, source=f"verifier_rules.by_dest.{dest}")
+                    raise UnknownVerifierId(vid, source=f"verifier_rules.by_key.{key}")
     for cmd_id, meta in meta_commands.items():
-        for stage, ids in meta.verifier_override.items():
-            for vid in ids:
+        for stage, override in meta.verifier_override.items():
+            if isinstance(override, VerifierOverrideByKey):
+                for key, ids in override.by_key.items():
+                    for vid in ids:
+                        if vid not in verifier_specs:
+                            raise UnknownVerifierId(
+                                vid,
+                                source=(
+                                    f"meta_commands.{cmd_id}."
+                                    f"verifier_override.{stage}.by_key.{key}"
+                                ),
+                            )
+                continue
+            for vid in override:
                 if vid not in verifier_specs:
                     raise UnknownVerifierId(vid, source=f"meta_commands.{cmd_id}.verifier_override.{stage}")
 

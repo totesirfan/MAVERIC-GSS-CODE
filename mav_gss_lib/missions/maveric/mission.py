@@ -9,7 +9,6 @@ import os
 from pathlib import Path
 from typing import Any
 
-from mav_gss_lib.missions.maveric.calibrators import CALIBRATORS
 from mav_gss_lib.missions.maveric.declarative import build_declarative_capabilities
 from mav_gss_lib.missions.maveric.imaging.events import MavericImagingEvents
 from mav_gss_lib.missions.maveric.imaging import ImageAssembler, get_imaging_router
@@ -17,8 +16,6 @@ from mav_gss_lib.missions.maveric.packets import DeclarativePacketsAdapter
 from mav_gss_lib.missions.maveric.alarm_predicates import PLUGINS as ALARM_PLUGINS
 from mav_gss_lib.missions.maveric.plugin_tx_builder import get_tx_builder_route
 from mav_gss_lib.missions.maveric.preflight import build_preflight
-from mav_gss_lib.missions.maveric.ui.formatters import _assert_dispatch_calibrators_registered
-from mav_gss_lib.missions.maveric.ui.ops import MavericUiOps
 from mav_gss_lib.platform import EventOps, MissionConfigSpec, MissionContext, MissionSpec
 from mav_gss_lib.platform.contract.mission import HttpOps
 
@@ -65,9 +62,6 @@ def build(ctx: MissionContext) -> MissionSpec:
         mission_yml_path=MISSION_YML_PATH,
         mission_cfg=ctx.mission_config,
     )
-    # Fail-loud at boot if the formatter dispatch table drifts from the
-    # calibrator registry.
-    _assert_dispatch_calibrators_registered(CALIBRATORS)
 
     image_assembler = ImageAssembler(_image_dir(ctx.mission_config))
     # Accessor closes over the live `ctx.mission_config` reference so
@@ -92,10 +86,6 @@ def build(ctx: MissionContext) -> MissionSpec:
             mission=capabilities.mission,
         ),
         commands=capabilities.command_ops,
-        ui=MavericUiOps(
-            codec=capabilities.packet_codec,
-            mission=capabilities.mission,
-        ),
         spec_root=capabilities.mission,
         spec_plugins=capabilities.plugins,
         alarm_plugins=ALARM_PLUGINS,

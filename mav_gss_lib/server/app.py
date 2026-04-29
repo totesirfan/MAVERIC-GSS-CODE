@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from .state import WebRuntime
 
 from mav_gss_lib.config import get_rx_zmq_addr, get_tx_zmq_addr
-from mav_gss_lib.logging import SessionLog, TXLog
+from mav_gss_lib.logging import SessionLog
 
 from .api import router as api_router
 from .ws.rx import router as rx_router
@@ -80,13 +80,8 @@ async def lifespan(app: FastAPI) -> "AsyncIterator[None]":
         mission_name=runtime.mission_name, mission_id=runtime.mission_id,
         station=runtime.station, operator=runtime.operator, host=runtime.host,
     )
-    runtime.tx.log = TXLog(
-        runtime.log_dir, tx_addr, version=runtime.version,
-        mission_name=runtime.mission_name, mission_id=runtime.mission_id,
-        station=runtime.station, operator=runtime.operator, host=runtime.host,
-    )
-    print(f"RX logging → {runtime.rx.log.jsonl_path}")
-    print(f"TX logging → {runtime.tx.log.jsonl_path}")
+    runtime.tx.log = runtime.rx.log
+    print(f"Session logging → {runtime.rx.log.jsonl_path}")
 
     env = build_alarm_environment(
         runtime.mission.spec_root, runtime.alarm_registry,

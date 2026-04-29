@@ -2,7 +2,7 @@
 
 Decodes 8 LE bytes (u64 ms since Unix epoch) into a JSON-safe dict so
 ParamUpdate values can be persisted via json.dumps without crashing.
-Shape matches today's MAVERIC `_spacecraft_time` exactly.
+Shape is mission-neutral: raw milliseconds plus formatted UTC fields.
 """
 
 from __future__ import annotations

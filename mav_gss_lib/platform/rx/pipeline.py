@@ -1,4 +1,4 @@
-"""End-to-end RX orchestration: packet → walker → parameter cache → render.
+"""End-to-end RX orchestration: packet → walker → parameter cache → websocket messages.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -15,7 +15,6 @@ from ..parameter_cache import ParameterCache
 from ..spec.runtime import DeclarativeWalker
 from .events import collect_packet_events
 from .packet_pipeline import PacketPipeline
-from .rendering import render_packet
 
 
 @dataclass(slots=True)
@@ -34,8 +33,7 @@ class RxPipeline:
       1. packet normalize/parse/classify
       2. walker.extract → ParamUpdate stream
       3. ParameterCache.apply (LWW persistence + change detection)
-      4. packet render
-      5. produce websocket-ready messages
+      4. produce websocket-ready messages
     """
 
     def __init__(
@@ -70,22 +68,41 @@ class RxPipeline:
         parameters_message = (
             {"type": "parameters", "updates": changes} if changes else None
         )
-        rendering = render_packet(self.mission, packet)
         event_messages = collect_packet_events(self.mission, packet)
         packet_message = {
             "type": "packet",
             "data": {
                 "num": packet.seq,
-                "time": packet.received_at_short,
-                "time_utc": packet.received_at_text,
                 "frame": packet.frame_type,
                 "size": len(packet.raw),
                 "raw_hex": packet.raw.hex(),
+                "received_at_ms": packet.received_at_ms,
+                "payload_hex": packet.payload.hex(),
+                "payload_len": len(packet.payload),
+                "wire_hex": packet.raw.hex(),
+                "wire_len": len(packet.raw),
+                "transport_meta": dict(packet.transport_meta),
+                "mission": dict(packet.mission),
+                "parameters": [
+                    {
+                        "name": p.name,
+                        "value": p.value,
+                        "ts_ms": p.ts_ms,
+                        "unit": p.unit,
+                        "display_only": p.display_only,
+                    }
+                    for p in packet.parameters
+                ],
                 "warnings": list(packet.warnings),
                 "is_echo": packet.flags.is_uplink_echo,
                 "is_dup": packet.flags.is_duplicate,
                 "is_unknown": packet.flags.is_unknown,
-                "_rendering": rendering.to_json(),
+                "flags": {
+                    "duplicate": packet.flags.is_duplicate,
+                    "unknown": packet.flags.is_unknown,
+                    "uplink_echo": packet.flags.is_uplink_echo,
+                    "integrity_ok": packet.flags.integrity_ok,
+                },
             },
         }
         return RxResult(

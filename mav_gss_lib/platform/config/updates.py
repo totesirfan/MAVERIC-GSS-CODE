@@ -16,6 +16,10 @@ from typing import Any
 from ..contract.mission import MissionConfigSpec
 from .spec import DEFAULT_PLATFORM_CONFIG_SPEC, PlatformConfigSpec
 
+_RETIRED_SECTION_KEYS: dict[str, frozenset[str]] = {
+    "tx": frozenset({"uplink_mode"}),
+}
+
 
 def apply_platform_config_update(
     platform_cfg: dict[str, Any],
@@ -32,13 +36,20 @@ def apply_platform_config_update(
         value = update.get(key)
         if isinstance(value, dict):
             dst = platform_cfg.setdefault(key, {})
-            _deep_merge_inplace(dst, value)
+            _deep_merge_inplace(dst, _without_retired_keys(key, value))
     general_update = update.get("general")
     if isinstance(general_update, dict):
         dst_general = platform_cfg.setdefault("general", {})
         for gkey, gvalue in general_update.items():
             if gkey in spec.editable_general_keys:
                 dst_general[gkey] = gvalue
+
+
+def _without_retired_keys(section: str, value: dict[str, Any]) -> dict[str, Any]:
+    retired = _RETIRED_SECTION_KEYS.get(section)
+    if not retired:
+        return value
+    return {k: v for k, v in value.items() if k not in retired}
 
 
 def _deep_merge_inplace(base: dict, override: dict) -> None:

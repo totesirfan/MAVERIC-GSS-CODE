@@ -14,6 +14,7 @@ from .verifier_decls import VerifierRules, VerifierSpecDecl
 
 if TYPE_CHECKING:
     from .framing import FramingSpec
+    from .ui import UiSpec
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,9 +63,9 @@ class EnumSliceTruncation(ParseWarning):
 class Mission:
     """Parser output: the fully-validated mission database.
 
-    `extensions` carries arbitrary mission-specific data (e.g. MAVERIC's
-    node/ptype routing tables). The platform parser does not validate its
-    shape; it is an opaque pass-through to the mission's PacketCodec.
+    `extensions` carries arbitrary mission-specific data. The platform parser
+    does not validate its shape; it is an opaque pass-through to the mission's
+    PacketCodec.
 
     `parse_warnings` carries non-fatal authoring warnings. Fatal issues raise
     `ParseError` instead.
@@ -85,6 +86,7 @@ class Mission:
     verifier_specs: Mapping[str, VerifierSpecDecl] = field(default_factory=dict)
     verifier_rules: VerifierRules | None = None
     framing: "FramingSpec | None" = None
+    ui: "UiSpec | None" = None
 
 
 __all__ = [

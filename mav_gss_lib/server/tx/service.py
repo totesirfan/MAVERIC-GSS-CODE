@@ -17,7 +17,7 @@ from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-from mav_gss_lib.platform import FramedCommand, tx_log_record
+from mav_gss_lib.platform import FramedCommand, tx_command_record
 from mav_gss_lib.transport import PUB_STATUS, init_zmq_pub, zmq_cleanup
 
 from .._broadcast import broadcast_safe
@@ -103,24 +103,17 @@ class TxService:
 
         Rule 1: active send → reject all additions (incl. notes/delays;
                 the operator's current batch should run without interference).
-        Rule 2: mission_cmd + same (cmd_id, dest) as an open CheckWindow
-                instance → reject (temporal correlation invariant — responses
-                carry only cmd_id+src+ptype, args are not distinguishable).
+        Rule 2: mission_cmd + same mission-provided correlation key as an
+                open CheckWindow instance → reject.
         Rule 3: accept.
 
-        Queue items are flat dicts: item["payload"] carries the mission
-        payload with cmd_id/dest keys directly (see server/tx/queue.py::
-        make_mission_cmd: `"payload": mission_payload.get("payload", payload)`).
-        `args` is present in the payload but deliberately ignored for keying.
+        The key shape is opaque to the platform and is derived by CommandOps.
         """
         if self.sending.get("active"):
             return AdmitResult.REJECTED_SEND_ACTIVE, {}
         if item.get("type") != "mission_cmd":
             return AdmitResult.ACCEPTED, {}
-        payload = item.get("payload") or {}
-        cmd_id = payload.get("cmd_id", "")
-        dest = payload.get("dest", "")
-        key = (cmd_id, dest)
+        key = tuple(item.get("correlation_key") or ())
         open_inst = self.runtime.platform.verifiers.lookup_open(key)
         if open_inst is not None:
             now_ms = int(time.time() * 1000)
@@ -131,7 +124,7 @@ class TxService:
             )
             remaining = max(max_stop - elapsed, 0)
             return AdmitResult.REJECTED_WINDOW_OPEN, {
-                "cmd_id": cmd_id,
+                "cmd_id": item.get("cmd_id", ""),
                 "remaining_ms": remaining,
             }
         return AdmitResult.ACCEPTED, {}
@@ -216,7 +209,7 @@ class TxService:
     ) -> dict[str, Any]:
         """Write the TX log entry and append a history item; return the history entry.
 
-        ``event_id`` (if provided) is threaded through to ``tx_log_record`` and
+        ``event_id`` (if provided) is threaded through to ``tx_command_record`` and
         stamped onto ``hist_entry["event_id"]`` so callers can link history rows
         to verifier instances (the frontend joins on ``cmd_event_id``).
         """
@@ -227,12 +220,13 @@ class TxService:
 
         if self.log:
             try:
-                record = tx_log_record(
+                record = tx_command_record(
                     self.count,
-                    item.get("display", {}),
-                    item.get("payload", {}),
-                    raw_cmd,
-                    framed.wire,
+                    cmd_id=item.get("cmd_id", ""),
+                    mission_facts=item.get("mission", {}).get("facts", {}),
+                    parameters=item.get("parameters", []),
+                    raw_cmd=raw_cmd,
+                    wire=framed.wire,
                     session_id=self.log.session_id,
                     ts_ms=int(time.time() * 1000),
                     version=self.runtime.version,
@@ -258,9 +252,13 @@ class TxService:
             "type": "mission_cmd",
             "operator": self.runtime.operator,
             "station": self.runtime.station,
-            "display": item.get("display", {}),
+            "cmd_id": item.get("cmd_id", ""),
+            "mission": item.get("mission", {}),
+            "parameters": item.get("parameters", []),
             "payload": item.get("payload", {}),
             "size": len(framed.wire),
+            "wire_hex": framed.wire.hex(),
+            "raw_hex": raw_cmd.hex(),
             "event_id": event_id or "",
         }
         self.history.append(hist_entry)
@@ -294,5 +292,3 @@ class TxService:
             "items": self.history[-self.runtime.max_history:],
         })
         return n
-
-

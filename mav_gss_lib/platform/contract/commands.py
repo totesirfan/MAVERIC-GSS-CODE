@@ -6,12 +6,9 @@ Author:  Irfan Annuar - USC ISI SERC
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import Any, Protocol
 
-from .rendering import Cell, ColumnDef, DetailBlock
-
-if TYPE_CHECKING:
-    from mav_gss_lib.platform.tx.verifiers import VerifierSet
+from .parameters import ParamUpdate
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,9 +25,22 @@ class CommandDraft:
 
 @dataclass(frozen=True, slots=True)
 class EncodedCommand:
+    """Fully encoded mission command + display payload.
+
+    `raw` is the mission-built inner PDU. `cmd_id` is an optional opaque
+    command label for operator-facing logs/UI. `mission_facts` is the
+    opaque display dict consumed by declarative TX columns and the detail
+    panel — mirrors the RX `MissionFacts.facts` shape (`{header, protocol,
+    ...}`). `parameters` carries typed arguments for the detail panel,
+    paralleling RX `parameters`.
+    """
+
     raw: bytes
+    cmd_id: str = ""
+    src: str = ""
     guard: bool = False
-    mission_payload: dict[str, Any] = field(default_factory=dict)
+    mission_facts: dict[str, Any] = field(default_factory=dict)
+    parameters: tuple[ParamUpdate, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,30 +70,17 @@ class FramedCommand:
     log_text: list[str] = field(default_factory=list)
 
 
-@dataclass(frozen=True, slots=True)
-class CommandRendering:
-    title: str
-    subtitle: str = ""
-    row: dict[str, Cell] = field(default_factory=dict)
-    detail_blocks: list[DetailBlock] = field(default_factory=list)
-
-    def to_json(self) -> dict[str, Any]:
-        return {
-            "title": self.title,
-            "subtitle": self.subtitle,
-            "row": {k: v.to_json() for k, v in self.row.items()},
-            "detail_blocks": [b.to_json() for b in self.detail_blocks],
-        }
-
-
 class CommandOps(Protocol):
     """Optional mission command capability.
 
     The platform owns queue persistence, ordering, guard confirmation, delays,
-    transport send state, and TX logging envelope. Missions own command
-    grammar, validation semantics, byte encoding, wire framing (including
-    any mission-specific header/FEC/modulation-prep steps), MTU admission,
-    and display metadata.
+    transport send state, TX logging envelope, verifier derivation from
+    declarative spec rules, and column definitions (read from
+    `mission.yml::ui.tx_columns`). Missions own command grammar, validation
+    semantics, byte encoding, wire framing (including any mission-specific
+    header/FEC/modulation-prep steps), correlation-key shape, and MTU
+    admission. Display fields populate `EncodedCommand.mission_facts` /
+    `parameters` for declarative rendering.
     """
 
     def parse_input(self, value: str | dict[str, Any]) -> CommandDraft: ...
@@ -94,25 +91,12 @@ class CommandOps(Protocol):
 
     def frame(self, encoded: EncodedCommand) -> FramedCommand: ...
 
-    def render(self, encoded: EncodedCommand) -> CommandRendering: ...
-
     def correlation_key(self, encoded: EncodedCommand) -> tuple: ...
     """Return an opaque, hashable correlation key for this command.
 
     Used by the admission gate and by match_verifiers to associate inbound
-    packets with open command instances. The key is mission-defined. For
-    MAVERIC: (cmd_id, dest) — both strings. `args` is intentionally excluded
-    because downlink responses carry only cmd_id+src+ptype; admission blocks
-    strictly at per-target granularity.
-    """
-
-    def verifier_set(self, encoded: EncodedCommand) -> "VerifierSet": ...
-    """Return the VerifierSet the platform should track for this command.
-
-    Empty VerifierSet ("verification disabled") is legal — fixture missions
-    and MAVERIC's FTDI destination both return empty.
+    packets with open command instances. The key is mission-defined; arguments
+    are commonly excluded so admission can block at per-target granularity.
     """
 
     def schema(self) -> dict[str, Any]: ...
-
-    def tx_columns(self) -> list[ColumnDef]: ...

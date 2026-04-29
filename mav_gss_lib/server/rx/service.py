@@ -22,10 +22,9 @@ from mav_gss_lib.config import get_rx_zmq_addr
 
 from .._atomics import AtomicStatus
 from mav_gss_lib.platform._log_envelope import new_event_id
-from mav_gss_lib.platform.rx.logging import (
-    parameter_log_records,
-    rx_log_record,
-    rx_log_text,
+from mav_gss_lib.platform.log_records import (
+    parameter_records,
+    rx_packet_record,
 )
 from mav_gss_lib.platform.rx.frame_detect import detect_frame_type, is_noise_frame
 from mav_gss_lib.platform.tx.verifiers import write_instances
@@ -247,7 +246,7 @@ class RxService:
 
                 try:
                     if self.log:
-                        record = rx_log_record(
+                        record = rx_packet_record(
                             self.runtime.mission, pkt, version,
                             session_id=self.log.session_id,
                             event_id=rx_event_id,
@@ -255,7 +254,7 @@ class RxService:
                             operator=self.runtime.operator,
                             station=self.runtime.station,
                         )
-                        param_records = list(parameter_log_records(
+                        param_records = list(parameter_records(
                             pkt,
                             session_id=self.log.session_id,
                             rx_event_id=record["event_id"],
@@ -267,7 +266,6 @@ class RxService:
                         self.log.write_packet(
                             record, pkt,
                             parameter_records=param_records,
-                            text_lines=rx_log_text(self.runtime.mission, pkt),
                         )
                 except Exception as exc:
                     logging.warning("RX log write failed: %s", exc)

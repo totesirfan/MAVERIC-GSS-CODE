@@ -2,15 +2,14 @@
 
 Layout:
     contract/         — what missions implement (Protocols + types)
-    rx/               — inbound packet flow: PacketPipeline, RxPipeline,
-                        rx_log_record + parameter_log_records (JSONL envelopes)
-    tx/               — outbound command flow: prepare_command, frame_command,
-                        tx_log_record (JSONL envelope)
+    rx/               — inbound packet flow: PacketPipeline, RxPipeline
+    tx/               — outbound command flow: prepare_command, frame_command
+    log_records.py    — unified JSONL event record builders
     config/           — platform-config update spec + appliers
     parameter_cache.py — flat ParameterCache (single source of live state)
     runtime.py        — PlatformRuntime container
     loader.py         — MissionSpec loading
-    _log_envelope.py  — shared new_event_id + ts_iso helpers (RX/TX)
+    _log_envelope.py  — shared new_event_id + ts_iso helpers
 
 Most callers import from this facade:
     from mav_gss_lib.platform import MissionSpec, PacketOps, CommandOps
@@ -27,7 +26,6 @@ from .config.updates import (
 from .contract.commands import (
     CommandDraft,
     CommandOps,
-    CommandRendering,
     EncodedCommand,
     FramedCommand,
     ValidationIssue,
@@ -48,14 +46,6 @@ from .contract.packets import (
     PacketOps,
 )
 from .contract.parameters import ParamUpdate
-from .contract.rendering import (
-    Cell,
-    ColumnDef,
-    DetailBlock,
-    IntegrityBlock,
-    PacketRendering,
-)
-from .contract.ui import UiOps
 from .loader import (
     load_mission_spec,
     load_mission_spec_from_split,
@@ -63,29 +53,26 @@ from .loader import (
 )
 from .parameter_cache import ParameterCache
 from .runtime import PlatformRuntime
+from .log_records import (
+    parameter_records,
+    rx_packet_record,
+    tx_command_record,
+)
 from .rx.events import collect_connect_events, collect_packet_events
-from .rx.logging import parameter_log_records, rx_log_record, rx_log_text
 from .rx.packet_pipeline import PacketPipeline
 from .rx.pipeline import RxPipeline, RxResult
-from .rx.rendering import fallback_packet_rendering, render_packet
 from .tx.commands import CommandRejected, PreparedCommand, frame_command, prepare_command
-from .tx.logging import tx_log_record
 from . import spec
 
 __all__ = [
-    "Cell",
-    "ColumnDef",
     "CommandDraft",
     "CommandOps",
     "CommandRejected",
-    "CommandRendering",
     "DEFAULT_PLATFORM_CONFIG_SPEC",
-    "DetailBlock",
     "EncodedCommand",
     "EventOps",
     "FramedCommand",
     "HttpOps",
-    "IntegrityBlock",
     "MissionConfigSpec",
     "MissionContext",
     "MissionPacket",
@@ -97,7 +84,6 @@ __all__ = [
     "PacketFlags",
     "PacketOps",
     "PacketPipeline",
-    "PacketRendering",
     "ParamUpdate",
     "ParameterCache",
     "PlatformConfigSpec",
@@ -105,22 +91,18 @@ __all__ = [
     "PreparedCommand",
     "RxPipeline",
     "RxResult",
-    "UiOps",
     "ValidationIssue",
     "apply_mission_config_update",
     "apply_platform_config_update",
     "collect_connect_events",
     "collect_packet_events",
-    "fallback_packet_rendering",
     "frame_command",
     "load_mission_spec",
     "load_mission_spec_from_split",
-    "parameter_log_records",
+    "parameter_records",
     "persist_mission_config",
     "prepare_command",
-    "render_packet",
-    "rx_log_record",
-    "rx_log_text",
-    "tx_log_record",
+    "rx_packet_record",
+    "tx_command_record",
     "validate_mission_spec",
 ]

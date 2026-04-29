@@ -13,12 +13,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from mav_gss_lib.platform import (
-    Cell,
-    ColumnDef,
     CommandDraft,
     CommandOps,
-    CommandRendering,
-    DetailBlock,
     EncodedCommand,
     FramedCommand,
     MissionConfigSpec,
@@ -26,10 +22,8 @@ from mav_gss_lib.platform import (
     MissionPacket,
     MissionSpec,
     NormalizedPacket,
-    PacketEnvelope,
     PacketFlags,
     PacketOps,
-    PacketRendering,
     ValidationIssue,
 )
 
@@ -66,7 +60,12 @@ class EchoCommandOps(CommandOps):
 
     def encode(self, draft: CommandDraft) -> EncodedCommand:
         line = str(draft.payload["line"])
-        return EncodedCommand(raw=line.encode("ascii"), mission_payload={"line": line})
+        cmd_id = line.split()[0] if line else "echo"
+        return EncodedCommand(
+            raw=line.encode("ascii"),
+            cmd_id=cmd_id,
+            mission_facts={"header": {"cmd_id": cmd_id, "line": line}},
+        )
 
     def frame(self, encoded: EncodedCommand) -> FramedCommand:
         return FramedCommand(wire=encoded.raw, frame_label="RAW")
@@ -74,77 +73,8 @@ class EchoCommandOps(CommandOps):
     def correlation_key(self, encoded):
         return ()  # empty tuple — no verification possible without a cmd_id
 
-    def verifier_set(self, encoded):
-        from mav_gss_lib.platform.tx.verifiers import VerifierSet
-        return VerifierSet(verifiers=())
-
-    def render(self, encoded: EncodedCommand) -> CommandRendering:
-        line = str(encoded.mission_payload.get("line", ""))
-        return CommandRendering(
-            title=line.split()[0] if line else "echo",
-            row={"cmd": Cell(line, monospace=True)},
-            detail_blocks=[
-                DetailBlock(
-                    kind="command",
-                    label="Echo Command",
-                    fields=[{"name": "Input", "value": line}],
-                )
-            ],
-        )
-
     def schema(self) -> dict[str, Any]:
         return {}
-
-    def tx_columns(self) -> list[ColumnDef]:
-        return [
-            ColumnDef("cmd", "command", flex=True),
-            ColumnDef("verifiers", "verify", width="w-[60px]", align="right", hide_if_all=[""]),
-        ]
-
-
-@dataclass(frozen=True, slots=True)
-class EchoUiOps:
-    def packet_columns(self) -> list[ColumnDef]:
-        return [
-            ColumnDef("num", "#", width="w-10", align="right"),
-            ColumnDef("time", "time", width="w-[72px]"),
-            ColumnDef("size", "size", width="w-12", align="right"),
-            ColumnDef("hex", "hex", flex=True),
-        ]
-
-    def tx_columns(self) -> list[ColumnDef]:
-        return [
-            ColumnDef("cmd", "command", flex=True),
-            ColumnDef("verifiers", "verify", width="w-[60px]", align="right", hide_if_all=[""]),
-        ]
-
-    def render_packet(self, packet: PacketEnvelope) -> PacketRendering:
-        hex_value = packet.mission_payload.get("hex", "") if isinstance(packet.mission_payload, dict) else ""
-        return PacketRendering(
-            columns=self.packet_columns(),
-            row={
-                "num": Cell(packet.seq),
-                "time": Cell(packet.received_at_short, monospace=True),
-                "size": Cell(len(packet.raw)),
-                "hex": Cell(hex_value, monospace=True),
-            },
-            detail_blocks=[
-                DetailBlock(
-                    kind="raw",
-                    label="Raw Data",
-                    fields=[
-                        {"name": "Size", "value": str(len(packet.raw))},
-                        {"name": "Hex", "value": packet.raw.hex()},
-                    ],
-                )
-            ],
-        )
-
-    def render_log_data(self, packet: PacketEnvelope) -> dict[str, Any]:
-        return {"hex": packet.raw.hex()}
-
-    def format_text_log(self, packet: PacketEnvelope) -> list[str]:
-        return [f"  RAW         {packet.raw.hex()}"]
 
 
 def build(ctx: MissionContext) -> MissionSpec:
@@ -153,6 +83,5 @@ def build(ctx: MissionContext) -> MissionSpec:
         name="Echo V2",
         packets=EchoPacketOps(),
         commands=EchoCommandOps(),
-        ui=EchoUiOps(),
         config=MissionConfigSpec(),
     )

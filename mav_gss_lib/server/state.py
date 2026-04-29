@@ -17,7 +17,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import secrets
-import shutil
 import threading
 import time
 import uuid
@@ -111,21 +110,6 @@ class WebRuntime:
         self.parse_warnings: tuple = tuple(
             getattr(self.mission, "parse_warnings", ())
         )
-
-        # Parameter cache upgrade path: a prior incarnation may have written
-        # per-domain snapshot files under ``<log_dir>/.telemetry``. Remove
-        # them once on boot — the live ``ParameterCache`` (one JSON under
-        # ``<log_dir>/parameters.json``) is the sole source of truth from
-        # this version onward. Dashboards repopulate from the next packet.
-        log_dir_path = Path(self.log_dir)
-        legacy_dir = log_dir_path / ".telemetry"
-        if legacy_dir.exists():
-            shutil.rmtree(legacy_dir, ignore_errors=True)
-            logging.warning(
-                "parameter cache upgrade: removed legacy per-domain snapshot dir %s. "
-                "Dashboards repopulate from the next live packet.",
-                legacy_dir,
-            )
 
         self.tx_status = AtomicStatus()
 

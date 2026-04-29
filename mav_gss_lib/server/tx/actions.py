@@ -34,7 +34,7 @@ Author:  Irfan Annuar - USC ISI SERC
 #   send_progress     {sent, total, current, waiting}
 #   send_complete     {sent}
 #   send_aborted      {sent, remaining}
-#   guard_confirm     {index, display}
+#   guard_confirm     {index, cmd_id, mission}
 #   error             {error: str}
 #   send_error        {error: str}
 #   session_new       {}

@@ -1,4 +1,4 @@
-"""RX session log — JSONL + text entries for inbound platform packets.
+"""Unified session log — JSONL entries for RX, TX and audit events.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -13,7 +13,7 @@ from ._base import _BaseLog
 
 
 class SessionLog(_BaseLog):
-    """RX session log — JSONL (rx_packet + parameter events) + text."""
+    """Unified session log — JSONL event stream."""
 
     def __init__(
         self,
@@ -27,7 +27,7 @@ class SessionLog(_BaseLog):
         operator: str = "",
         host: str = "",
     ) -> None:
-        super().__init__(log_dir, "downlink", version, "RX Monitor", zmq_addr,
+        super().__init__(log_dir, "session", version, "Session Log", zmq_addr,
                          mission_name=mission_name, mission_id=mission_id,
                          station=station, operator=operator, host=host)
 
@@ -37,48 +37,53 @@ class SessionLog(_BaseLog):
         packet: Any,
         *,
         parameter_records: Iterable[dict[str, Any]] | None = None,
-        text_lines: list[str] | None = None,
     ) -> None:
-        """Write one rx_packet record + any parameter-event rows + text entry.
+        """Write one rx_packet record + any parameter-event rows.
 
         *record* is the pre-built JSONL envelope from
-        ``mav_gss_lib.platform.rx.logging.rx_log_record``. *parameter_records*
+        ``mav_gss_lib.platform.log_records.rx_packet_record``. *parameter_records*
         is the iterable of flat parameter events (one per ``ParamUpdate``)
-        from ``parameter_log_records``. Both land in the same JSONL file;
+        from ``parameter_records``. Both land in the same JSONL file;
         the packet record goes first so an ingest streaming through the
-        file sees the parent before its children. The text log keeps its
-        existing per-packet layout.
+        file sees the parent before its children.
         """
         self.write_jsonl(record)
         if parameter_records:
             for p in parameter_records:
                 self.write_jsonl(p)
 
-        lines = []
-        label = f"#{packet.seq}"
-        extras = f"{packet.frame_type}  {len(packet.raw)}B -> {len(packet.payload)}B"
-        if packet.flags.is_duplicate:
-            extras += "  [DUP]"
-        if packet.flags.is_uplink_echo:
-            extras += "  [UL]"
-        lines.append(self._separator(label, extras, ts_ms=packet.received_at_ms))
-        if packet.flags.is_uplink_echo:
-            lines.append("  UPLINK ECHO")
+    def write_mission_command(
+        self,
+        record: dict[str, Any],
+        *,
+        raw_cmd: bytes,
+        wire: bytes,
+        log_text: list[str] | None = None,
+    ) -> None:
+        """Write one mission-built TX command event."""
+        self.write_jsonl(record)
 
-        for warning in packet.warnings:
-            lines.append(self._field("WARNING", warning))
+    def write_cmd_verifier(self, record: dict[str, Any]) -> None:
+        """Write one cmd_verifier event into the same session JSONL stream."""
+        from mav_gss_lib.platform._log_envelope import new_event_id, ts_iso
+        import time as _time
 
-        lines.extend(text_lines or [])
-        lines.extend(self._hex_lines(packet.raw, "HEX"))
-
-        try:
-            text = packet.raw.decode("utf-8", errors="ignore").strip()
-        except Exception:
-            text = ""
-        if text:
-            lines.append(self._field("ASCII", text))
-
-        self._write_entry(lines)
+        ts_ms = int(_time.time() * 1000)
+        envelope: dict[str, Any] = {
+            "event_id": new_event_id(),
+            "event_kind": "cmd_verifier",
+            "session_id": self.session_id,
+            "ts_ms": ts_ms,
+            "ts_iso": ts_iso(ts_ms),
+            "seq": record.get("seq", 0),
+            "v": self._version,
+            "mission_id": self.mission_id,
+            "operator": self._operator,
+            "station": self._station,
+        }
+        envelope.update(record)
+        envelope["event_kind"] = "cmd_verifier"
+        self.write_jsonl(envelope)
 
     def write_alarm(self, change: Any, ts_ms: int) -> None:
         """Append one alarm-transition record using the unified envelope.

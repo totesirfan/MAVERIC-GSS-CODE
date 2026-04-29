@@ -1,7 +1,7 @@
 """
 mav_gss_lib.server.api.schema -- Schema / Column Routes
 
-Endpoints: api_schema, api_columns, api_tx_capabilities, api_tx_columns
+Endpoints: api_schema, api_tx_capabilities, api_tx_columns, api_rx_columns
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -23,17 +23,6 @@ async def api_schema(request: Request) -> dict[str, Any]:
     return runtime.mission.commands.schema() if runtime.mission.commands is not None else {}
 
 
-@router.get("/api/columns")
-async def api_columns(request: Request) -> list[dict[str, Any]]:
-    """Return mission-provided column definitions for packet list rendering.
-
-    Minimal enabler: same data as sent over /ws/rx on connect, exposed via
-    REST so the log viewer can render rows from _rendering.row.
-    """
-    runtime = get_runtime(request)
-    return [column.to_json() for column in runtime.mission.ui.packet_columns()]
-
-
 @router.get("/api/tx/capabilities")
 async def api_tx_capabilities(request: Request) -> dict[str, Any]:
     """Return TX capabilities for the loaded mission."""
@@ -43,8 +32,26 @@ async def api_tx_capabilities(request: Request) -> dict[str, Any]:
 
 @router.get("/api/tx-columns")
 async def api_tx_columns(request: Request) -> list[dict[str, Any]]:
-    """Return mission-provided column definitions for TX queue/history rendering."""
+    """Return declarative TX column definitions from mission.yml."""
     runtime = get_runtime(request)
-    if runtime.mission.commands is None:
+    spec_root = getattr(runtime.mission, "spec_root", None)
+    ui = getattr(spec_root, "ui", None) if spec_root is not None else None
+    if ui is None:
         return []
-    return [column.to_json() for column in runtime.mission.commands.tx_columns()]
+    return [column.to_json() for column in ui.tx_columns]
+
+
+@router.get("/api/rx-columns")
+async def api_rx_columns(request: Request) -> list[dict[str, Any]]:
+    """Return declarative RX column definitions from mission.yml.
+
+    Each entry is `{id, label, path, width?, align?, flex?, toggle?, badge?}`.
+    Empty list when the mission omits the ``ui.rx_columns`` block — the
+    frontend falls through to platform-shell columns only.
+    """
+    runtime = get_runtime(request)
+    spec_root = getattr(runtime.mission, "spec_root", None)
+    ui = getattr(spec_root, "ui", None) if spec_root is not None else None
+    if ui is None:
+        return []
+    return [column.to_json() for column in ui.rx_columns]

@@ -1,4 +1,8 @@
-"""TX command runner — parse → validate → encode → render → frame.
+"""TX command runner — parse → validate → encode → frame.
+
+The mission encode step returns the inner PDU bytes plus opaque display
+facts (`mission_facts`) and typed args (`parameters`) — no separate render
+step. Correlation and verifier-set selection stay behind CommandOps.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -10,7 +14,6 @@ from typing import Any
 
 from ..contract.commands import (
     CommandDraft,
-    CommandRendering,
     EncodedCommand,
     FramedCommand,
     ValidationIssue,
@@ -22,13 +25,13 @@ from ..contract.mission import MissionSpec
 class PreparedCommand:
     """Output of ``prepare_command`` — mission-validated command ready to queue.
 
-    ``draft`` is the parsed mission input, ``encoded`` holds the inner
-    bytes plus guard flag plus mission-opaque payload, and ``rendering``
-    carries the UI row + detail blocks for queue display.
+    ``draft`` is the parsed mission input; ``encoded`` carries the inner
+    bytes plus display fields. The platform uses ``encoded.mission_facts`` /
+    ``encoded.parameters`` for queue display; verifier behavior is selected
+    by the mission command capability.
     """
     draft: CommandDraft
     encoded: EncodedCommand
-    rendering: CommandRendering
 
 
 class CommandRejected(ValueError):
@@ -47,7 +50,7 @@ class CommandRejected(ValueError):
 def prepare_command(mission: MissionSpec, value: str | dict[str, Any]) -> PreparedCommand:
     """Run the mission command capability before platform queue insertion.
 
-    Bytes are only returned after parse, validate, encode, and render succeed.
+    Bytes are only returned after parse, validate, and encode succeed.
     The platform queue/send layers should call this before persisting a command.
     """
 
@@ -64,10 +67,7 @@ def prepare_command(mission: MissionSpec, value: str | dict[str, Any]) -> Prepar
     assert isinstance(encoded.raw, (bytes, bytearray)), \
         f"encode must return bytes, got {type(encoded.raw).__name__}"
     assert len(encoded.raw) > 0, "encoded command is empty"
-
-    rendering = mission.commands.render(encoded)
-    assert rendering is not None, "render returned None"
-    return PreparedCommand(draft=draft, encoded=encoded, rendering=rendering)
+    return PreparedCommand(draft=draft, encoded=encoded)
 
 
 def frame_command(mission: MissionSpec, encoded: EncodedCommand) -> FramedCommand:

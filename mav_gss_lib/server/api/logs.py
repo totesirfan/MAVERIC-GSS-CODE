@@ -6,8 +6,8 @@ Endpoints:
   GET /api/logs/{session_id}             -- stream rx_packet / tx_command events
   GET /api/logs/{session_id}/parameters  -- stream parameter events
 
-Records on disk use the unified envelope described in
-``mav_gss_lib/platform/rx/logging.py``; the API does no RX/TX forking —
+Records on disk use the unified envelope built by
+``mav_gss_lib.platform.log_records``; the API does no RX/TX forking —
 every record already carries ``event_id``, ``event_kind``, ``ts_ms``,
 ``ts_iso``, ``session_id``, ``seq``, ``v``, ``mission_id``, ``operator``,
 ``station`` and can be streamed straight to the viewer.
@@ -55,7 +55,7 @@ def _session_date_ms(session_id: str) -> int:
     """Extract UTC midnight of the session's calendar day in milliseconds.
 
     Used to translate HH:MM / HH:MM:SS query filters into ts_ms. Session IDs
-    look like `downlink_YYYYMMDD_HHMMSS[_station][_op]`; the date token is
+    look like `session_YYYYMMDD_HHMMSS[_station][_op]`; the date token is
     always the second underscore-separated field.
     """
     try:
@@ -88,19 +88,37 @@ def _hhmm_to_ms(hhmm: str, base_ms: int) -> Optional[int]:
     return base_ms + int(timedelta(hours=h, minutes=m, seconds=s).total_seconds() * 1000)
 
 
-def _cmd_matches(entry: dict, needle: str) -> bool:
-    """Case-insensitive substring match against cmd_id / mission.cmd.cmd_id."""
+def _entry_labels(entry: dict) -> list[str]:
+    """Return generic searchable labels for a log entry.
+
+    Packet identity lives under mission facts so the persisted envelope stays
+    generic. TX records use ``mission.cmd_id``; RX records usually use
+    ``mission.facts.header.cmd_id``.
+    """
+    labels: list[str] = []
+    mission = entry.get("mission")
+    if not isinstance(mission, dict):
+        return labels
+
+    cmd_id = mission.get("cmd_id")
+    if isinstance(cmd_id, str) and cmd_id:
+        labels.append(cmd_id)
+
+    facts = mission.get("facts")
+    if isinstance(facts, dict):
+        header = facts.get("header")
+        if isinstance(header, dict):
+            fact_cmd_id = header.get("cmd_id")
+            if isinstance(fact_cmd_id, str) and fact_cmd_id:
+                labels.append(fact_cmd_id)
+
+    return labels
+
+
+def _label_matches(entry: dict, needle: str) -> bool:
+    """Case-insensitive substring match against derived generic labels."""
     needle = needle.lower()
-    top = str(entry.get("cmd_id", "")).lower()
-    if top and needle in top:
-        return True
-    mission = entry.get("mission") or {}
-    cmd = mission.get("cmd") if isinstance(mission, dict) else None
-    if isinstance(cmd, dict):
-        inner = str(cmd.get("cmd_id", "")).lower()
-        if inner and needle in inner:
-            return True
-    return False
+    return any(needle in value.lower() for value in _entry_labels(entry))
 
 
 def _iter_entries(path: Path) -> Iterable[dict]:
@@ -135,9 +153,8 @@ _SESSION_STAMP_RE = (  # matches the YYYYMMDD_HHMMSS token in a session_id
 def _session_sort_key(stem: str) -> str:
     """Lexicographic-chronological key from the session_id stamp.
 
-    The stamp token is stable across migration and rename, so it sorts
-    sessions by real capture time rather than by mtime (which is reset
-    when the migration script rewrites files)."""
+    The stamp token sorts sessions by capture time rather than by mtime,
+    which can change when files are copied or touched."""
     import re
     m = re.search(_SESSION_STAMP_RE, stem)
     return m.group(1) if m else stem
@@ -148,8 +165,7 @@ async def api_logs(request: Request) -> list[dict[str, Any]]:
     """List all sessions in <log_dir>/json, newest first.
 
     Sort by the stamp embedded in the filename rather than file mtime so
-    migrated logs (whose mtime was reset to the migration moment) fall
-    back into their real chronological order.
+    sessions stay in chronological order even if files are copied or touched.
     """
     runtime = get_runtime(request)
     log_dir = Path(runtime.log_dir) / "json"
@@ -158,17 +174,12 @@ async def api_logs(request: Request) -> list[dict[str, Any]]:
     sessions = []
     for path in log_dir.glob("*.jsonl"):
         stem = path.stem
-        direction = (
-            "downlink" if stem.startswith("downlink")
-            else "uplink" if stem.startswith("uplink")
-            else "unknown"
-        )
         sessions.append({
             "session_id": stem,
             "filename": path.name,
             "size": path.stat().st_size,
             "mtime": path.stat().st_mtime,
-            "direction": direction,
+            "direction": "session",
         })
     sessions.sort(key=lambda item: _session_sort_key(item["session_id"]), reverse=True)
     return sessions
@@ -178,7 +189,7 @@ async def api_logs(request: Request) -> list[dict[str, Any]]:
 async def api_log_entries(
     session_id: str,
     request: Request,
-    cmd: Optional[str] = None,
+    label: Optional[str] = None,
     time_from: Optional[str] = Query(None, alias="from"),
     time_to: Optional[str] = Query(None, alias="to"),
     event_kind: str = _DEFAULT_KINDS,
@@ -188,8 +199,8 @@ async def api_log_entries(
     """Stream event records from one session's JSONL file.
 
     Filters:
-      - ``cmd``: substring match against top-level cmd_id (TX) or
-        mission.cmd.cmd_id (RX).
+      - ``label``: substring match against derived generic labels, including
+        TX ``mission.cmd_id`` and RX ``mission.facts.header.cmd_id``.
       - ``from`` / ``to``: HH:MM or HH:MM:SS, compared against ts_ms using
         the session's calendar day as the reference midnight.
       - ``event_kind``: comma-separated whitelist. Defaults to
@@ -213,7 +224,7 @@ async def api_log_entries(
     for entry in _iter_entries(log_file):
         if entry.get("event_kind") not in allowed_kinds:
             continue
-        if cmd and not _cmd_matches(entry, cmd):
+        if label and not _label_matches(entry, label):
             continue
         ts_ms = entry.get("ts_ms")
         if ts_from is not None and isinstance(ts_ms, int) and ts_ms < ts_from:
