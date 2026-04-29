@@ -15,6 +15,10 @@
 
 /** Matches the wire DTO shape from /api/plugins/imaging/status. */
 export interface FileLeaf {
+  /** Stable id for this physical image, including source when known. */
+  id: string;
+  /** Source node that produced this file, e.g. "HLNV" or "ASTR". */
+  source: string | null;
   /** Actual filename on disk, e.g. "limb_003.jpg" or "thumb_limb_003.jpg" */
   filename: string;
   /** Total chunk count (null until img_cnt_chunks or cam_capture returns) */
@@ -29,7 +33,11 @@ export interface FileLeaf {
 }
 
 export interface PairedFile {
-  /** Shared identity — the full filename, used as the stable key */
+  /** Stable source-qualified identity for the logical image pair. */
+  id: string;
+  /** Source node for the pair, e.g. "HLNV" or "ASTR". */
+  source: string | null;
+  /** Shared filename identity within one source — the full filename. */
   stem: string;
   /** Full-size image leaf. Null only when prefix is unset AND this entry is thumb-only. */
   full: FileLeaf | null;

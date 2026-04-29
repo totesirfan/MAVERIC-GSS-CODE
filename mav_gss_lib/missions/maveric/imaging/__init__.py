@@ -7,10 +7,11 @@ event source that drives assembler state from inbound imaging commands.
 Modules
 -------
 - `assembler.py` — `ImageAssembler`. Collects `img_get_chunks` payloads,
-  persists each chunk under `<image_dir>/.chunks/<filename>/`, and
-  rewrites the reconstructed JPEG (with a safety EOI marker for partial
-  transfers) on every new chunk. A `.meta.json` sidecar tracks progress
-  so non-contiguous transfers survive server restarts.
+  persists each chunk under `<image_dir>/.chunks/<source>/<filename>/`,
+  and rewrites the reconstructed JPEG under
+  `<image_dir>/<source>/<filename>` on every new chunk. A `.meta.json`
+  sidecar tracks progress so non-contiguous transfers survive server
+  restarts without filename collisions between HoloNav and Astroboard.
 - `router.py`    — FastAPI router mounted under `/api/plugins/imaging`
   by `mission.py`. Serves paired-file status, chunk-progress lookups,
   JPEG previews, and file deletion. Reads `imaging.thumb_prefix` from
@@ -24,17 +25,21 @@ Modules
 """
 
 from mav_gss_lib.missions.maveric.imaging.assembler import (
+    ImageFileRef,
     ImageAssembler,
     derive_full_filename,
     derive_thumb_filename,
+    image_file_id,
 )
 from mav_gss_lib.missions.maveric.imaging.events import MavericImagingEvents
 from mav_gss_lib.missions.maveric.imaging.router import get_imaging_router
 
 __all__ = [
     "ImageAssembler",
+    "ImageFileRef",
     "MavericImagingEvents",
     "derive_full_filename",
     "derive_thumb_filename",
+    "image_file_id",
     "get_imaging_router",
 ]

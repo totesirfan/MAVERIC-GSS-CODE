@@ -10,8 +10,10 @@ import {
   CommandList,
 } from '@/components/ui/command';
 import { colors } from '@/lib/colors';
+import { SourcePill } from './SourcePill';
 import {
   computeMissingRanges,
+  imagingFileEndpoint,
   type PairedFile,
   type FileLeaf,
   type MissingRange,
@@ -22,16 +24,16 @@ type Side = 'thumb' | 'full';
 interface ProgressPanelProps {
   files: PairedFile[];
   selected: PairedFile | null;
-  onSelect: (stem: string) => void;
+  onSelect: (id: string) => void;
   /** Delete every real leaf in the selected pair. Placeholder leaves
    *  (total === null) are skipped — there's no file on disk to delete. */
-  onDelete: (filenames: string[]) => void;
+  onDelete: (leaves: FileLeaf[]) => void;
   /** Stage contiguous re-request commands for a specific side. */
   onStageRerequest: (side: Side, leaf: FileLeaf, ranges: MissingRange[]) => void;
 }
 
-interface ChunkSetByFilename {
-  [filename: string]: Set<number>;
+interface ChunkSetByLeafId {
+  [leafId: string]: Set<number>;
 }
 
 /**
@@ -49,7 +51,7 @@ export function ProgressPanel({
 }: ProgressPanelProps) {
   const [pickerOpen, setPickerOpen] = useState(false);
   // Fetch per-chunk state for whichever leaves are present in the selected pair.
-  const [chunkSets, setChunkSets] = useState<ChunkSetByFilename>({});
+  const [chunkSets, setChunkSets] = useState<ChunkSetByLeafId>({});
 
   useEffect(() => {
     if (!selected) return;
@@ -59,16 +61,16 @@ export function ProgressPanel({
     const ctrl = new AbortController();
     Promise.all(
       toFetch.map(leaf =>
-        fetch(`/api/plugins/imaging/chunks/${encodeURIComponent(leaf.filename)}`, {
+        fetch(imagingFileEndpoint('chunks', leaf), {
           signal: ctrl.signal,
         })
           .then(r => r.json())
-          .then(data => [leaf.filename, new Set<number>(data.chunks ?? [])] as const)
-          .catch(() => [leaf.filename, new Set<number>()] as const),
+          .then(data => [leaf.id, new Set<number>(data.chunks ?? [])] as const)
+          .catch(() => [leaf.id, new Set<number>()] as const),
       ),
     ).then(pairs => {
-      const next: ChunkSetByFilename = {};
-      for (const [fn, s] of pairs) next[fn] = s;
+      const next: ChunkSetByLeafId = {};
+      for (const [id, s] of pairs) next[id] = s;
       setChunkSets(next);
     });
     return () => ctrl.abort();
@@ -110,7 +112,10 @@ export function ProgressPanel({
               className="flex items-center gap-1.5 border rounded px-2 py-0.5 text-[11px] font-mono text-fg hover:bg-white/[0.04] outline-none transition-colors"
               style={{ borderColor: colors.borderSubtle }}
             >
-              {selected?.stem ?? 'Select file'}
+              <SourcePill source={selected?.source} />
+              <span className="max-w-[220px] truncate">
+                {selected?.stem ?? 'Select file'}
+              </span>
               <ChevronDown className="size-3" style={{ color: colors.dim }} />
             </PopoverTrigger>
             <PopoverContent align="end" className="p-0 w-[320px]">
@@ -123,14 +128,15 @@ export function ProgressPanel({
                   <CommandGroup>
                     {files.map(p => (
                       <CommandItem
-                        key={p.stem}
-                        value={p.stem}
+                        key={p.id}
+                        value={`${p.source ?? ''} ${p.stem}`}
                         onSelect={() => {
-                          onSelect(p.stem);
+                          onSelect(p.id);
                           setPickerOpen(false);
                         }}
-                        className="text-[11px] font-mono"
+                        className="text-[11px] font-mono gap-2"
                       >
+                        <SourcePill source={p.source} />
                         <span className="flex-1 truncate">{p.stem}</span>
                         <LeafState leaf={p.thumb} label="thumb" />
                         <LeafState leaf={p.full} label="full" />
@@ -143,16 +149,16 @@ export function ProgressPanel({
           </Popover>
         )}
         {selected && (() => {
-          const realFiles: string[] = [];
-          if (selected.full && selected.full.total !== null) realFiles.push(selected.full.filename);
-          if (selected.thumb && selected.thumb.total !== null) realFiles.push(selected.thumb.filename);
-          if (realFiles.length === 0) return null;
+          const realLeaves: FileLeaf[] = [];
+          if (selected.full && selected.full.total !== null) realLeaves.push(selected.full);
+          if (selected.thumb && selected.thumb.total !== null) realLeaves.push(selected.thumb);
+          if (realLeaves.length === 0) return null;
           return (
             <button
-              onClick={() => onDelete(realFiles)}
+              onClick={() => onDelete(realLeaves)}
               className="p-1 rounded border hover:bg-white/[0.04]"
               style={{ borderColor: colors.borderSubtle }}
-              title={`Delete ${realFiles.join(' + ')}`}
+              title={`Delete ${realLeaves.map((leaf) => leaf.id).join(' + ')}`}
             >
               <Trash2 className="size-3" style={{ color: colors.danger }} />
             </button>
@@ -166,7 +172,7 @@ export function ProgressPanel({
             <ProgressRow
               side="thumb"
               leaf={selected.thumb}
-              chunkSet={chunkSets[selected.thumb.filename] ?? new Set()}
+              chunkSet={chunkSets[selected.thumb.id] ?? new Set()}
               onStageRerequest={onStageRerequest}
             />
           )}
@@ -174,7 +180,7 @@ export function ProgressPanel({
             <ProgressRow
               side="full"
               leaf={selected.full}
-              chunkSet={chunkSets[selected.full.filename] ?? new Set()}
+              chunkSet={chunkSets[selected.full.id] ?? new Set()}
               onStageRerequest={onStageRerequest}
             />
           )}

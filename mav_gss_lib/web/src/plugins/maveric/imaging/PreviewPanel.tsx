@@ -3,6 +3,8 @@ import { Image as ImageIcon } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { colors } from '@/lib/colors';
 import type { PairedFile, ImagingTab } from './types';
+import { imagingFileEndpoint } from './helpers';
+import { SourcePill } from './SourcePill';
 
 interface PreviewPanelProps {
   selected: PairedFile | null;
@@ -31,7 +33,9 @@ export function PreviewPanel({ selected, activeTab, onTabChange, version }: Prev
 
   const imgSrc = useMemo(() => {
     if (!leaf) return '';
-    return `/api/plugins/imaging/preview/${encodeURIComponent(leaf.filename)}?v=${version}`;
+    const endpoint = imagingFileEndpoint('preview', leaf);
+    const sep = endpoint.includes('?') ? '&' : '?';
+    return `${endpoint}${sep}v=${encodeURIComponent(String(version))}`;
   }, [leaf, version]);
 
   const hasThumbSide = !!selected?.thumb;
@@ -78,9 +82,12 @@ export function PreviewPanel({ selected, activeTab, onTabChange, version }: Prev
           </Tabs>
         )}
         {leaf && (
-          <span className="text-[11px] font-mono ml-1" style={{ color: colors.dim }}>
-            {leaf.filename}
-          </span>
+          <div className="ml-1 flex min-w-0 items-center gap-1.5">
+            <SourcePill source={leaf.source} />
+            <span className="text-[11px] font-mono truncate max-w-[360px]" style={{ color: colors.dim }}>
+              {leaf.filename}
+            </span>
+          </div>
         )}
         <div className="flex-1" />
         {leaf && leaf.total !== null && (

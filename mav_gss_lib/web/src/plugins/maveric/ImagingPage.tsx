@@ -20,6 +20,7 @@ import { PreviewPanel } from './imaging/PreviewPanel';
 import { QueuePanel } from './imaging/QueuePanel';
 import { useImaging } from './imaging/ImagingContext';
 import type { FileLeaf, MissingRange } from './imaging/types';
+import { imagingFileEndpoint } from './imaging/helpers';
 
 const FALLBACK_IMAGING_NODES = new Set(['HLNV', 'ASTR']);
 
@@ -39,11 +40,11 @@ export default function ImagingPage() {
 
   const {
     files,
-    selectedStem,
+    selectedId,
     previewTab,
     previewVersion,
     destNode,
-    setSelectedStem,
+    setSelectedId,
     setPreviewTab,
     setDestNode,
     refetch,
@@ -55,7 +56,7 @@ export default function ImagingPage() {
   const [schema, setSchema] = useState<Record<string, Record<string, unknown>> | null>(null);
 
   // ── Delete confirm ──────────────────────────────────────────────
-  const [deleteTarget, setDeleteTarget] = useState<string[] | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<FileLeaf[] | null>(null);
 
   // ── Column defs (shared with main dashboard via SessionProvider) ─
   // Pop-out windows render outside SessionProvider (hasProvider=false) and
@@ -78,7 +79,12 @@ export default function ImagingPage() {
     const allowedNodes = ((imgCmd as { nodes?: string[] } | undefined)?.nodes) ?? [];
     return allowedNodes.length > 0 ? allowedNodes : Array.from(FALLBACK_IMAGING_NODES);
   }, [schema]);
-  const effectiveDestNode = destNode || nodes[0] || '';
+  const selected = useMemo(
+    () => files.find((f) => f.id === selectedId) ?? null,
+    [files, selectedId],
+  );
+  const selectedSource = selected?.source && nodes.includes(selected.source) ? selected.source : '';
+  const effectiveDestNode = destNode || selectedSource || nodes[0] || '';
 
   // Thumbnail-filename prefix, e.g. "tn_". Feeds the FilenameInput tag
   // and the destination-from-filename helper in TxControlsPanel.
@@ -99,9 +105,15 @@ export default function ImagingPage() {
   const lastImagingPacketMs = imagingPackets[imagingPackets.length - 1]?.received_at_ms ?? null;
   const receiving = lastImagingPacketMs !== null && nowMs - lastImagingPacketMs < 1500;
 
-  const selected = useMemo(
-    () => files.find((f) => f.stem === selectedStem) ?? null,
-    [files, selectedStem],
+  const handleSelectFile = useCallback(
+    (id: string) => {
+      const match = files.find((f) => f.id === id);
+      if (match?.source && nodes.includes(match.source)) {
+        setDestNode(match.source);
+      }
+      setSelectedId(id);
+    },
+    [files, nodes, setDestNode, setSelectedId],
   );
 
   // Stage re-request — auto-routes target per side
@@ -117,7 +129,7 @@ export default function ImagingPage() {
             num_chunks: String(r.count),
             destination: forcedTarget,
           },
-          packet: { dest: effectiveDestNode },
+          packet: { dest: leaf.source || effectiveDestNode },
         });
       }
       showToast(
@@ -130,26 +142,26 @@ export default function ImagingPage() {
   );
 
   // Delete every real leaf in a pair (full side and thumb side). After
-  // refetch, reset selection if the previously-selected stem no longer
+  // refetch, reset selection if the previously-selected id no longer
   // exists in the fresh list.
   const performDelete = useCallback(
-    (filenames: string[]) => {
+    (leaves: FileLeaf[]) => {
       Promise.all(
-        filenames.map((fn) =>
-          fetch(`/api/plugins/imaging/file/${encodeURIComponent(fn)}`, { method: 'DELETE' })
-            .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}: ${fn}`)))),
+        leaves.map((leaf) =>
+          fetch(imagingFileEndpoint('file', leaf), { method: 'DELETE' })
+            .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}: ${leaf.id}`)))),
         ),
       )
         .then(async () => {
           const fresh = await refetch();
-          if (!fresh.find((f) => f.stem === selectedStem)) {
-            setSelectedStem(fresh[0]?.stem ?? '');
+          if (!fresh.find((f) => f.id === selectedId)) {
+            setSelectedId(fresh[0]?.id ?? '');
           }
-          showToast(`Deleted ${filenames.join(' + ')}`, 'success', 'tx');
+          showToast(`Deleted ${leaves.map((leaf) => leaf.id).join(' + ')}`, 'success', 'tx');
         })
         .catch((err) => showToast(`Failed to delete: ${err.message}`, 'error', 'tx'));
     },
-    [refetch, selectedStem, setSelectedStem],
+    [refetch, selectedId, setSelectedId],
   );
 
   return (
@@ -190,7 +202,7 @@ export default function ImagingPage() {
             <ProgressPanel
               files={files}
               selected={selected}
-              onSelect={setSelectedStem}
+              onSelect={handleSelectFile}
               onDelete={setDeleteTarget}
               onStageRerequest={stageRerequest}
             />
@@ -209,7 +221,7 @@ export default function ImagingPage() {
         title="Delete image?"
         detail={
           deleteTarget
-            ? `${deleteTarget.join(' + ')} and all chunks will be removed from disk. This cannot be undone.`
+            ? `${deleteTarget.map((leaf) => leaf.id).join(' + ')} and all chunks will be removed from disk. This cannot be undone.`
             : undefined
         }
         variant="destructive"

@@ -46,17 +46,27 @@ def get_imaging_router(
         return JSONResponse({"files": assembler.list_files()})
 
     @router.get("/chunks/{filename:path}")
-    async def imaging_chunks(filename: str) -> JSONResponse:
-        return JSONResponse({"filename": filename, "chunks": assembler.get_chunks(filename)})
+    async def imaging_chunks(filename: str, source: str | None = None) -> JSONResponse:
+        try:
+            chunks = assembler.get_chunks(filename, source=source)
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+        return JSONResponse({"source": source or None, "filename": filename, "chunks": chunks})
 
     @router.delete("/file/{filename:path}")
-    async def imaging_delete(filename: str) -> JSONResponse:
-        assembler.delete_file(filename)
-        return JSONResponse({"ok": True, "filename": filename})
+    async def imaging_delete(filename: str, source: str | None = None) -> JSONResponse:
+        try:
+            assembler.delete_file(filename, source=source)
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+        return JSONResponse({"ok": True, "source": source or None, "filename": filename})
 
     @router.get("/preview/{filename:path}", response_model=None)
-    async def imaging_preview(filename: str) -> JSONResponse | FileResponse:
-        path = Path(assembler.output_dir) / filename
+    async def imaging_preview(filename: str, source: str | None = None) -> JSONResponse | FileResponse:
+        try:
+            path = Path(assembler.file_path(filename, source=source))
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
         if not path.is_file():
             return JSONResponse({"error": "not found"}, status_code=404)
         stat = path.stat()

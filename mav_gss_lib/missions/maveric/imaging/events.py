@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable
 
 from mav_gss_lib.missions.maveric.codec import MaverPacketCodec
+from mav_gss_lib.missions.maveric.imaging.assembler import ImageFileRef
 from mav_gss_lib.platform import PacketEnvelope
 
 
@@ -66,26 +67,34 @@ class MavericImagingEvents:
         if not args_by_key:
             return []
 
+        source = _packet_source(header)
         if cmd_id in ("img_cnt_chunks", "cam_capture"):
-            return self._chunk_count_messages(args_by_key)
-        return self._chunk_data_messages(args_by_key, payload)
+            return self._chunk_count_messages(args_by_key, source=source)
+        return self._chunk_data_messages(args_by_key, payload, source=source)
 
     def on_client_connect(self) -> Iterable[dict[str, Any]]:
         """Replay current per-file progress so a fresh client sees live state
         without a separate REST roundtrip to /api/plugins/imaging/status."""
-        return [self._progress_msg(fn) for fn in self.image_assembler.known_filenames()]
+        return [self._progress_msg(ref) for ref in self.image_assembler.known_files()]
 
-    def _progress_msg(self, filename: str) -> dict[str, Any]:
-        received, total = self.image_assembler.progress(filename)
+    def _progress_msg(self, ref: ImageFileRef) -> dict[str, Any]:
+        received, total = self.image_assembler.progress(ref.filename, source=ref.source)
         return {
             "type": "imaging_progress",
-            "filename": filename,
+            "source": ref.source,
+            "id": ref.id,
+            "filename": ref.filename,
             "received": received,
             "total": total,
-            "complete": self.image_assembler.is_complete(filename),
+            "complete": self.image_assembler.is_complete(ref.filename, source=ref.source),
         }
 
-    def _chunk_count_messages(self, args_by_key: dict[str, Any]) -> list[dict[str, Any]]:
+    def _chunk_count_messages(
+        self,
+        args_by_key: dict[str, Any],
+        *,
+        source: str | None,
+    ) -> list[dict[str, Any]]:
         messages: list[dict[str, Any]] = []
         for filename_key, total_key in (
             ("filename", "num_chunks"),
@@ -95,16 +104,22 @@ class MavericImagingEvents:
             if not filename:
                 continue
             try:
-                self.image_assembler.set_total(filename, int(args_by_key.get(total_key, "")))
+                self.image_assembler.set_total(
+                    filename,
+                    int(args_by_key.get(total_key, "")),
+                    source=source,
+                )
             except (ValueError, TypeError):
                 continue
-            messages.append(self._progress_msg(filename))
+            messages.append(self._progress_msg(ImageFileRef(source, filename)))
         return messages
 
     def _chunk_data_messages(
         self,
         args_by_key: dict[str, Any],
         payload: Any,
+        *,
+        source: str | None,
     ) -> list[dict[str, Any]]:
         filename = str(args_by_key.get("filename", ""))
         if not filename:
@@ -133,10 +148,19 @@ class MavericImagingEvents:
                 chunk_idx,
                 data,
                 chunk_size=chunk_len,
+                source=source,
             )
         except (ValueError, TypeError):
             return []
-        return [self._progress_msg(filename)]
+        return [self._progress_msg(ImageFileRef(source, filename))]
+
+
+def _packet_source(header: dict[str, Any]) -> str | None:
+    source = header.get("src")
+    if source is None:
+        return None
+    text = str(source).strip()
+    return text or None
 
 
 def _slice_chunk_data(payload: Any, chunk_len: int) -> bytes:

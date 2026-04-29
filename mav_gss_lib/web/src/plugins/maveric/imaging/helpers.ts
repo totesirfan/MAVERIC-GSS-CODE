@@ -20,6 +20,16 @@ export async function fetchImagingStatus(): Promise<PairedFile[]> {
   }
 }
 
+export function imagingFileEndpoint(
+  kind: 'chunks' | 'file' | 'preview',
+  leaf: Pick<FileLeaf, 'filename' | 'source'>,
+): string {
+  const params = new URLSearchParams();
+  if (leaf.source) params.set('source', leaf.source);
+  const query = params.toString();
+  return `/api/plugins/imaging/${kind}/${encodeURIComponent(leaf.filename)}${query ? `?${query}` : ''}`;
+}
+
 /** Collapse a sorted list of missing chunk indices into contiguous ranges. */
 export function computeMissingRanges(
   total: number | null,
@@ -46,4 +56,3 @@ export function computeMissingRanges(
   ranges.push({ start, end, count: end - start + 1 });
   return ranges;
 }
-

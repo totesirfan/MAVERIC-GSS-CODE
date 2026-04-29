@@ -3,13 +3,13 @@ import type { PairedFile, ImagingTab } from './types';
 
 export interface ImagingApi {
   files: PairedFile[];
-  selectedStem: string;
+  selectedId: string;
   previewTab: ImagingTab;
   previewVersion: string;
   /** Persisted imaging destination node (HLNV / ASTR). Survives
    *  navigation so the operator doesn't re-pick it every time. */
   destNode: string;
-  setSelectedStem: (stem: string) => void;
+  setSelectedId: (id: string) => void;
   setPreviewTab: (tab: ImagingTab) => void;
   setDestNode: (n: string) => void;
   refetch: () => Promise<PairedFile[]>;
