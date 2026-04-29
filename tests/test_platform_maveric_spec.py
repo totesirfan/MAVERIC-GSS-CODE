@@ -29,8 +29,7 @@ def _maveric_pipeline(spec, tmp_path: Path) -> RxPipeline:
         DeclarativeWalker(spec.spec_root, plugins=spec.spec_plugins)
         if spec.spec_root is not None else None
     )
-    cache = ParameterCache(tmp_path / "parameters.json")
-    return RxPipeline(spec, walker=walker, parameter_cache=cache)
+    return RxPipeline(spec, walker=walker)
 
 
 def test_maveric_v2_spec_loads_with_capabilities(tmp_path):
@@ -73,10 +72,8 @@ def test_maveric_v2_rx_pipeline_renders_unknown_raw_packet(tmp_path):
 
     assert result.packet.seq == 1
     assert result.packet.flags.is_unknown is True
-    assert result.packet_message["data"]["is_unknown"] is True
-    assert "_rendering" not in result.packet_message["data"]
-    assert result.packet_message["data"]["mission"]["id"] == "maveric"
-    assert "cmd_id" not in result.packet_message["data"]
+    assert result.packet.mission["id"] == "maveric"
+    assert "cmd_id" not in result.packet.mission
 
 
 def test_maveric_v2_rx_pipeline_extracts_eps_hk_parameters(tmp_path):
@@ -91,10 +88,10 @@ def test_maveric_v2_rx_pipeline_extracts_eps_hk_parameters(tmp_path):
         import pytest
         pytest.skip("EPS_HK fixture not accepted by current commands.yml routing")
 
-    mission = result.packet_message["data"]["mission"]
+    mission = result.packet.mission
     assert mission["id"] == "maveric"
     assert mission["facts"]["header"]["cmd_id"] == "eps_hk"
-    assert result.packet_message["data"]["flags"]["integrity_ok"] == mission["facts"]["integrity"]["overall_ok"]
+    assert result.packet.flags.integrity_ok == mission["facts"]["integrity"]["overall_ok"]
     assert "body_crc_ok" in mission["facts"]["integrity"]
     assert "csp_crc32_ok" in mission["facts"]["integrity"]
     # Walker emits qualified ParamUpdates.
@@ -104,7 +101,8 @@ def test_maveric_v2_rx_pipeline_extracts_eps_hk_parameters(tmp_path):
     assert by_name["eps.V_BAT"].value == 7.532
     assert by_name["eps.V_BUS"].value == 9.192
 
-    # parameters_message carries cache changes
-    assert result.parameters_message is not None
-    update_names = {u["name"] for u in result.parameters_message["updates"]}
+    # ParameterCache is now a server projection over decoded parameters.
+    changes = ParameterCache(tmp_path / "parameters.json").apply(result.packet.parameters)
+    assert changes
+    update_names = {u["name"] for u in changes}
     assert "eps.V_BAT" in update_names

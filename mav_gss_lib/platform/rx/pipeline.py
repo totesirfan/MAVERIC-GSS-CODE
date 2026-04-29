@@ -1,4 +1,4 @@
-"""End-to-end RX orchestration: packet → walker → parameter cache → websocket messages.
+"""End-to-end RX decode: ingest record → packet → walker.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -6,24 +6,18 @@ Author:  Irfan Annuar - USC ISI SERC
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from ..contract.mission import MissionSpec
-from ..contract.packets import PacketEnvelope
-from ..parameter_cache import ParameterCache
 from ..spec.runtime import DeclarativeWalker
-from .events import collect_packet_events
 from .packet_pipeline import PacketPipeline
+from .records import RxDecodedRecord, RxIngestRecord, make_ingest_record
 
 
 @dataclass(slots=True)
-class RxResult:
-    packet: PacketEnvelope
-    packet_message: dict[str, Any]
-    parameters_message: dict[str, Any] | None = None
-    event_messages: list[dict[str, Any]] = field(default_factory=list)
-    container_id: str | None = None
+class RxResult(RxDecodedRecord):
+    """Backward-compatible name for the decoded RX domain record."""
 
 
 class RxPipeline:
@@ -32,23 +26,35 @@ class RxPipeline:
     Ordering:
       1. packet normalize/parse/classify
       2. walker.extract → ParamUpdate stream
-      3. ParameterCache.apply (LWW persistence + change detection)
-      4. produce websocket-ready messages
+      3. return decoded domain record; cache/log/UI are server projections
     """
 
     def __init__(
         self,
         mission: MissionSpec,
         walker: DeclarativeWalker | None,
-        parameter_cache: ParameterCache,
     ) -> None:
         self.mission = mission
         self.packet_pipeline = PacketPipeline(mission)
         self.walker = walker
-        self.cache = parameter_cache
 
-    def process(self, meta: dict[str, Any], raw: bytes) -> RxResult:
-        packet = self.packet_pipeline.process(meta, raw)
+    def process(
+        self,
+        ingest: RxIngestRecord | dict[str, Any],
+        raw: bytes | None = None,
+    ) -> RxResult:
+        if not isinstance(ingest, RxIngestRecord):
+            if raw is None:
+                raise TypeError("raw bytes are required when processing meta")
+            ingest = make_ingest_record(0, ingest, raw)
+
+        packet = self.packet_pipeline.process(
+            ingest.transport_meta,
+            ingest.raw,
+            event_id=ingest.event_id,
+            received_at_ms=ingest.received_at_ms,
+            received_mono_ns=ingest.received_mono_ns,
+        )
         wp = getattr(packet.mission_payload, "walker_packet", None)
         matched_container_id: str | None = None
         if self.walker is not None and wp is not None:
@@ -64,51 +70,8 @@ class RxPipeline:
         else:
             packet.parameters = ()
 
-        changes = self.cache.apply(packet.parameters)
-        parameters_message = (
-            {"type": "parameters", "updates": changes} if changes else None
-        )
-        event_messages = collect_packet_events(self.mission, packet)
-        packet_message = {
-            "type": "packet",
-            "data": {
-                "num": packet.seq,
-                "frame": packet.frame_type,
-                "size": len(packet.raw),
-                "raw_hex": packet.raw.hex(),
-                "received_at_ms": packet.received_at_ms,
-                "payload_hex": packet.payload.hex(),
-                "payload_len": len(packet.payload),
-                "wire_hex": packet.raw.hex(),
-                "wire_len": len(packet.raw),
-                "transport_meta": dict(packet.transport_meta),
-                "mission": dict(packet.mission),
-                "parameters": [
-                    {
-                        "name": p.name,
-                        "value": p.value,
-                        "ts_ms": p.ts_ms,
-                        "unit": p.unit,
-                        "display_only": p.display_only,
-                    }
-                    for p in packet.parameters
-                ],
-                "warnings": list(packet.warnings),
-                "is_echo": packet.flags.is_uplink_echo,
-                "is_dup": packet.flags.is_duplicate,
-                "is_unknown": packet.flags.is_unknown,
-                "flags": {
-                    "duplicate": packet.flags.is_duplicate,
-                    "unknown": packet.flags.is_unknown,
-                    "uplink_echo": packet.flags.is_uplink_echo,
-                    "integrity_ok": packet.flags.integrity_ok,
-                },
-            },
-        }
         return RxResult(
+            ingest=ingest,
             packet=packet,
-            packet_message=packet_message,
-            parameters_message=parameters_message,
-            event_messages=event_messages,
             container_id=matched_container_id,
         )

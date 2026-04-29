@@ -10,39 +10,29 @@ from __future__ import annotations
 
 import json
 import logging
-import math
 from pathlib import Path
 from threading import RLock
 from typing import Any, Callable, Iterable
 
 from mav_gss_lib.platform.contract.parameters import ParamUpdate
+from mav_gss_lib.platform.json_safety import json_safe
 
 ApplyCallback = Callable[[list], None]
 
 
-def _json_safe(obj: Any) -> Any:
-    """Replace NaN / +Inf / -Inf with None recursively. Browsers reject
-    `NaN`/`Infinity` literals from `json.dumps`, so we lose the entire WS
-    frame to a silent JSON.parse SyntaxError. Mapping to None keeps the
-    cache file standards-compliant and the WS frames parseable."""
-    if isinstance(obj, float):
-        return None if math.isnan(obj) or math.isinf(obj) else obj
-    if isinstance(obj, list):
-        return [_json_safe(x) for x in obj]
-    if isinstance(obj, tuple):
-        return [_json_safe(x) for x in obj]
-    if isinstance(obj, dict):
-        return {k: _json_safe(v) for k, v in obj.items()}
-    return obj
+_json_safe = json_safe
 
 
 class ParameterCache:
     def __init__(self, path: str | Path, *,
-                 on_apply: ApplyCallback | None = None) -> None:
+                 on_apply: ApplyCallback | None = None,
+                 persist_immediately: bool = True) -> None:
         self._path = Path(path)
         self._lock = RLock()
         self._state: dict[str, dict[str, Any]] = {}
         self._on_apply = on_apply
+        self._persist_immediately = persist_immediately
+        self._dirty = False
         self._load()
 
     def apply(self, updates: Iterable[ParamUpdate]) -> list[dict]:
@@ -64,7 +54,10 @@ class ParameterCache:
                 changes.append({"name": u.name, "v": value, "t": u.ts_ms})
                 dirty = True
             if dirty:
-                self._persist_locked()
+                if self._persist_immediately:
+                    self._persist_locked()
+                else:
+                    self._dirty = True
         if self._on_apply is not None and captured:
             try:
                 self._on_apply(captured)
@@ -83,8 +76,17 @@ class ParameterCache:
             for k in keys:
                 del self._state[k]
             if keys:
+                self._dirty = False
                 self._persist_locked()
         return len(keys)
+
+    def flush(self) -> None:
+        """Persist pending in-memory state when deferred persistence is enabled."""
+        with self._lock:
+            if not self._dirty:
+                return
+            self._persist_locked()
+            self._dirty = False
 
     def _load(self) -> None:
         if not self._path.exists():

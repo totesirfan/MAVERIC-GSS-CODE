@@ -81,6 +81,7 @@ async def lifespan(app: FastAPI) -> "AsyncIterator[None]":
         station=runtime.station, operator=runtime.operator, host=runtime.host,
     )
     runtime.tx.log = runtime.rx.log
+    runtime.rx.open_journal(runtime.rx.log.session_id)
     print(f"Session logging → {runtime.rx.log.jsonl_path}")
 
     env = build_alarm_environment(
@@ -171,6 +172,14 @@ async def _shutdown_runtime(runtime: "WebRuntime") -> None:
             await tick
         except (asyncio.CancelledError, Exception):
             pass
+    try:
+        runtime.parameter_cache.flush()
+    except Exception:
+        logging.exception("parameter cache flush")
+    try:
+        runtime.rx.close_journal()
+    except Exception:
+        logging.exception("rx journal close")
     if runtime.rx.log:
         try:
             runtime.rx.log.close()

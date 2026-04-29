@@ -60,6 +60,28 @@ class ParameterCacheTests(unittest.TestCase):
         cache2 = ParameterCache(self.path)
         self.assertEqual(cache2.replay(), [{"name": "eps.V_BUS", "v": 12.0, "t": 2000}])
 
+    def test_deferred_persistence_flushes_on_request(self) -> None:
+        cache = ParameterCache(self.path, persist_immediately=False)
+        cache.apply([ParamUpdate(name="eps.V_BUS", value=12.0, ts_ms=2000)])
+        self.assertFalse(self.path.exists())
+
+        cache.flush()
+
+        self.assertEqual(ParameterCache(self.path).replay(), [{"name": "eps.V_BUS", "v": 12.0, "t": 2000}])
+
+    def test_deferred_persistence_roundtrips_dashboard_groups(self) -> None:
+        cache = ParameterCache(self.path, persist_immediately=False)
+        cache.apply([
+            ParamUpdate(name="eps.V_BUS", value=12.0, ts_ms=2000),
+            ParamUpdate(name="spacecraft.ops_stage", value="nominal", ts_ms=2001),
+            ParamUpdate(name="gnc.RATE", value=[0.1, 0.2, 0.3], ts_ms=2002),
+        ])
+
+        cache.flush()
+
+        names = {entry["name"] for entry in ParameterCache(self.path).replay()}
+        self.assertEqual(names, {"eps.V_BUS", "spacecraft.ops_stage", "gnc.RATE"})
+
     def test_persistence_tolerates_malformed_file(self) -> None:
         self.path.write_text("not json")
         self.assertEqual(ParameterCache(self.path).replay(), [])

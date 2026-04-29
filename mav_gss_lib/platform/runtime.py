@@ -2,7 +2,7 @@
 
 Loads the active MissionSpec, builds the DeclarativeWalker from
 ``mission.spec_root`` + ``mission.spec_plugins``, owns the live
-``ParameterCache``, processes RX through ``RxPipeline``, and prepares
+``ParameterCache``, decodes RX through ``RxPipeline``, and prepares
 TX commands through ``CommandOps``.
 
 Author:  Irfan Annuar - USC ISI SERC
@@ -19,6 +19,7 @@ from .contract.mission import MissionSpec
 from .loader import load_mission_spec_from_split
 from .parameter_cache import ParameterCache
 from .rx.pipeline import RxPipeline, RxResult
+from .rx.records import RxIngestRecord
 from .spec.runtime import DeclarativeWalker
 from .tx.commands import PreparedCommand, frame_command, prepare_command
 from .tx.verifiers import VerifierRegistry
@@ -68,7 +69,8 @@ class PlatformRuntime:
         Loads the active MissionSpec, constructs the walker from the
         mission's ``spec_root`` + ``spec_plugins`` (None when the mission
         has no declarative spec), builds the ``ParameterCache`` rooted
-        under ``<log_dir>/parameters.json``, and wires the ``RxPipeline``.
+        under ``<log_dir>/parameters.json``, and wires the decode-only
+        ``RxPipeline``.
         """
         log_dir = _resolve_log_dir(platform_cfg)
         mission = load_mission_spec_from_split(
@@ -81,18 +83,23 @@ class PlatformRuntime:
         cache = ParameterCache(
             Path(log_dir) / "parameters.json",
             on_apply=on_parameter_apply,
+            persist_immediately=False,
         )
         return cls(
             mission=mission,
             walker=walker,
             parameter_cache=cache,
-            rx=RxPipeline(mission, walker, cache),
+            rx=RxPipeline(mission, walker),
             verifiers=VerifierRegistry(),
         )
 
-    def process_rx(self, meta: dict[str, Any], raw: bytes) -> RxResult:
-        """Run one inbound frame through the full RX pipeline."""
-        return self.rx.process(meta, raw)
+    def process_rx(
+        self,
+        ingest: RxIngestRecord | dict[str, Any],
+        raw: bytes | None = None,
+    ) -> RxResult:
+        """Decode one inbound frame through the RX domain pipeline."""
+        return self.rx.process(ingest, raw)
 
     def prepare_tx(self, value: str | dict[str, Any]) -> PreparedCommand:
         """Run the mission command pipeline: parse → validate → encode → render."""

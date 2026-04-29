@@ -105,7 +105,7 @@ class TestBroadcastLoopSuppressesNoise(unittest.TestCase):
     Covers the full side-effect table from the spec:
       - RxPipeline counters untouched
       - SessionLog not called
-      - self.packets deque stays empty
+      - detail/replay store stays empty
       - No packet broadcasts to /ws/rx clients
       - No traffic_status broadcast to /ws/session clients
       - self.last_rx_at stays 0
@@ -194,7 +194,20 @@ class TestBroadcastLoopSuppressesNoise(unittest.TestCase):
                 obj = json.loads(text)
             except ValueError:
                 continue
-            if obj.get("type") == "packet":
+            if obj.get("type") == "rx_packet":
+                out.append(obj)
+            elif obj.get("type") == "rx_batch":
+                out.extend(obj.get("events", []))
+        return out
+
+    def _rx_batch_broadcasts(self):
+        out = []
+        for text in self.rx_clients_msgs:
+            try:
+                obj = json.loads(text)
+            except ValueError:
+                continue
+            if obj.get("type") == "rx_batch":
                 out.append(obj)
         return out
 
@@ -224,7 +237,7 @@ class TestBroadcastLoopSuppressesNoise(unittest.TestCase):
 
         self.assertEqual(self._packet_broadcasts(), [])
         self.assertEqual(self._traffic_status_broadcasts(), [])
-        self.assertEqual(len(self.rx.packets), 0)
+        self.assertEqual(len(self.rx.detail_store), 0)
 
         self.assertEqual(self.rx.last_rx_at, 0.0)
         self.assertFalse(self.rx._was_traffic_active)
@@ -254,7 +267,7 @@ class TestBroadcastLoopSuppressesNoise(unittest.TestCase):
         self.assertEqual(len(self._packet_broadcasts()), 1)
         self.assertTrue(self.rx._was_traffic_active)
         self.assertEqual(len(self._traffic_status_broadcasts()), 1)
-        self.assertEqual(len(self.rx.packets), 1)
+        self.assertEqual(len(self.rx.detail_store), 1)
         self.assertEqual(len(self.hook_calls), 1)
         self.assertEqual(len(self.spy_log.jsonl_calls), 1)
         self.assertEqual(len(self.spy_log.packet_calls), 1)
@@ -271,7 +284,20 @@ class TestBroadcastLoopSuppressesNoise(unittest.TestCase):
         self.assertEqual(self.rx.pipeline.unknown_count, 1)
         packets = self._packet_broadcasts()
         self.assertEqual(len(packets), 1)
-        self.assertTrue(packets[0]["data"]["is_unknown"])
+        self.assertTrue(packets[0]["packet"]["is_unknown"])
+
+    def test_multiple_packets_are_batched_to_rx_clients(self):
+        meta = {"transmitter": "9k6 FSK AX.25 downlink"}
+        payload = (b"\xaa" * 14) + b"\x03\xf0" + b"\x00\x01\x02\x03"
+        self.rx.queue.put((self.runtime.session.session_generation, meta, payload))
+        self.rx.queue.put((self.runtime.session.session_generation, meta, payload))
+
+        self._run_loop_until_drained()
+
+        batches = self._rx_batch_broadcasts()
+        self.assertEqual(len(batches), 1)
+        self.assertEqual(len(batches[0]["events"]), 2)
+        self.assertEqual(len(self._packet_broadcasts()), 2)
 
     @unittest.skipUnless(_MISSION_YML_PRESENT, "mission.yml not present (gitignored)")
     def test_asm_golay_without_delimiter_still_flows_through(self):

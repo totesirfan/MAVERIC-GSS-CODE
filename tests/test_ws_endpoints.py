@@ -16,6 +16,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from mav_gss_lib.platform import EventOps
+from mav_gss_lib.server.api.rx import router as rx_api_router
+from mav_gss_lib.server.rx.detail_store import RxDetailStore
 from mav_gss_lib.server.ws.rx import router as rx_router
 from mav_gss_lib.server.ws.tx import router as tx_router
 from mav_gss_lib.server.ws.session import router as session_router
@@ -35,7 +37,7 @@ def _build_stub_runtime():
     # RX stubs
     runtime.rx.clients = []
     runtime.rx.lock = threading.Lock()
-    runtime.rx.packets = deque()
+    runtime.rx.detail_store = RxDetailStore(10)
     runtime.rx.last_rx_at = 0.0
 
     # TX stubs
@@ -73,6 +75,7 @@ def _build_app():
     app = FastAPI()
     app.state.runtime = _build_stub_runtime()
     app.include_router(rx_router)
+    app.include_router(rx_api_router)
     app.include_router(tx_router)
     app.include_router(session_router)
     return app
@@ -112,6 +115,7 @@ class TestWsRxHandshake(unittest.TestCase):
         runtime = app.state.runtime
         runtime.parameter_cache.replay.return_value = [
             {"name": "eps.V_BUS", "v": 7.4, "t": 1_700_000_000_000},
+            {"name": "spacecraft.ops_stage", "v": "nominal", "t": 1_700_000_000_000},
             {"name": "gnc.GNC_MODE", "v": 2, "t": 1_700_000_000_000},
         ]
         with TestClient(app) as client:
@@ -121,7 +125,40 @@ class TestWsRxHandshake(unittest.TestCase):
         self.assertEqual(msg["type"], "parameters")
         self.assertTrue(msg["replay"])
         names = {u["name"] for u in msg["updates"]}
-        self.assertEqual(names, {"eps.V_BUS", "gnc.GNC_MODE"})
+        self.assertEqual(names, {"eps.V_BUS", "spacecraft.ops_stage", "gnc.GNC_MODE"})
+
+    def test_connect_replays_rx_packet_transactions(self):
+        """/ws/rx replays packet-scoped parameters with their parent packet."""
+        app = _build_app()
+        runtime = app.state.runtime
+        runtime.rx.detail_store.append({
+            "type": "rx_packet",
+            "packet": {"event_id": "e1", "num": 1, "size": 2},
+            "parameters": [{"name": "eps.V_BUS", "v": 7.4, "t": 1_700_000_000_000}],
+        })
+        with TestClient(app) as client:
+            url = f"/ws/rx?token={runtime.session_token}"
+            with client.websocket_connect(url) as ws:
+                msg = ws.receive_json()
+        self.assertEqual(msg["type"], "rx_packet")
+        self.assertTrue(msg["replay"])
+        self.assertEqual(msg["packet"]["event_id"], "e1")
+        self.assertEqual(msg["parameters"][0]["name"], "eps.V_BUS")
+
+    def test_rx_packet_detail_api_returns_stored_event(self):
+        app = _build_app()
+        runtime = app.state.runtime
+        runtime.rx.detail_store.append({
+            "type": "rx_packet",
+            "packet": {"event_id": "e2", "num": 2, "size": 3},
+            "parameters": [{"name": "eps.V_BAT", "v": 8.1, "t": 1_700_000_000_001}],
+        })
+        with TestClient(app) as client:
+            res = client.get("/api/rx/packets/e2")
+        self.assertEqual(res.status_code, 200)
+        body = res.json()
+        self.assertEqual(body["packet"]["event_id"], "e2")
+        self.assertEqual(body["parameters"][0]["name"], "eps.V_BAT")
 
 
 class TestWsTxHandshake(unittest.TestCase):

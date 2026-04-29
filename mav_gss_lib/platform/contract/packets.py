@@ -56,6 +56,8 @@ class PacketEnvelope:
     flags: PacketFlags
     mission: dict[str, Any] = field(default_factory=dict)
     parameters: tuple[ParamUpdate, ...] = ()
+    event_id: str = ""
+    received_mono_ns: int = 0
 
 
 class PacketOps(Protocol):

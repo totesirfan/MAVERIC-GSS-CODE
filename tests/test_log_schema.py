@@ -60,6 +60,8 @@ def _make_packet() -> PacketEnvelope:
                         ts_ms=1714053603500, unit="V"),
             ParamUpdate(name="eps.temp_batt", value=18.3,
                         ts_ms=1714053603500, unit="C"),
+            ParamUpdate(name="gnc.heartbeat", value=1,
+                        ts_ms=1714053603501, display_only=True),
         ),
     )
 
@@ -78,10 +80,12 @@ def test_rx_packet_envelope_shape():
     )
     _assert_envelope(record)
     assert record["event_kind"] == "rx_packet"
-    assert record["wire_hex"] == "01020304"
-    assert record["wire_len"] == 4
-    assert record["inner_hex"] == "0203"
-    assert record["inner_len"] == 2
+    assert record["raw_hex"] == "01020304"
+    assert record["size"] == 4
+    assert "wire_hex" not in record
+    assert "wire_len" not in record
+    assert "inner_hex" not in record
+    assert "inner_len" not in record
     assert record["mission"] == {"id": "maveric", "facts": {"header": {"cmd_id": "probe"}}}
     assert "_rendering" not in record
     assert "telemetry" not in record
@@ -96,7 +100,7 @@ def test_parameter_records_envelope_shape():
         version="5.7.0",
         mission_id="maveric", operator="irfan", station="GS-0",
     ))
-    assert len(rows) == 2
+    assert len(rows) == 3
     for row in rows:
         _assert_envelope(row)
         assert row["event_kind"] == "parameter"
@@ -106,7 +110,11 @@ def test_parameter_records_envelope_shape():
         assert row["v"] == "5.7.0"
         assert "domain" not in row
         assert "key" not in row
-    assert {row["name"] for row in rows} == {"eps.vbatt", "eps.temp_batt"}
+    assert {row["name"] for row in rows} == {"eps.vbatt", "eps.temp_batt", "gnc.heartbeat"}
+    display_only = next(row for row in rows if row["name"] == "gnc.heartbeat")
+    assert display_only["display_only"] is True
+    persisted = [row for row in rows if row["name"] != "gnc.heartbeat"]
+    assert all(row["display_only"] is False for row in persisted)
 
 
 def test_tx_command_envelope_shape():

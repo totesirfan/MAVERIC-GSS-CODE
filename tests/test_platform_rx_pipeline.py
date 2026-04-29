@@ -1,13 +1,12 @@
 from pathlib import Path
 
 from mav_gss_lib.platform.loader import load_mission_spec
-from mav_gss_lib.platform.parameter_cache import ParameterCache
 from mav_gss_lib.platform.rx.pipeline import RxPipeline
+from mav_gss_lib.platform.rx.records import make_ingest_record
 
 
 def _pipeline_for(spec, tmp_path: Path) -> RxPipeline:
-    cache = ParameterCache(tmp_path / "parameters.json")
-    return RxPipeline(spec, walker=None, parameter_cache=cache)
+    return RxPipeline(spec, walker=None)
 
 
 def test_rx_pipeline_v2_processes_echo_packet_without_parameters(tmp_path):
@@ -21,11 +20,32 @@ def test_rx_pipeline_v2_processes_echo_packet_without_parameters(tmp_path):
 
     assert result.packet.seq == 1
     assert result.packet.parameters == ()
-    assert result.parameters_message is None
-    assert result.packet_message["type"] == "packet"
-    assert result.packet_message["data"]["raw_hex"] == "0102"
-    assert "_rendering" not in result.packet_message["data"]
-    assert result.packet_message["data"]["mission"] == {}
+    assert result.packet.raw.hex() == "0102"
+    assert len(result.packet.raw) == 2
+    assert result.packet.mission == {}
+
+
+def test_rx_pipeline_uses_ingest_receive_time_and_event_id(tmp_path):
+    spec = load_mission_spec(
+        {"mission": {"id": "echo_v2", "config": {}}, "platform": {}},
+        data_dir=tmp_path,
+    )
+    rx = _pipeline_for(spec, tmp_path)
+    ingest = make_ingest_record(
+        7,
+        {"transmitter": "fixture"},
+        b"\x01\x02",
+        event_id="e" * 32,
+        received_at_ms=1_700_000_000_123,
+        received_mono_ns=55_000_000_000,
+    )
+
+    result = rx.process(ingest)
+
+    assert result.ingest is ingest
+    assert result.packet.event_id == "e" * 32
+    assert result.packet.received_at_ms == 1_700_000_000_123
+    assert result.packet.received_mono_ns == 55_000_000_000
 
 
 def test_rx_pipeline_v2_balloon_packet_emits_no_parameters_post_swap(tmp_path):
@@ -44,9 +64,7 @@ def test_rx_pipeline_v2_balloon_packet_emits_no_parameters_post_swap(tmp_path):
 
     assert result.packet.flags.is_unknown is False
     assert result.packet.parameters == ()
-    assert result.parameters_message is None
-    assert "_rendering" not in result.packet_message["data"]
-    assert result.packet_message["data"]["mission"] == {}
+    assert result.packet.mission == {}
 
 
 def test_rx_pipeline_v2_marks_unknown_balloon_packet(tmp_path):
@@ -59,5 +77,3 @@ def test_rx_pipeline_v2_marks_unknown_balloon_packet(tmp_path):
     result = rx.process({}, b'{"type":"status"}')
 
     assert result.packet.flags.is_unknown is True
-    assert result.packet_message["data"]["is_unknown"] is True
-    assert result.parameters_message is None

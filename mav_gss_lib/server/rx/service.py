@@ -1,7 +1,7 @@
 """
 mav_gss_lib.server.rx.service -- RX Service
 
-Owns the RX side of the web runtime: ZMQ SUB → pipeline → log → WS broadcast.
+Owns RX orchestration: ZMQ SUB → ingest records → decode → projections → UI.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -15,40 +15,44 @@ import threading
 import time
 from collections import deque
 from pathlib import Path
-from queue import Empty, Queue
+from queue import Empty
 from typing import TYPE_CHECKING, Any
 
 from mav_gss_lib.config import get_rx_zmq_addr
 
 from .._atomics import AtomicStatus
-from mav_gss_lib.platform._log_envelope import new_event_id
-from mav_gss_lib.platform.log_records import (
-    parameter_records,
-    rx_packet_record,
-)
 from mav_gss_lib.platform.rx.frame_detect import detect_frame_type, is_noise_frame
-from mav_gss_lib.platform.tx.verifiers import write_instances
+from mav_gss_lib.platform.rx.records import RxIngestRecord, make_ingest_record
 from mav_gss_lib.transport import SUB_STATUS, init_zmq_sub, poll_monitor, receive_pdu, zmq_cleanup
 
 from .._broadcast import broadcast_safe
+from .detail_store import RxDetailStore
+from .events import rx_batch_event
+from .journal import RxIngestJournal
+from .projections import RxProjectionDeps, RxProjectionRunner
+from .queueing import DropOldestQueue
 
 if TYPE_CHECKING:
     from ..state import WebRuntime
 
 
 class RxService:
-    """Own the RX side of the web runtime: ZMQ -> parse -> log -> broadcast."""
+    """Own RX transport, decode scheduling, projection fanout, and UI clients."""
+
+    RX_QUEUE_MAX = 20_000
 
     def __init__(self, runtime: "WebRuntime") -> None:
         self.runtime = runtime
         self.status = AtomicStatus()
-        self.packets: deque = deque(maxlen=runtime.max_packets)
-        self.queue: Queue = Queue()
+        self.detail_store = RxDetailStore(runtime.max_packets)
+        self.queue: DropOldestQueue[Any] = DropOldestQueue(self.RX_QUEUE_MAX)
         self.stop = threading.Event()
         self.broadcast_stop = False
+        self.decode_batch_limit = 1000
         self.clients: list = []
         self.lock = threading.Lock()
         self.log = None
+        self.journal: RxIngestJournal | None = None
         self.thread_handle: threading.Thread | None = None
         self.broadcast_task = None
         self.pipeline = runtime.platform.rx.packet_pipeline
@@ -62,6 +66,33 @@ class RxService:
         # for "time since last received" — feeds both the container alarm
         # evaluator and the UI's freshness displays.
         self.last_arrival_ms: dict[str, int] = {}
+        self._last_cache_flush = 0.0
+        self.projections = RxProjectionRunner(RxProjectionDeps(
+            runtime=runtime,
+            last_arrival_ms=self.last_arrival_ms,
+            crc_window=self.crc_window,
+            dup_window=self.dup_window,
+            get_rx_log=lambda: self.log,
+            get_tx_log=lambda: self.runtime.tx.log,
+        ))
+
+    def open_journal(self, session_id: str) -> None:
+        self.close_journal()
+        path = Path(self.runtime.log_dir) / "rx" / f"{session_id}.rxj"
+        self.journal = RxIngestJournal(path)
+
+    def rename_journal(self, session_id: str) -> None:
+        path = Path(self.runtime.log_dir) / "rx" / f"{session_id}.rxj"
+        if self.journal is None:
+            self.journal = RxIngestJournal(path)
+            return
+        self.journal.rename(path)
+
+    def close_journal(self) -> None:
+        if self.journal is None:
+            return
+        self.journal.close()
+        self.journal = None
 
     def _should_drop_rx(self, now: float) -> bool:
         """Return True if *now* is inside the TX→RX blackout window.
@@ -120,15 +151,30 @@ class RxService:
             self.status.set(status)
             result = receive_pdu(sock)
             if result is not None:
-                if self._should_drop_rx(time.time()):
+                received_at = time.time()
+                received_mono_ns = time.monotonic_ns()
+                if self._should_drop_rx(received_at):
                     continue  # deaf during TX→RX blackout window
-                self.queue.put((self.runtime.session.session_generation, *result))
+                meta, raw = result
+                self.queue.put(make_ingest_record(
+                    self.runtime.session.session_generation,
+                    meta,
+                    raw,
+                    received_at_ms=int(received_at * 1000),
+                    received_mono_ns=received_mono_ns,
+                ))
 
         zmq_cleanup(monitor, SUB_STATUS, status, sock, ctx)
 
+    def _coerce_ingest(self, item: Any) -> RxIngestRecord:
+        if isinstance(item, RxIngestRecord):
+            return item
+        item_gen, meta, raw = item
+        return make_ingest_record(item_gen, meta, raw)
+
     async def broadcast(self, msg: dict[str, Any] | str) -> None:
         """Broadcast one JSON-serializable message to all RX websocket clients."""
-        text = json.dumps(msg) if isinstance(msg, dict) else msg
+        text = json.dumps(msg, separators=(",", ":")) if isinstance(msg, dict) else msg
         await broadcast_safe(self.clients, self.lock, text)
 
     async def broadcast_loop(self) -> None:
@@ -137,151 +183,35 @@ class RxService:
         last_status_push = 0.0
         while True:
             drained = 0
-            while True:
+            rx_events: list[dict[str, Any]] = []
+            extra_events: list[dict[str, Any]] = []
+            verifier_instances: list[Any] = []
+            while drained < self.decode_batch_limit:
                 try:
-                    item_gen, meta, raw = self.queue.get_nowait()
+                    ingest = self._coerce_ingest(self.queue.get_nowait())
                 except Empty:
                     break
-                if item_gen < self.runtime.session.session_generation:
+                if ingest.session_generation < self.runtime.session.session_generation:
                     # Packet arrived against a prior session generation —
                     # drop the record entirely (broadcast AND log). This is
                     # by design: a new-session swap is an operator-driven
                     # context change, and carrying stale packets forward
                     # would mix them with the new session's data stream.
                     continue
-                if self._should_drop_noise(meta, raw):
+                if self._should_drop_noise(ingest.transport_meta, ingest.raw):
                     continue  # gr-satellites noise — behave as if never received
-                result = self.runtime.platform.process_rx(meta, raw)
+                if self.journal is not None:
+                    self.journal.append(ingest)
+                result = self.runtime.platform.process_rx(ingest)
                 pkt = result.packet
-
-                # Alarm signal bookkeeping: stamp arrival map and sliding windows.
-                container_id = result.container_id
-                if container_id:
-                    now_ms = int(time.time() * 1000)
-                    self.last_arrival_ms[container_id] = now_ms
-                    spec_root = getattr(self.runtime.mission, "spec_root", None)
-                    expected_period_ms = 0
-                    if spec_root is not None:
-                        c = spec_root.sequence_containers.get(container_id)
-                        if c is not None:
-                            expected_period_ms = int(getattr(c, "expected_period_ms", 0) or 0)
-                    await self.broadcast({
-                        "type": "parameters_freshness",
-                        "container": container_id,
-                        "last_ms": now_ms,
-                        "expected_period_ms": expected_period_ms,
-                    })
-
-                flags = pkt.flags
-                if flags.integrity_ok is False:        # explicit fail (None == not checked)
-                    self.crc_window.append(int(time.time() * 1000))
-                if flags.is_duplicate:
-                    self.dup_window.append(int(time.time() * 1000))
-
-                # Verifier matching: mission-private logic; newest-instance-wins.
-                # `pkt` is a PacketEnvelope (not a MissionPacket) — the mission's
-                # match_verifiers reads envelope.mission_payload.header (canonical
-                # name-shape via codec). The rx_event_id is pre-allocated here so
-                # it is shared by both the rx_packet log write and any verifier
-                # match-event back-pointer.
-                now_ms = int(time.time() * 1000)
-                rx_event_id = new_event_id()
-
-                try:
-                    transitions = self.runtime.mission.packets.match_verifiers(
-                        pkt,
-                        self.runtime.platform.verifiers.open_instances(),
-                        now_ms=now_ms,
-                        rx_event_id=rx_event_id,
-                    )
-                except Exception as exc:
-                    logging.warning("match_verifiers failed: %s", exc)
-                    transitions = []
-
-                # rx_seq used as the `seq` field on cmd_verifier events so the
-                # SQL archive can join verifier rows to the parent rx_packet by
-                # seq. Matches the envelope rule "parameter inherits parent
-                # rx_packet seq".
-                rx_seq = getattr(pkt, "seq", 0)
-                for instance_id, verifier_id, outcome in transitions:
-                    inst = next(
-                        (i for i in self.runtime.platform.verifiers.open_instances()
-                         if i.instance_id == instance_id),
-                        None,
-                    )
-                    self.runtime.platform.verifiers.apply(instance_id, verifier_id, outcome)
-                    if inst and self.runtime.tx.log:
-                        try:
-                            self.runtime.tx.log.write_cmd_verifier({
-                                "seq": rx_seq,
-                                "cmd_event_id": inst.cmd_event_id,
-                                "instance_id": inst.instance_id,
-                                "stage": inst.stage,
-                                "verifier_id": verifier_id,
-                                "outcome": outcome.state,
-                                "elapsed_ms": (outcome.matched_at_ms or now_ms) - inst.t0_ms,
-                                "match_event_id": outcome.match_event_id,
-                            })
-                        except Exception as exc:
-                            logging.warning("cmd_verifier log failed: %s", exc)
-                    # No per-apply broadcast — the post-sweep consume_dirty()
-                    # below picks up this transition and broadcasts once.
-
-                # Sweep + persist after any apply (covers timed_out transitions).
-                self.runtime.platform.verifiers.sweep(now_ms=now_ms)
-                try:
-                    write_instances(
-                        Path(self.runtime.log_dir) / ".pending_instances.jsonl",
-                        self.runtime.platform.verifiers.open_instances(),
-                    )
-                except Exception as exc:
-                    logging.warning("pending_instances write failed: %s", exc)
-
-                # Broadcast only instances that actually changed since the last
-                # consume_dirty() call (covers register, apply, and sweep
-                # transitions in this RX tick). consume_dirty() also clears,
-                # so the next tick starts fresh.
-                for _inst in self.runtime.platform.verifiers.consume_dirty():
-                    asyncio.create_task(self.runtime.tx.broadcast_verifier_instance(_inst))
-
-                try:
-                    if self.log:
-                        record = rx_packet_record(
-                            self.runtime.mission, pkt, version,
-                            session_id=self.log.session_id,
-                            event_id=rx_event_id,
-                            mission_id=self.runtime.mission_id,
-                            operator=self.runtime.operator,
-                            station=self.runtime.station,
-                        )
-                        param_records = list(parameter_records(
-                            pkt,
-                            session_id=self.log.session_id,
-                            rx_event_id=record["event_id"],
-                            version=version,
-                            mission_id=self.runtime.mission_id,
-                            operator=self.runtime.operator,
-                            station=self.runtime.station,
-                        ))
-                        self.log.write_packet(
-                            record, pkt,
-                            parameter_records=param_records,
-                        )
-                except Exception as exc:
-                    logging.warning("RX log write failed: %s", exc)
-                pkt_json = result.packet_message["data"]
-                self.packets.append(pkt_json)
-                await broadcast_safe(self.clients, self.lock, json.dumps(result.packet_message))
-
-                extras: list[dict[str, Any]] = []
-                if result.parameters_message is not None:
-                    extras.append(result.parameters_message)
-                extras.extend(result.event_messages)
-                for extra in extras:
-                    await broadcast_safe(self.clients, self.lock, json.dumps(extra))
+                projection = self.projections.project(result, version=version)
+                self.detail_store.append_packet(pkt)
+                rx_events.append(projection.rx_event)
+                extra_events.extend(projection.extra_events)
+                verifier_instances.extend(projection.verifier_instances)
 
                 # Track last RX time and detect inactive→active transition
-                self.last_rx_at = time.time()
+                self.last_rx_at = pkt.received_at_ms / 1000.0
                 if not self._was_traffic_active:
                     self._was_traffic_active = True
                     traffic_msg = json.dumps({"type": "traffic_status", "active": True})
@@ -289,12 +219,34 @@ class RxService:
 
                 drained += 1
 
+            for _inst in verifier_instances:
+                asyncio.create_task(self.runtime.tx.broadcast_verifier_instance(_inst))
+
+            if rx_events:
+                msg = rx_events[0] if len(rx_events) == 1 else rx_batch_event(rx_events)
+                await broadcast_safe(
+                    self.clients,
+                    self.lock,
+                    json.dumps(msg, separators=(",", ":")),
+                )
+
+            for extra in extra_events:
+                await broadcast_safe(
+                    self.clients,
+                    self.lock,
+                    json.dumps(extra, separators=(",", ":")),
+                )
+
             if self.broadcast_stop:
                 if drained == 0:
+                    self.runtime.parameter_cache.flush()
                     return
                 continue
 
             now = time.time()
+            if now - self._last_cache_flush > 0.5:
+                self.runtime.parameter_cache.flush()
+                self._last_cache_flush = now
             # Detect active→inactive traffic transition (10s timeout)
             if self._was_traffic_active and self.last_rx_at > 0 and (now - self.last_rx_at) > 10.0:
                 self._was_traffic_active = False
@@ -314,6 +266,10 @@ class RxService:
                         "pkt_rate": pkt_rate,
                         "silence_s": silence_s,
                         "packet_count": self.pipeline.packet_count,
+                        "rx_queue_dropped": self.queue.dropped_oldest,
+                        "rx_journal_dropped": (
+                            self.journal.dropped_records if self.journal is not None else 0
+                        ),
                     }
                 )
                 await broadcast_safe(self.clients, self.lock, status_msg)

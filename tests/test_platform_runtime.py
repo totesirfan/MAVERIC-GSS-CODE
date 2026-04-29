@@ -16,8 +16,7 @@ def test_runtime_v2_loads_echo_and_processes_rx_and_tx(tmp_path):
     tx = runtime.prepare_tx("ping hello")
 
     assert runtime.mission.id == "echo_v2"
-    assert rx.packet_message["data"]["raw_hex"] == "0102"
-    assert rx.parameters_message is None
+    assert rx.packet.raw.hex() == "0102"
     assert tx.encoded.raw == b"ping hello"
 
 
@@ -37,7 +36,6 @@ def test_runtime_v2_loads_balloon_silent_telemetry(tmp_path):
 
     assert runtime.mission.id == "balloon_v2"
     assert runtime.walker is None
-    assert result.parameters_message is None
     assert result.packet.parameters == ()
 
 
@@ -65,7 +63,6 @@ def test_runtime_v2_loads_maveric_with_walker_and_cache(tmp_path):
     assert runtime.walker is not None
     assert runtime.parameter_cache is not None
     assert rx.packet.flags.is_unknown is True
-    assert rx.packet_message["data"]["is_unknown"] is True
     assert tx.encoded.raw
     assert tx.encoded.cmd_id == "ftdi_log"
     assert tx.encoded.mission_facts["header"]["cmd_id"] == "ftdi_log"

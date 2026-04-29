@@ -10,12 +10,20 @@ from __future__ import annotations
 
 import time
 from collections import OrderedDict, deque
+from dataclasses import dataclass
 from typing import Any
 
 from ..contract.mission import MissionSpec
-from ..contract.packets import PacketEnvelope, PacketFlags
+from ..contract.packets import MissionPacket, NormalizedPacket, PacketEnvelope, PacketFlags
 
 DUP_WINDOW = 1.0
+
+
+@dataclass(frozen=True, slots=True)
+class DecodedPacketParts:
+    normalized: NormalizedPacket
+    mission_packet: MissionPacket
+    flags: PacketFlags
 
 
 class PacketPipeline:
@@ -45,20 +53,32 @@ class PacketPipeline:
         self.pkt_times.clear()
         self.last_arrival = None
 
-    def process(self, meta: dict[str, Any], raw: bytes) -> PacketEnvelope:
-        now = time.time()
-        now_ms = int(now * 1000)
+    def process(
+        self,
+        meta: dict[str, Any],
+        raw: bytes,
+        *,
+        event_id: str = "",
+        received_at_ms: int | None = None,
+        received_mono_ns: int | None = None,
+    ) -> PacketEnvelope:
+        if received_at_ms is None:
+            now = time.time()
+            now_ms = int(now * 1000)
+        else:
+            now_ms = received_at_ms
+            now = received_at_ms / 1000.0
+        mono_s = (
+            received_mono_ns / 1_000_000_000.0
+            if received_mono_ns is not None else time.monotonic()
+        )
 
-        normalized = self.mission.packets.normalize(meta, raw)
-        assert isinstance(normalized.raw, (bytes, bytearray)), \
-            f"normalize must return bytes, got {type(normalized.raw).__name__}"
+        decoded = self.decode(meta, raw)
+        normalized = decoded.normalized
+        mission_packet = decoded.mission_packet
+        flags = decoded.flags
 
-        mission_packet = self.mission.packets.parse(normalized)
-        flags = self.mission.packets.classify(mission_packet)
-        assert isinstance(flags, PacketFlags), \
-            f"classify returned {type(flags).__name__}, expected PacketFlags"
-
-        is_dup = self._check_duplicate(flags.duplicate_key, now)
+        is_dup = self._check_duplicate(flags.duplicate_key, mono_s)
         is_unknown = flags.is_unknown
         is_uplink_echo = flags.is_uplink_echo
 
@@ -92,6 +112,25 @@ class PacketPipeline:
                 is_uplink_echo=is_uplink_echo,
                 integrity_ok=flags.integrity_ok,
             ),
+            event_id=event_id,
+            received_mono_ns=received_mono_ns or 0,
+        )
+
+    def decode(self, meta: dict[str, Any], raw: bytes) -> DecodedPacketParts:
+        """Mission-owned normalize/parse/classify without platform counters."""
+
+        normalized = self.mission.packets.normalize(meta, raw)
+        assert isinstance(normalized.raw, (bytes, bytearray)), \
+            f"normalize must return bytes, got {type(normalized.raw).__name__}"
+
+        mission_packet = self.mission.packets.parse(normalized)
+        flags = self.mission.packets.classify(mission_packet)
+        assert isinstance(flags, PacketFlags), \
+            f"classify returned {type(flags).__name__}, expected PacketFlags"
+        return DecodedPacketParts(
+            normalized=normalized,
+            mission_packet=mission_packet,
+            flags=flags,
         )
 
     def _check_duplicate(self, duplicate_key: Any, now: float) -> bool:

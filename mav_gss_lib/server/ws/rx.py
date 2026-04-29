@@ -30,22 +30,27 @@ async def ws_rx(websocket: WebSocket) -> None:
         return
     await websocket.accept()
     runtime.had_clients = True
-    for pkt_json in list(runtime.rx.packets):
+    for event in runtime.rx.detail_store.replay(replay=True):
         try:
-            await websocket.send_text(json.dumps({"type": "packet", "data": pkt_json}))
+            await websocket.send_text(json.dumps(event, separators=(",", ":")))
         except Exception:
             return
 
     replay_updates = runtime.parameter_cache.replay()
     if replay_updates:
-        await websocket.send_text(json.dumps({
-            "type": "parameters",
-            "updates": replay_updates,
-            "replay": True,
-        }))
+        await websocket.send_text(
+            json.dumps(
+                {
+                    "type": "parameters",
+                    "updates": replay_updates,
+                    "replay": True,
+                },
+                separators=(",", ":"),
+            )
+        )
 
     for msg in collect_connect_events(runtime.mission):
-        await websocket.send_text(json.dumps(msg))
+        await websocket.send_text(json.dumps(msg, separators=(",", ":")))
 
     with runtime.rx.lock:
         runtime.rx.clients.append(websocket)

@@ -61,6 +61,7 @@ from .log_records import (
 from .rx.events import collect_connect_events, collect_packet_events
 from .rx.packet_pipeline import PacketPipeline
 from .rx.pipeline import RxPipeline, RxResult
+from .rx.records import RxDecodedRecord, RxIngestRecord, make_ingest_record
 from .tx.commands import CommandRejected, PreparedCommand, frame_command, prepare_command
 from . import spec
 
@@ -89,6 +90,8 @@ __all__ = [
     "PlatformConfigSpec",
     "PlatformRuntime",
     "PreparedCommand",
+    "RxDecodedRecord",
+    "RxIngestRecord",
     "RxPipeline",
     "RxResult",
     "ValidationIssue",
@@ -99,6 +102,7 @@ __all__ = [
     "frame_command",
     "load_mission_spec",
     "load_mission_spec_from_split",
+    "make_ingest_record",
     "parameter_records",
     "persist_mission_config",
     "prepare_command",
