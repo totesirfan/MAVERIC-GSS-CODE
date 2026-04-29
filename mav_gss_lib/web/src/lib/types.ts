@@ -1,6 +1,7 @@
 // ---- RX ----
 
 export interface RxPacket {
+  event_id?: string
   num: number
   time?: string
   time_utc?: string
@@ -8,12 +9,7 @@ export interface RxPacket {
   frame: string
   size: number
   raw_hex: string
-  payload_hex?: string
-  payload_len?: number
-  wire_hex?: string
-  wire_len?: number
   mission?: MissionFacts
-  parameters?: ParamUpdate[]
   warnings: string[]
   is_echo: boolean
   is_dup: boolean

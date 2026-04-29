@@ -8,11 +8,12 @@ import { RxDetailPane } from './RxDetailPane'
 import { useRxDisplayToggles } from '@/state/rxHooks'
 import { useColumnDefs } from '@/state/sessionHooks'
 import { colors } from '@/lib/colors'
-import type { GssConfig, RxPacket, RxStatus } from '@/lib/types'
+import type { GssConfig, ParamUpdate, RxPacket, RxStatus } from '@/lib/types'
 
 interface RxPanelProps {
   config?: GssConfig | null
   packets: RxPacket[]
+  packetParametersById: Record<string, ParamUpdate[]>
   status: RxStatus
   packetStats?: {
     total: number
@@ -30,7 +31,7 @@ function hasEcho(packet: RxPacket): boolean {
 }
 
 export function RxPanel({
-  config, packets, status, packetStats, sessionGeneration, sessionTag, blackoutUntil,
+  config, packets, packetParametersById, status, packetStats, sessionGeneration, sessionTag, blackoutUntil,
 }: RxPanelProps) {
   const { showFrame, hideUplink } = useRxDisplayToggles()
   const { defs: columnDefs } = useColumnDefs()
@@ -124,6 +125,7 @@ export function RxPanel({
   }, [])
 
   const selectedPacket = selectedNum !== null ? filtered.find(p => p.num === selectedNum) ?? null : null
+  const selectedParameters = selectedPacket?.event_id ? packetParametersById[selectedPacket.event_id] ?? [] : []
   const isLive = autoScroll && selectedNum === lastNum
 
   return (
@@ -149,6 +151,7 @@ export function RxPanel({
 
         <PacketList
           packets={filtered}
+          packetParametersById={packetParametersById}
           columns={rxColumns}
           showFrame={showFrame}
           showEcho={showEcho}
@@ -176,6 +179,7 @@ export function RxPanel({
       {selectedPacket && (
         <RxDetailPane
           packet={selectedPacket}
+          parameters={selectedParameters}
           isLive={isLive}
           detailHeight={detailHeight}
           detailOpen={detailOpen}

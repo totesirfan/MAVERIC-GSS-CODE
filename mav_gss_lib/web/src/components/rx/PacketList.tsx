@@ -3,12 +3,13 @@ import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
 import { PacketRow } from './PacketRow'
 import { colors } from '@/lib/colors'
 import { composeRxColumns } from '@/lib/columns'
-import type { ColumnDef, RxPacket } from '@/lib/types'
+import type { ColumnDef, ParamUpdate, RxPacket } from '@/lib/types'
 
 const FALLBACK_COLUMNS = composeRxColumns([])
 
 interface PacketListProps {
   packets: RxPacket[]
+  packetParametersById?: Record<string, ParamUpdate[]>
   columns?: ColumnDef[]
   showFrame: boolean
   showEcho: boolean
@@ -28,7 +29,7 @@ const BOTTOM_SCROLL_GUTTER_PX = 8
 const BOTTOM_UNLOCK_THRESHOLD_PX = BOTTOM_SCROLL_GUTTER_PX + 8
 
 export function PacketList({
-  packets, columns, showFrame, showEcho, flashPacketNum, selectedNum, onSelect,
+  packets, packetParametersById, columns, showFrame, showEcho, flashPacketNum, selectedNum, onSelect,
   autoScroll, onScrolledUp, zmqStatus, scrollSignal, compact,
 }: PacketListProps) {
   const isStale = zmqStatus ? ['DOWN', 'OFFLINE'].includes(zmqStatus.toUpperCase()) : false
@@ -164,6 +165,7 @@ export function PacketList({
                 <div className={wrapClasses}>
                   <PacketRow
                     packet={pkt}
+                    parameters={pkt.event_id ? packetParametersById?.[pkt.event_id] ?? [] : []}
                     columns={effectiveColumns}
                     selected={isActive}
                     showFrame={showFrame}

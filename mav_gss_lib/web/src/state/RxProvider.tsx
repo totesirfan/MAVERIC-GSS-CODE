@@ -2,6 +2,7 @@ import { useMemo, useState, type ReactNode } from 'react'
 import { useRxSocket } from '@/hooks/useRxSocket'
 import {
   RxDisplayTogglesContext,
+  RxPacketParametersContext,
   RxStatusContext,
   RxPacketsContext,
   RxStatsContext,
@@ -11,7 +12,7 @@ import {
 
 export function RxProvider({ children }: { children: ReactNode }) {
   const rx = useRxSocket()
-  const { packets, stats, ...rest } = rx
+  const { packets, stats, packetParametersById, ...rest } = rx
 
   // `packets` and `stats` change on every 50ms flush. Everything else only
   // changes on rare events (status message,
@@ -51,9 +52,11 @@ export function RxProvider({ children }: { children: ReactNode }) {
     <RxDisplayTogglesContext.Provider value={displayToggles}>
       <RxStatusContext.Provider value={statusValue}>
         <RxStatsContext.Provider value={stats}>
-          <RxPacketsContext.Provider value={packets}>
-            {children}
-          </RxPacketsContext.Provider>
+          <RxPacketParametersContext.Provider value={packetParametersById}>
+            <RxPacketsContext.Provider value={packets}>
+              {children}
+            </RxPacketsContext.Provider>
+          </RxPacketParametersContext.Provider>
         </RxStatsContext.Provider>
       </RxStatusContext.Provider>
     </RxDisplayTogglesContext.Provider>

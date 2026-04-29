@@ -351,7 +351,7 @@ export function LogViewer({ open, onClose }: LogViewerProps) {
                   <span className="px-2 w-16">kind</span>
                   <span className="px-2 flex-1">label</span>
                   <span className="px-2 w-24">frame</span>
-                  <span className="px-2 w-16 text-right">wire</span>
+                  <span className="px-2 w-16 text-right">size</span>
                   <span className="px-2 w-16 text-right">inner</span>
                   <span className="px-2 w-16">flags</span>
                 </div>
@@ -369,14 +369,19 @@ export function LogViewer({ open, onClose }: LogViewerProps) {
                   <>
                   {entries.map((e, i) => {
                     const kind = String(e.event_kind ?? '?')
+                    const isTx = kind === 'tx_command'
                     const seq = Number(e.seq ?? 0)
                     const timeStr = hhmmss(e.ts_iso as string | undefined, e.ts_ms as number | undefined)
                     const label = entryLabel(e)
                     const frame = String(e.frame_type ?? e.frame_label ?? '')
-                    const wireLen = Number(e.wire_len ?? 0)
+                    const rawLen = Number(e.size ?? e.wire_len ?? 0)
+                    const wireLen = Number(e.wire_len ?? rawLen)
                     const innerLen = Number(e.inner_len ?? 0)
-                    const wireHex = String(e.wire_hex ?? '')
+                    const rawHex = String(e.raw_hex ?? e.wire_hex ?? '')
+                    const wireHex = String(e.wire_hex ?? (isTx ? rawHex : ''))
                     const innerHex = String(e.inner_hex ?? '')
+                    const displayLen = isTx ? wireLen : rawLen
+                    const displayInnerLen = isTx && innerHex ? innerLen : ''
                     const warnings = (Array.isArray(e.warnings) ? e.warnings : []) as string[]
                     const eventId = String(e.event_id ?? '')
                     const fragments = (eventId ? telemetryByParent.get(eventId) : undefined) ?? []
@@ -384,7 +389,6 @@ export function LogViewer({ open, onClose }: LogViewerProps) {
                     const isEcho = !!e.uplink_echo
                     const isUnknown = !!e.unknown
                     const isExpanded = expandedSet.has(i)
-                    const isTx = kind === 'tx_command'
                     const dirColor = isTx ? colors.label : colors.success
                     const mission = (e.mission && typeof e.mission === 'object') ? e.mission as Record<string, unknown> : undefined
 
@@ -406,8 +410,8 @@ export function LogViewer({ open, onClose }: LogViewerProps) {
                               </span>
                               <span className="px-2 flex-1 truncate" style={{ color: colors.label }}>{label || (isUnknown ? '(unknown)' : '')}</span>
                               <span className="px-2 w-24 truncate" style={{ color: colors.dim }}>{frame}</span>
-                              <span className="px-2 w-16 text-right tabular-nums" style={{ color: colors.dim }}>{wireLen}</span>
-                              <span className="px-2 w-16 text-right tabular-nums" style={{ color: colors.dim }}>{innerLen}</span>
+                              <span className="px-2 w-16 text-right tabular-nums" style={{ color: colors.dim }}>{displayLen}</span>
+                              <span className="px-2 w-16 text-right tabular-nums" style={{ color: colors.dim }}>{displayInnerLen}</span>
                               <span className="px-2 w-16 flex items-center gap-1">
                                 {isDup && <Badge className="text-[9px] h-4 px-1" style={{ backgroundColor: `${colors.warning}22`, color: colors.warning }}>DUP</Badge>}
                                 {isEcho && <Badge className="text-[9px] h-4 px-1" style={{ backgroundColor: `${colors.info}22`, color: colors.info }}>UL</Badge>}
@@ -472,7 +476,7 @@ export function LogViewer({ open, onClose }: LogViewerProps) {
                                   </details>
                                 )}
 
-                                {innerHex && (
+                                {isTx && innerHex && (
                                   <>
                                     <Separator style={{ backgroundColor: colors.borderSubtle }} />
                                     <div className="flex items-start gap-1">
@@ -487,13 +491,15 @@ export function LogViewer({ open, onClose }: LogViewerProps) {
                                   </>
                                 )}
 
-                                {wireHex && wireHex !== innerHex && (
+                                {((isTx && wireHex && wireHex !== innerHex) || (!isTx && rawHex)) && (
                                   <div className="flex items-start gap-1">
                                     <Binary className="size-3 mt-0.5 shrink-0" style={{ color: colors.sep }} />
                                     <div className="flex-1">
-                                      <div className="text-[10px] uppercase tracking-wider pb-1" style={{ color: colors.sep }}>wire ({wireLen}B)</div>
+                                      <div className="text-[10px] uppercase tracking-wider pb-1" style={{ color: colors.sep }}>
+                                        {isTx ? `wire (${wireLen}B)` : `raw (${rawLen}B)`}
+                                      </div>
                                       <pre className="text-[11px] p-2 rounded font-mono whitespace-pre-wrap break-all" style={{ color: colors.dim, backgroundColor: 'rgba(0,0,0,0.3)' }}>
-                                        {formatHexBlock(wireHex)}
+                                        {formatHexBlock(isTx ? wireHex : rawHex)}
                                       </pre>
                                     </div>
                                   </div>
@@ -515,7 +521,7 @@ export function LogViewer({ open, onClose }: LogViewerProps) {
                           >
                             Copy Mission JSON
                           </ContextMenuItem>
-                          {innerHex && (
+                          {isTx && innerHex && (
                             <ContextMenuItem
                               icon={Binary}
                               onSelect={() => navigator.clipboard.writeText(innerHex)}
@@ -523,12 +529,20 @@ export function LogViewer({ open, onClose }: LogViewerProps) {
                               Copy Inner Hex
                             </ContextMenuItem>
                           )}
-                          {wireHex && (
+                          {isTx && wireHex && (
                             <ContextMenuItem
                               icon={Binary}
                               onSelect={() => navigator.clipboard.writeText(wireHex)}
                             >
                               Copy Wire Hex
+                            </ContextMenuItem>
+                          )}
+                          {!isTx && rawHex && (
+                            <ContextMenuItem
+                              icon={Binary}
+                              onSelect={() => navigator.clipboard.writeText(rawHex)}
+                            >
+                              Copy Raw Hex
                             </ContextMenuItem>
                           )}
                         </ContextMenuContent>

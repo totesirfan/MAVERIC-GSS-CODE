@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, type ComponentProps } from 'react'
 import { useShortcuts, type Shortcut } from '@/hooks/useShortcuts'
 import { SplitPane } from '@/components/layout/SplitPane'
-import { useRxStatus, useRxPackets, useRxStats } from '@/state/rxHooks'
+import { useRxStatus, useRxPackets, useRxStats, useRxPacketParameters } from '@/state/rxHooks'
 import { useTx } from '@/state/txHooks'
 import { useSessionContext } from '@/state/sessionHooks'
 import { useTabActive } from '@/state/TabActiveContext'
@@ -30,10 +30,11 @@ export function RxCrcToastSentinel() {
 }
 
 /** Wraps RxPanel with packets + stats subscriptions, keeping RxPanel's API unchanged. */
-function RxPanelWithPackets(props: Omit<ComponentProps<typeof RxPanel>, 'packets' | 'packetStats'>) {
+function RxPanelWithPackets(props: Omit<ComponentProps<typeof RxPanel>, 'packets' | 'packetStats' | 'packetParametersById'>) {
   const packets = useRxPackets()
   const stats = useRxStats()
-  return <RxPanel {...props} packets={packets} packetStats={stats} />
+  const packetParametersById = useRxPacketParameters()
+  return <RxPanel {...props} packets={packets} packetStats={stats} packetParametersById={packetParametersById} />
 }
 
 // Lazy-load skeletons are kept here for the Suspense fallbacks used at the shell level

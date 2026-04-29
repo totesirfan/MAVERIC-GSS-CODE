@@ -30,7 +30,7 @@ const PLATFORM_RX_SHELL_POST: ReadonlyArray<readonly [ColumnDef, (p: RxPacket) =
   [{ id: 'flags', label: '',     width: 'w-[72px]', align: 'right' },
     (p) => ({ value: packetFlags(p) })],
   [{ id: 'size',  label: 'size', width: 'w-10',     align: 'right' },
-    (p) => ({ value: p.wire_len ?? p.size, suffix: 'B', tabular: true })],
+    (p) => ({ value: p.size, suffix: 'B', tabular: true })],
 ]
 
 const RX_SHELL_BUILDERS = new Map<string, (p: RxPacket) => RenderCell>([

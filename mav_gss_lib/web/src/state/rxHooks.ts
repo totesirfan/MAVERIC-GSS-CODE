@@ -2,10 +2,12 @@ import { useContext } from 'react'
 import type { RxPacket } from '@/lib/types'
 import {
   RxDisplayTogglesContext,
+  RxPacketParametersContext,
   RxStatusContext,
   RxPacketsContext,
   RxStatsContext,
   type RxDisplayToggles,
+  type RxPacketParametersValue,
   type RxSocketValue,
   type RxStatsValue,
   type RxStatusValue,
@@ -29,6 +31,12 @@ export function useRxStats(): RxStatsValue {
   return ctx
 }
 
+export function useRxPacketParameters(): RxPacketParametersValue {
+  const ctx = useContext(RxPacketParametersContext)
+  if (ctx === null) throw new Error('useRxPacketParameters must be used within RxProvider')
+  return ctx
+}
+
 export function useRxDisplayToggles(): RxDisplayToggles {
   const ctx = useContext(RxDisplayTogglesContext)
   if (!ctx) throw new Error('useRxDisplayToggles must be used within RxProvider')
@@ -45,5 +53,6 @@ export function useRx(): RxSocketValue {
   const status = useRxStatus()
   const packets = useRxPackets()
   const stats = useRxStats()
-  return { ...status, packets, stats }
+  const packetParametersById = useRxPacketParameters()
+  return { ...status, packets, stats, packetParametersById }
 }

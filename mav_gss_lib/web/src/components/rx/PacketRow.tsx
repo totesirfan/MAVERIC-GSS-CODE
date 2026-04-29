@@ -9,10 +9,11 @@ import {
   ContextMenuContent,
   ContextMenuItem,
 } from '@/components/shared/overlays/ContextMenu'
-import type { ColumnDef, RxPacket } from '@/lib/types'
+import type { ColumnDef, ParamUpdate, RxPacket } from '@/lib/types'
 
 interface PacketRowProps {
   packet: RxPacket
+  parameters?: ParamUpdate[]
   selected: boolean
   showFrame: boolean
   showEcho: boolean
@@ -23,7 +24,7 @@ interface PacketRowProps {
 
 const FALLBACK_COLUMNS = composeRxColumns([])
 
-export function PacketRow({ packet: p, selected, showFrame, showEcho, columns, compact, onClick }: PacketRowProps) {
+export function PacketRow({ packet: p, parameters = [], selected, showFrame, showEcho, columns, compact, onClick }: PacketRowProps) {
   const effectiveSelected = compact ? false : selected
   const handleClick = compact ? () => {} : onClick
   const effectiveColumns = columns && columns.length > 0 ? columns : FALLBACK_COLUMNS
@@ -57,7 +58,7 @@ export function PacketRow({ packet: p, selected, showFrame, showEcho, columns, c
         <ContextMenuItem icon={ClipboardCopy} onSelect={() => navigator.clipboard.writeText(packetDisplayLabel(p))}>
           Copy Label
         </ContextMenuItem>
-        <ContextMenuItem icon={Braces} onSelect={() => navigator.clipboard.writeText(packetPayloadText(p))}>
+        <ContextMenuItem icon={Braces} onSelect={() => navigator.clipboard.writeText(packetPayloadText(p, { parameters }))}>
           Copy Payload
         </ContextMenuItem>
         {p.raw_hex && (

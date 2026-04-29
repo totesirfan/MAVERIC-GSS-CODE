@@ -5,10 +5,11 @@ import { Clock, Radio, AlertTriangle, Binary } from 'lucide-react'
 import { colors, frameColor } from '@/lib/colors'
 import { SemanticBlocks, ProtocolBlocks, IntegritySection } from '@/components/shared/rendering'
 import { integrityBlocks, missionDetailBlocks, parameterBlocks, protocolBlocks, rxTime } from '@/lib/rxPacket'
-import type { RxPacket } from '@/lib/types'
+import type { ParamUpdate, RxPacket } from '@/lib/types'
 
 interface PacketDetailProps {
   packet: RxPacket
+  parameters: ParamUpdate[]
   showHex: boolean
   showWrapper: boolean
   showFrame: boolean
@@ -32,9 +33,9 @@ function F({ icon: Icon, label, value, color, tooltip }: { icon?: React.ElementT
   )
 }
 
-export function PacketDetail({ packet: p, showHex, showWrapper, showFrame }: PacketDetailProps) {
+export function PacketDetail({ packet: p, parameters, showHex, showWrapper, showFrame }: PacketDetailProps) {
   const detailBlocks = missionDetailBlocks(p)
-  const paramBlocks = parameterBlocks(p)
+  const paramBlocks = parameterBlocks(parameters)
   const pBlocks = protocolBlocks(p)
   const iBlocks = integrityBlocks(p)
 

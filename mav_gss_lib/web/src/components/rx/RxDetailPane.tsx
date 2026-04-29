@@ -15,7 +15,7 @@ import {
   rxTimestamp,
 } from '@/lib/rxPacket'
 import { colors } from '@/lib/colors'
-import type { RxPacket } from '@/lib/types'
+import type { ParamUpdate, RxPacket } from '@/lib/types'
 
 function f(label: string, value: string): string {
   return `  ${label.padEnd(12)} ${value}`
@@ -25,11 +25,11 @@ function extractCmd(p: RxPacket): string {
   return packetDisplayLabel(p)
 }
 
-function extractCmdArgs(p: RxPacket): string {
-  return [packetDisplayLabel(p), packetPayloadText(p)].filter(Boolean).join(' ').trim()
+function extractCmdArgs(p: RxPacket, parameters: ParamUpdate[]): string {
+  return [packetDisplayLabel(p), packetPayloadText(p, { parameters })].filter(Boolean).join(' ').trim()
 }
 
-function formatPacketText(p: RxPacket): string {
+function formatPacketText(p: RxPacket, parameters: ParamUpdate[]): string {
   const lines: string[] = []
   const sep = '\u2500'
   const extras = [p.frame || '', `${p.size}B`, p.is_dup ? '[DUP]' : '', p.is_echo ? '[UL]' : ''].filter(Boolean).join('  ')
@@ -39,7 +39,7 @@ function formatPacketText(p: RxPacket): string {
 
   const label = packetDisplayLabel(p)
   if (label) lines.push(f('LABEL', label))
-  const payload = packetPayloadText(p)
+  const payload = packetPayloadText(p, { parameters })
   if (payload) lines.push(f('PAYLOAD', payload))
 
   for (const block of protocolBlocks(p)) {
@@ -61,6 +61,7 @@ function formatPacketText(p: RxPacket): string {
 
 interface RxDetailPaneProps {
   packet: RxPacket
+  parameters: ParamUpdate[]
   isLive: boolean
   detailHeight: number
   detailOpen: boolean
@@ -71,17 +72,17 @@ interface RxDetailPaneProps {
 }
 
 export function RxDetailPane({
-  packet, isLive, detailHeight, detailOpen, isDraggingState,
+  packet, parameters, isLive, detailHeight, detailOpen, isDraggingState,
   onClose, onStartDragResize, onResizeKey,
 }: RxDetailPaneProps) {
   const { showHex, showFrame, showWrapper } = useRxDisplayToggles()
 
   const copyDetails = useCallback(() => {
-    navigator.clipboard.writeText(formatPacketText(packet))
-  }, [packet])
+    navigator.clipboard.writeText(formatPacketText(packet, parameters))
+  }, [packet, parameters])
   const copyCmdArgs = useCallback(() => {
-    navigator.clipboard.writeText(extractCmdArgs(packet))
-  }, [packet])
+    navigator.clipboard.writeText(extractCmdArgs(packet, parameters))
+  }, [packet, parameters])
   const copyHex = useCallback(() => {
     if (packet.raw_hex) navigator.clipboard.writeText(packet.raw_hex)
   }, [packet])
@@ -134,7 +135,7 @@ export function RxDetailPane({
                   exit={{ opacity: 0 }}
                   transition={{ duration: 0.1, ease: 'easeOut' }}
                 >
-                  <PacketDetail packet={packet} showHex={showHex} showWrapper={showWrapper} showFrame={showFrame} />
+                  <PacketDetail packet={packet} parameters={parameters} showHex={showHex} showWrapper={showWrapper} showFrame={showFrame} />
                 </motion.div>
               </AnimatePresence>
             </div>

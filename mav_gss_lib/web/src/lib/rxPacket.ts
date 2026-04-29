@@ -40,7 +40,7 @@ function splitQualifiedName(name: string): [string, string] {
   return dot >= 0 ? [name.slice(0, dot), name.slice(dot + 1)] : ['', name]
 }
 
-export function packetPayloadText(packet: RxPacket, options?: { compact?: boolean }): string {
+export function packetPayloadText(packet: RxPacket, options?: { compact?: boolean; parameters?: ParamUpdate[] }): string {
   const facts = packet.mission?.facts
   if (isRecord(facts)) {
     const preferred = isRecord(facts.header) ? facts.header : facts
@@ -54,14 +54,14 @@ export function packetPayloadText(packet: RxPacket, options?: { compact?: boolea
       return hidden > 0 ? `${parts.join('  ')}  +${hidden}` : parts.join('  ')
     }
   }
-  const params = packet.parameters ?? []
+  const params = options?.parameters ?? []
   if (params.length > 0) {
     const shown = params.slice(0, options?.compact ? 2 : params.length)
       .map((p) => `${p.name}=${formatParamValue(p.value)}${p.unit ? ` ${p.unit}` : ''}`)
     const hidden = params.length - shown.length
     return hidden > 0 ? `${shown.join('  ')}  +${hidden}` : shown.join('  ')
   }
-  const bytes = packet.payload_len ?? packet.wire_len ?? packet.size
+  const bytes = packet.size
   return typeof bytes === 'number' ? `<${bytes} bytes>` : ''
 }
 
@@ -79,8 +79,7 @@ export function missionDetailBlocks(packet: RxPacket): DetailBlock[] {
   const fields = [
     ['Mission', packet.mission?.id ?? ''],
     ['Frame', packet.frame ?? ''],
-    ['Payload bytes', String(packet.payload_len ?? '')],
-    ['Wire bytes', String(packet.wire_len ?? packet.size ?? '')],
+    ['Size', String(packet.size ?? '')],
   ]
     .filter(([, value]) => value !== '')
     .map(([name, value]) => ({ name, value }))
@@ -122,8 +121,7 @@ function formatParamValue(value: unknown): string {
   return String(value)
 }
 
-export function parameterBlocks(packet: RxPacket): DetailBlock[] {
-  const params = packet.parameters ?? []
+export function parameterBlocks(params: ParamUpdate[]): DetailBlock[] {
   if (params.length === 0) return []
   const groups = new Map<string, ParamUpdate[]>()
   for (const param of params) {

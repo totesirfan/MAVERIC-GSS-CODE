@@ -45,6 +45,12 @@ interface ParameterUpdateMsg {
   replay?: boolean
 }
 
+interface RxPacketMsg {
+  type: 'rx_packet'
+  parameters?: Array<{ name: string; v: unknown; t: number; display_only?: boolean }>
+  replay?: boolean
+}
+
 interface ParametersClearedMsg {
   type: 'parameters_cleared'
   group: string
@@ -91,7 +97,7 @@ export function ParametersProvider({ children }: PropsWithChildren) {
   // WS subscription
   useEffect(() => {
     return subscribe((raw) => {
-      const msg = raw as unknown as ParameterUpdateMsg | ParametersClearedMsg | { type?: string }
+      const msg = raw as unknown as ParameterUpdateMsg | RxPacketMsg | ParametersClearedMsg | { type?: string }
 
       if (msg.type === 'parameters_cleared') {
         const cleared = msg as ParametersClearedMsg
@@ -117,21 +123,32 @@ export function ParametersProvider({ children }: PropsWithChildren) {
         return
       }
 
-      if (msg.type !== 'parameters') return
-      const update = msg as ParameterUpdateMsg
+      let updates: Array<{ name: string; v: unknown; t: number; display_only?: boolean }>
+      let replay = false
+      if (msg.type === 'rx_packet') {
+        const event = msg as RxPacketMsg
+        if (event.replay) return
+        updates = event.parameters ?? []
+      } else if (msg.type === 'parameters') {
+        const update = msg as ParameterUpdateMsg
+        updates = update.updates
+        replay = !!update.replay
+      } else {
+        return
+      }
 
       setLive((prev) => {
         // On replay, replace state wholesale. Otherwise only the groups
         // that received updates get a new inner-record reference;
         // unaffected groups keep their existing reference (so
         // React.memo'd children of those groups don't re-render).
-        const baseGrouped: GroupedState = update.replay ? {} : prev.grouped
-        const baseTimestamps: Record<string, number> = update.replay ? {} : prev.timestamps
+        const baseGrouped: GroupedState = replay ? {} : prev.grouped
+        const baseTimestamps: Record<string, number> = replay ? {} : prev.timestamps
         const grouped: GroupedState = { ...baseGrouped }
         const timestamps: Record<string, number> = { ...baseTimestamps }
         const dirty = new Set<string>()
 
-        for (const u of update.updates) {
+        for (const u of updates) {
           const [group, key] = splitName(u.name)
           const cur = grouped[group] ?? {}
           if (cur[key] && u.t < cur[key].t) continue
@@ -147,7 +164,7 @@ export function ParametersProvider({ children }: PropsWithChildren) {
           }
         }
 
-        if (dirty.size === 0 && !update.replay) return prev
+        if (dirty.size === 0 && !replay) return prev
         return { grouped, timestamps }
       })
     })

@@ -1,46 +1,26 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { createSocket } from '@/lib/ws'
-import { packetFlags } from '@/lib/rxPacket'
-import type { RxPacket, RxStatus } from '@/lib/types'
+import type { ParamUpdate, RxPacket, RxStatus } from '@/lib/types'
+import {
+  createEmptyStats,
+  RxPacketBuffer,
+  type RxBatchEvent,
+  type RxPacketEvent,
+  type RxPacketStats,
+} from './rxSocketState'
 
 const MAX_PACKETS = 5000
 const FLUSH_INTERVAL_MS = 50
 
-interface RxPacketStats {
-  total: number
-  crcFailures: number
-  dupCount: number
-  hasEcho: boolean
-}
-
-const EMPTY_STATS: RxPacketStats = {
-  total: 0,
-  crcFailures: 0,
-  dupCount: 0,
-  hasEcho: false,
-}
-
-function createEmptyStats(): RxPacketStats {
-  return { ...EMPTY_STATS }
-}
-
-function packetHasEcho(packet: RxPacket): boolean {
-  return packet.is_echo
-}
-
-function packetHasCrcFail(packet: RxPacket): boolean {
-  return packetFlags(packet).some(f => f.tag === 'CRC')
-}
-
 export function useRxSocket() {
   const [packets, setPackets] = useState<RxPacket[]>([])
+  const [packetParametersById, setPacketParametersById] = useState<Record<string, ParamUpdate[]>>({})
   const [status, setStatus] = useState<RxStatus>({ zmq: 'DOWN', pkt_rate: 0, silence_s: 0 })
   const [connected, setConnected] = useState(false)
   const [stats, setStats] = useState<RxPacketStats>(() => createEmptyStats())
   const socketRef = useRef<ReturnType<typeof createSocket> | null>(null)
-  const livePacketsRef = useRef<RxPacket[]>([])
+  const packetBufferRef = useRef(new RxPacketBuffer(MAX_PACKETS))
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const statsRef = useRef<RxPacketStats>(createEmptyStats())
   const customListenersRef = useRef<Set<(msg: Record<string, unknown>) => void>>(new Set())
   const [sessionGeneration, setSessionGeneration] = useState(0)
   const [sessionTag, setSessionTag] = useState('')
@@ -51,8 +31,10 @@ export function useRxSocket() {
       clearTimeout(flushTimerRef.current)
       flushTimerRef.current = null
     }
-    setPackets([...livePacketsRef.current])
-    setStats({ ...statsRef.current })
+    const snapshot = packetBufferRef.current.snapshot()
+    setPackets(snapshot.packets)
+    setPacketParametersById(snapshot.parametersById)
+    setStats(snapshot.stats)
   }, [])
 
   const scheduleFlush = useCallback(() => {
@@ -67,31 +49,27 @@ export function useRxSocket() {
       '/ws/rx',
       (data) => {
         const msg = data as Record<string, unknown>
-        if (msg.type === 'packet' && msg.data) {
-          const pkt = msg.data as unknown as RxPacket
-          livePacketsRef.current.push(pkt)
-          const nextStats = statsRef.current
-          nextStats.total += 1
-          if (packetHasCrcFail(pkt)) nextStats.crcFailures += 1
-          if (pkt.is_dup) nextStats.dupCount += 1
-          if (!nextStats.hasEcho && packetHasEcho(pkt)) nextStats.hasEcho = true
-
-          if (livePacketsRef.current.length > MAX_PACKETS) {
-            const removed = livePacketsRef.current.shift()
-            if (removed) {
-              nextStats.total -= 1
-              if (packetHasCrcFail(removed)) nextStats.crcFailures -= 1
-              if (removed.is_dup) nextStats.dupCount -= 1
-              if (nextStats.hasEcho && packetHasEcho(removed) && !livePacketsRef.current.some(packetHasEcho)) {
-                nextStats.hasEcho = false
-              }
-            }
+        const notifyCustom = (message: Record<string, unknown>) => {
+          for (const listener of customListenersRef.current) {
+            listener(message)
+          }
+        }
+        if (msg.type === 'rx_packet' && msg.packet) {
+          const event = msg as unknown as RxPacketEvent
+          packetBufferRef.current.add(event)
+          scheduleFlush()
+          notifyCustom(msg)
+        } else if (msg.type === 'rx_batch') {
+          const batch = msg as unknown as RxBatchEvent
+          for (const event of batch.events ?? []) {
+            packetBufferRef.current.add(event)
+            notifyCustom(event as unknown as Record<string, unknown>)
           }
           scheduleFlush()
         } else if (msg.type === 'session_new') {
-          livePacketsRef.current = []
-          statsRef.current = createEmptyStats()
+          packetBufferRef.current.clear()
           setPackets([])
+          setPacketParametersById({})
           setStats(createEmptyStats())
           setBlackoutUntil(null)
           setSessionTag((msg as Record<string, unknown>).session_tag as string ?? 'untitled')
@@ -116,9 +94,7 @@ export function useRxSocket() {
             setBlackoutUntil(null)
           }
         } else {
-          for (const listener of customListenersRef.current) {
-            listener(msg)
-          }
+          notifyCustom(msg)
         }
       },
       setConnected,
@@ -131,9 +107,9 @@ export function useRxSocket() {
   }, [scheduleFlush])
 
   const clearPackets = useCallback(() => {
+    packetBufferRef.current.clear()
     setPackets([])
-    livePacketsRef.current = []
-    statsRef.current = createEmptyStats()
+    setPacketParametersById({})
     setStats(createEmptyStats())
   }, [])
 
@@ -142,5 +118,5 @@ export function useRxSocket() {
     return () => { customListenersRef.current.delete(fn) }
   }, [])
 
-  return { packets, status, connected, stats, clearPackets, sessionGeneration, sessionTag, subscribeCustom, blackoutUntil }
+  return { packets, packetParametersById, status, connected, stats, clearPackets, sessionGeneration, sessionTag, subscribeCustom, blackoutUntil }
 }
