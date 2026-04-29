@@ -22,7 +22,6 @@ from gnuradio import gr
 from gnuradio.fft import window
 import sys
 import signal
-from pathlib import Path
 from PyQt5 import Qt
 from argparse import ArgumentParser
 from gnuradio.eng_arg import eng_float, intx
@@ -37,8 +36,6 @@ import satellites.core
 import sip
 import threading
 
-
-FLOWGRAPH_DIR = Path(__file__).resolve().parent
 
 
 class MAV_DUO(gr.top_block, Qt.QWidget):
@@ -139,7 +136,8 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.uhd_usrp_sink_0.set_center_freq(freq, 0)
         self.uhd_usrp_sink_0.set_antenna('TX/RX', 0)
         self.uhd_usrp_sink_0.set_gain(rf_gain, 0)
-        self.satellites_satellite_decoder_0 = satellites.core.gr_satellites_flowgraph(file = str(FLOWGRAPH_DIR / 'MAVERIC_DECODER.yml'), samp_rate = 200000, grc_block = True, iq = True, options = "")
+        self.satellites_satellite_decoder_0 = satellites.core.gr_satellites_flowgraph(file = 'MAVERIC_DECODER.yml', samp_rate = 200000, grc_block = True, iq = True, options = "")
+        self.satellites_hexdump_sink_0_0 = satellites.components.datasinks.hexdump_sink(options="")
         self.satellites_hexdump_sink_0 = satellites.components.datasinks.hexdump_sink(options="")
         self.qtgui_waterfall_sink_x_0 = qtgui.waterfall_sink_c(
             1024, #size
@@ -285,6 +283,7 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.msg_connect((self.satellites_satellite_decoder_0, 'out'), (self.satellites_hexdump_sink_0, 'in'))
         self.msg_connect((self.satellites_satellite_decoder_0, 'out'), (self.zeromq_pub_msg_sink_0, 'in'))
         self.msg_connect((self.zeromq_sub_msg_source_0, 'out'), (self.pdu_pdu_to_tagged_stream_0, 'pdus'))
+        self.msg_connect((self.zeromq_sub_msg_source_0, 'out'), (self.satellites_hexdump_sink_0_0, 'in'))
         self.connect((self.blocks_multiply_const_vxx_0, 0), (self.qtgui_freq_sink_x_0, 0))
         self.connect((self.blocks_multiply_const_vxx_0, 0), (self.uhd_usrp_sink_0, 0))
         self.connect((self.digital_gfsk_mod_0, 0), (self.blocks_multiply_const_vxx_0, 0))
