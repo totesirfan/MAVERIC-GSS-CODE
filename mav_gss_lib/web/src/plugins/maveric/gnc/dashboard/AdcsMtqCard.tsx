@@ -25,8 +25,7 @@ interface AdcsMtqCardProps {
 }
 
 const MTQ_VISUAL_RANGE = 0.25
-const MTQ_XY_SAT = 0.2
-const MTQ_Z_SAT  = 0.1
+const MTQ_WARN_LIMIT = 0.2
 
 // Mirrors MODE_NAMES in mav_gss_lib/missions/maveric/telemetry/gnc_registers/schema.py.
 const ADCS_MODES = [
@@ -68,7 +67,7 @@ export function AdcsMtqCard({ state, nowMs }: AdcsMtqCardProps) {
   const q = state.Q
   const rate = state.RATE
   const tmp = state.ADCS_TMP
-  const mtqUser = state.MTQ_USER
+  const mtqDipole = state.MTQ
 
   const statV = stat?.value as StatBitfield | undefined
   const timeV = time?.value as TimeBCD | undefined
@@ -77,7 +76,7 @@ export function AdcsMtqCard({ state, nowMs }: AdcsMtqCardProps) {
 
   const qArr = qFrom(q)
   const rateArr = rateFrom(rate)
-  const mtqArr = mtqFrom(mtqUser)
+  const mtqArr = mtqFrom(mtqDipole)
 
   const rateUninit = anyRateSentinel(rateArr)
   const rateMag = rateMagnitude(rateArr)
@@ -163,8 +162,8 @@ export function AdcsMtqCard({ state, nowMs }: AdcsMtqCardProps) {
           />
 
           <MtqBlock
-            title="MTQ_User · Dipole"
-            subtitle="A·m² · ±0.2 X,Y · ±0.1 Z"
+            title="MTQ · Dipole"
+            subtitle="A·m² · warn ±0.20 · crit ±0.25"
             ticks={MTQ_TICKS}
           >
             <MtqBar
@@ -173,8 +172,8 @@ export function AdcsMtqCard({ state, nowMs }: AdcsMtqCardProps) {
               unit="A·m²"
               kind={{
                 type: 'saturation',
-                loPercent: mtqPercent(-MTQ_XY_SAT),
-                hiPercent: mtqPercent(MTQ_XY_SAT),
+                loPercent: mtqPercent(-MTQ_WARN_LIMIT),
+                hiPercent: mtqPercent(MTQ_WARN_LIMIT),
               }}
               muted={!mtqArr}
             />
@@ -184,8 +183,8 @@ export function AdcsMtqCard({ state, nowMs }: AdcsMtqCardProps) {
               unit="A·m²"
               kind={{
                 type: 'saturation',
-                loPercent: mtqPercent(-MTQ_XY_SAT),
-                hiPercent: mtqPercent(MTQ_XY_SAT),
+                loPercent: mtqPercent(-MTQ_WARN_LIMIT),
+                hiPercent: mtqPercent(MTQ_WARN_LIMIT),
               }}
               muted={!mtqArr}
             />
@@ -195,8 +194,8 @@ export function AdcsMtqCard({ state, nowMs }: AdcsMtqCardProps) {
               unit="A·m²"
               kind={{
                 type: 'saturation',
-                loPercent: mtqPercent(-MTQ_Z_SAT),
-                hiPercent: mtqPercent(MTQ_Z_SAT),
+                loPercent: mtqPercent(-MTQ_WARN_LIMIT),
+                hiPercent: mtqPercent(MTQ_WARN_LIMIT),
               }}
               muted={!mtqArr}
             />

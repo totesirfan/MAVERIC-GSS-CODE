@@ -125,7 +125,7 @@ export interface RegisterSnapshot {
   t: number
 }
 
-/** Keyed by register name: "STAT", "TIME", "MTQ_USER", etc. */
+/** Keyed by register name: "STAT", "TIME", "MTQ", etc. */
 export type GncState = Record<string, RegisterSnapshot>
 
 /** Local view-model row for the Registers table. Built in GNCPage by
