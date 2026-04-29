@@ -46,19 +46,15 @@ class TestLoadSplitConfig(unittest.TestCase):
             self.assertEqual(platform["stations"], {"h": "Pad"})
             self.assertEqual(mission["csp"]["source"], 6)
 
-    def test_legacy_flat_file_canonicalizes_into_split(self):
+    def test_flat_file_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = self._write(tmp, {
-                "general": {"mission": "maveric", "log_dir": "legacy_logs"},
+                "general": {"mission": "maveric", "log_dir": "old_logs"},
                 "tx": {"zmq_addr": "tcp://127.0.0.1:60001"},
                 "csp": {"source": 6},
             })
-            platform, mission_id, mission = cfg_module.load_split_config(path)
-            self.assertEqual(mission_id, "maveric")
-            self.assertEqual(platform["general"]["log_dir"], "legacy_logs")
-            self.assertEqual(platform["tx"]["zmq_addr"], "tcp://127.0.0.1:60001")
-            self.assertEqual(mission["csp"], {"source": 6})
-            self.assertNotIn("mission", platform["general"])
+            with self.assertRaises(ValueError):
+                cfg_module.load_split_config(path)
 
 
 class TestSplitToPersistable(unittest.TestCase):
@@ -83,6 +79,12 @@ class TestSplitToPersistable(unittest.TestCase):
         self.assertNotIn("version", native["platform"]["general"])
         self.assertNotIn("mission", native["platform"]["general"])
         self.assertEqual(native["mission"]["config"]["csp"], {"source": 6})
+
+    def test_strips_retired_tx_uplink_mode(self):
+        platform = {"tx": {"delay_ms": 100, "uplink_mode": "ASM+Golay"}}
+        native = cfg_module.split_to_persistable(platform, "maveric", {})
+
+        self.assertEqual(native["platform"]["tx"], {"delay_ms": 100})
 
 
 class TestWebRuntimePrimarySplitState(unittest.TestCase):

@@ -2,11 +2,7 @@ from pathlib import Path
 
 from mav_gss_lib.platform.loader import load_mission_spec
 from mav_gss_lib.platform.parameter_cache import ParameterCache
-from mav_gss_lib.platform.rx.logging import (
-    parameter_log_records,
-    rx_log_record,
-    rx_log_text,
-)
+from mav_gss_lib.platform.log_records import parameter_records, rx_packet_record
 from mav_gss_lib.platform.rx.pipeline import RxPipeline
 
 
@@ -15,7 +11,7 @@ def _pipeline_for(spec, tmp_path: Path) -> RxPipeline:
     return RxPipeline(spec, walker=None, parameter_cache=cache)
 
 
-def test_build_rx_log_record_wraps_echo_packet_in_platform_envelope(tmp_path):
+def test_build_rx_packet_record_wraps_echo_packet_in_platform_envelope(tmp_path):
     spec = load_mission_spec(
         {"mission": {"id": "echo_v2", "config": {}}, "platform": {}},
         data_dir=tmp_path,
@@ -25,15 +21,15 @@ def test_build_rx_log_record_wraps_echo_packet_in_platform_envelope(tmp_path):
         b"\xde\xad",
     )
 
-    record = rx_log_record(
+    record = rx_packet_record(
         spec, result.packet, "1.2.3",
-        session_id="downlink_test",
+        session_id="session_test",
         operator="op", station="gs",
     )
 
     # Unified envelope fields
     assert record["event_kind"] == "rx_packet"
-    assert record["session_id"] == "downlink_test"
+    assert record["session_id"] == "session_test"
     assert isinstance(record["event_id"], str) and len(record["event_id"]) == 32
     assert isinstance(record["ts_ms"], int)
     assert record["v"] == "1.2.3"
@@ -48,7 +44,7 @@ def test_build_rx_log_record_wraps_echo_packet_in_platform_envelope(tmp_path):
     assert record["inner_len"] == 2
 
     # Mission block always present; `_rendering` and nested `telemetry` gone
-    assert record["mission"] == {"hex": "dead"}
+    assert record["mission"] == {}
     assert "_rendering" not in record
     assert "telemetry" not in record
 
@@ -65,28 +61,18 @@ def test_balloon_v2_emits_no_parameters_post_swap(tmp_path):
         b'{"type":"beacon","alt_m":1200,"lat":34.0,"lon":-118.2,"temp_c":18.4}',
     )
 
-    record = rx_log_record(
+    record = rx_packet_record(
         spec, result.packet, "1.2.3",
-        session_id="downlink_test",
+        session_id="session_test",
         mission_id="balloon_v2",
     )
-    rows = list(parameter_log_records(
+    rows = list(parameter_records(
         result.packet,
-        session_id="downlink_test",
+        session_id="session_test",
         rx_event_id=record["event_id"],
         version="1.2.3",
         mission_id="balloon_v2",
     ))
 
-    assert record["mission"]["type"] == "beacon"
+    assert record["mission"] == {}
     assert rows == []
-
-
-def test_format_rx_text_lines_uses_mission_ui_safely(tmp_path):
-    spec = load_mission_spec(
-        {"mission": {"id": "echo_v2", "config": {}}, "platform": {}},
-        data_dir=tmp_path,
-    )
-    result = _pipeline_for(spec, tmp_path).process({}, b"\xca\xfe")
-
-    assert rx_log_text(spec, result.packet) == ["  RAW         cafe"]

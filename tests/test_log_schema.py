@@ -12,16 +12,15 @@ from __future__ import annotations
 import json
 import tempfile
 
-from mav_gss_lib.logging import TXLog
+from mav_gss_lib.logging import SessionLog
 from mav_gss_lib.platform import MissionSpec
 from mav_gss_lib.platform.contract.packets import PacketEnvelope, PacketFlags
 from mav_gss_lib.platform.contract.parameters import ParamUpdate
-from mav_gss_lib.platform.contract.rendering import PacketRendering
-from mav_gss_lib.platform.rx.logging import (
-    parameter_log_records,
-    rx_log_record,
+from mav_gss_lib.platform.log_records import (
+    parameter_records,
+    rx_packet_record,
+    tx_command_record,
 )
-from mav_gss_lib.platform.tx.logging import tx_log_record
 
 
 _ENVELOPE_KEYS = {
@@ -30,14 +29,6 @@ _ENVELOPE_KEYS = {
 }
 
 _ALLOWED_KINDS = {"rx_packet", "tx_command", "parameter", "alarm"}
-
-
-class _Ui:
-    def packet_columns(self): return []
-    def tx_columns(self): return []
-    def render_packet(self, packet): return PacketRendering(columns=[], row={})
-    def render_log_data(self, packet): return {"sig": "probe"}
-    def format_text_log(self, packet): return []
 
 
 def _assert_envelope(rec: dict) -> None:
@@ -56,14 +47,13 @@ def _make_packet() -> PacketEnvelope:
     return PacketEnvelope(
         seq=42,
         received_at_ms=1714053603500,
-        received_at_text="2026-04-23 14:00:03 UTC",
-        received_at_short="14:00:03",
         frame_type="ASM+GOLAY",
         raw=b"\x01\x02\x03\x04",
         payload=b"\x02\x03",
         transport_meta={"transmitter": "probe"},
         warnings=[],
         mission_payload={},
+        mission={"id": "maveric", "facts": {"header": {"cmd_id": "probe"}}},
         flags=PacketFlags(),
         parameters=(
             ParamUpdate(name="eps.vbatt", value=7.42,
@@ -75,15 +65,15 @@ def _make_packet() -> PacketEnvelope:
 
 
 def _make_spec() -> MissionSpec:
-    return MissionSpec(id="maveric", name="MAVERIC", packets=None, ui=_Ui(), config=None)
+    return MissionSpec(id="maveric", name="MAVERIC", packets=None, config=None)
 
 
 def test_rx_packet_envelope_shape():
     spec = _make_spec()
     pkt = _make_packet()
-    record = rx_log_record(
+    record = rx_packet_record(
         spec, pkt, "5.7.0",
-        session_id="downlink_20260423_140000",
+        session_id="session_20260423_140000",
         mission_id="maveric", operator="irfan", station="GS-0",
     )
     _assert_envelope(record)
@@ -92,16 +82,16 @@ def test_rx_packet_envelope_shape():
     assert record["wire_len"] == 4
     assert record["inner_hex"] == "0203"
     assert record["inner_len"] == 2
-    assert record["mission"] == {"sig": "probe"}
+    assert record["mission"] == {"id": "maveric", "facts": {"header": {"cmd_id": "probe"}}}
     assert "_rendering" not in record
     assert "telemetry" not in record
 
 
 def test_parameter_records_envelope_shape():
     pkt = _make_packet()
-    rows = list(parameter_log_records(
+    rows = list(parameter_records(
         pkt,
-        session_id="downlink_20260423_140000",
+        session_id="session_20260423_140000",
         rx_event_id="parent_event_id",
         version="5.7.0",
         mission_id="maveric", operator="irfan", station="GS-0",
@@ -121,18 +111,20 @@ def test_parameter_records_envelope_shape():
 
 def test_tx_command_envelope_shape():
     with tempfile.TemporaryDirectory() as tmp:
-        log = TXLog(tmp, zmq_addr="tcp://127.0.0.1:52002", version="5.7.0",
+        log = SessionLog(tmp, zmq_addr="tcp://127.0.0.1:52002", version="5.7.0",
                     mission_id="maveric", station="GS-0", operator="irfan")
         try:
             raw_cmd = b"\x01\x02\x03"
             wire = b"\x01\x02\x03\x04\x05"
-            record = tx_log_record(
+            record = tx_command_record(
                 1,
-                {"title": "com_ping", "subtitle": "EPS"},
-                {"cmd_id": "com_ping",
-                 "header": {"dest": "EPS", "src": "GS",
-                            "echo": "NONE", "ptype": "CMD"}},
-                raw_cmd, wire,
+                cmd_id="com_ping",
+                mission_facts={
+                    "header": {"dest": "EPS", "src": "GS", "echo": "NONE", "ptype": "CMD"}
+                },
+                parameters=[],
+                raw_cmd=raw_cmd,
+                wire=wire,
                 session_id=log.session_id,
                 ts_ms=1_700_000_000_000,
                 version="5.7.0",
@@ -150,11 +142,12 @@ def test_tx_command_envelope_shape():
     _assert_envelope(rec)
     assert rec["event_kind"] == "tx_command"
     assert rec["mission_id"] == "maveric"
-    assert rec["cmd_id"] == "com_ping"
-    assert rec["dest"] == "EPS"
-    assert rec["ptype"] == "CMD"
+    assert "label" not in rec
+    assert "cmd_id" not in rec
+    assert "dest" not in rec
+    assert "ptype" not in rec
     assert rec["frame_label"] == "ASM+Golay"
-    # Legacy `uplink_mode` alias must not surface — neither at top level nor
+    # Retired `uplink_mode` alias must not surface — neither at top level nor
     # under the nested mission block.
     assert "uplink_mode" not in rec
     assert "uplink_mode" not in rec["mission"]
@@ -163,18 +156,18 @@ def test_tx_command_envelope_shape():
     assert rec["wire_hex"] == "0102030405"
     assert rec["wire_len"] == 5
     # Mission-owned everything under one key
-    assert rec["mission"]["display"]["title"] == "com_ping"
-    assert rec["mission"]["payload"]["cmd_id"] == "com_ping"
+    assert rec["mission"]["cmd_id"] == "com_ping"
+    assert rec["mission"]["facts"]["header"]["dest"] == "EPS"
     assert rec["mission"]["csp"]["dest"] == 8
 
 
 def test_session_id_matches_file_stem():
     with tempfile.TemporaryDirectory() as tmp:
-        log = TXLog(tmp, zmq_addr="tcp://127.0.0.1:52002", version="5.7.0",
+        log = SessionLog(tmp, zmq_addr="tcp://127.0.0.1:52002", version="5.7.0",
                     mission_id="maveric", station="GS-0", operator="irfan")
         try:
-            record = tx_log_record(
-                1, {"title": "x"}, {}, b"", b"",
+            record = tx_command_record(
+                1, cmd_id="x", mission_facts={}, parameters=[], raw_cmd=b"", wire=b"",
                 session_id=log.session_id,
                 ts_ms=1_700_000_000_000,
                 version="5.7.0",

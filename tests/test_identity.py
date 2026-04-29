@@ -59,7 +59,16 @@ def test_stations_strip_preserves_disk_value(tmp_path, monkeypatch):
     from mav_gss_lib.platform.config import apply_platform_config_update
 
     gss_path = tmp_path / "gss.yml"
-    gss_path.write_text("stations:\n  host1: GS-7\ntx:\n  delay_ms: 500\n")
+    gss_path.write_text(
+        "platform:\n"
+        "  stations:\n"
+        "    host1: GS-7\n"
+        "  tx:\n"
+        "    delay_ms: 500\n"
+        "mission:\n"
+        "  id: maveric\n"
+        "  config: {}\n"
+    )
     monkeypatch.setattr(cfg_module, "_DEFAULT_GSS_PATH", gss_path)
     monkeypatch.setattr(cfg_module, "get_operator_config_path", lambda: gss_path)
 
@@ -83,10 +92,10 @@ def test_preflight_yields_identity_row_from_capture():
     """CLI path: no identity injected — falls back to capture."""
     from unittest import mock
     from mav_gss_lib.preflight import run_preflight
-    cfg = {"general": {"mission": "maveric"}, "stations": {"dev-host": "GS-0"}}
+    cfg = {"stations": {"dev-host": "GS-0"}}
     with mock.patch("mav_gss_lib.identity.getpass.getuser", return_value="irfan"), \
          mock.patch("mav_gss_lib.identity.socket.gethostname", return_value="dev-host"):
-        results = list(run_preflight(cfg=cfg))
+        results = list(run_preflight(cfg=cfg, mission_id="maveric"))
     identity_rows = [r for r in results if r.group == "identity"]
     assert len(identity_rows) == 1
     row = identity_rows[0]
@@ -98,9 +107,10 @@ def test_preflight_yields_identity_row_from_capture():
 def test_preflight_uses_injected_identity_over_capture():
     """Web path: runtime injects identity — capture must not run."""
     from mav_gss_lib.preflight import run_preflight
-    cfg = {"general": {"mission": "maveric"}, "stations": {"gs1": "IGNORED"}}
+    cfg = {"stations": {"gs1": "IGNORED"}}
     results = list(run_preflight(
         cfg=cfg,
+        mission_id="maveric",
         operator="alice", host="gs1", station="GS-1",
     ))
     identity_rows = [r for r in results if r.group == "identity"]

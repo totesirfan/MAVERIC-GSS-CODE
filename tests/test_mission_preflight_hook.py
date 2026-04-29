@@ -21,16 +21,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from mav_gss_lib.platform import MissionConfigSpec, MissionSpec  # noqa: E402
-from mav_gss_lib.platform.contract.rendering import PacketRendering  # noqa: E402
 from mav_gss_lib.preflight import CheckResult, run_preflight  # noqa: E402
-
-
-class _Ui:
-    def packet_columns(self): return []
-    def tx_columns(self): return []
-    def render_packet(self, packet): return PacketRendering(columns=[], row={})
-    def render_log_data(self, packet): return {}
-    def format_text_log(self, packet): return []
 
 
 def _fixture_spec(preflight=None) -> MissionSpec:
@@ -38,7 +29,6 @@ def _fixture_spec(preflight=None) -> MissionSpec:
         id="maveric",
         name="MAVERIC",
         packets=None,
-        ui=_Ui(),
         config=MissionConfigSpec(),
         preflight=preflight,
     )
@@ -61,7 +51,7 @@ class TestPreflightRunsMissionHook(unittest.TestCase):
             (lib_dir / "web" / "dist" / "index.html").write_text("<html></html>")
             (lib_dir / "gss.yml").write_text("")
             results = list(run_preflight(
-                cfg={"general": {"mission": "maveric"}, "tx": {}, "rx": {}},
+                cfg={"tx": {}, "rx": {}},
                 mission_cfg={},
                 mission=spec,
                 lib_dir=lib_dir,
@@ -86,7 +76,7 @@ class TestPreflightRunsMissionHook(unittest.TestCase):
             (lib_dir / "web" / "dist" / "index.html").write_text("<html></html>")
             (lib_dir / "gss.yml").write_text("")
             results = list(run_preflight(
-                cfg={"general": {"mission": "maveric"}, "tx": {}, "rx": {}},
+                cfg={"tx": {}, "rx": {}},
                 mission_cfg={},
                 mission=spec,
                 lib_dir=lib_dir,

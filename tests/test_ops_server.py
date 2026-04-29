@@ -34,7 +34,11 @@ def _request_for(runtime, *, token=True):
 
 def _make_mission_item(cmd_id="com_ping", args="", dest="LPPM", runtime=None):
     """Build a validated mission_cmd queue item for testing."""
-    payload = {"cmd_id": cmd_id, "args": args, "dest": dest, "echo": "NONE", "ptype": "CMD"}
+    payload = {
+        "cmd_id": cmd_id,
+        "args": args if isinstance(args, dict) else {},
+        "packet": {"dest": dest},
+    }
     return validate_mission_cmd(payload, runtime=runtime)
 
 
@@ -63,7 +67,7 @@ class TestWebRuntimeWorkflows(unittest.TestCase):
     def test_parse_import_file_produces_mission_cmd_items(self):
         payload = """
         // comment
-        {"type": "mission_cmd", "guard": true, "payload": {"cmd_id": "com_ping", "args": "", "dest": "EPS", "echo": "NONE", "ptype": "CMD"}} // trailing
+        {"type": "mission_cmd", "guard": true, "payload": {"cmd_id": "com_ping", "args": {}, "packet": {"dest": "EPS"}}} // trailing
         {"type": "delay", "delay_ms": 250}
         """.strip()
         path = self.generated_dir / "sample.jsonl"
@@ -73,7 +77,7 @@ class TestWebRuntimeWorkflows(unittest.TestCase):
         self.assertEqual(len(items), 2)
         self.assertEqual(items[0]["type"], "mission_cmd")
         self.assertTrue(items[0]["guard"])
-        self.assertEqual(items[0]["display"]["title"], "com_ping")
+        self.assertEqual(items[0]["cmd_id"], "com_ping")
         self.assertEqual(items[1]["type"], "delay")
 
     def test_list_import_files_uses_configured_directory(self):
@@ -83,29 +87,31 @@ class TestWebRuntimeWorkflows(unittest.TestCase):
         names = [item["name"] for item in result]
         self.assertEqual(set(names), {"a.jsonl", "b.jsonl"})
 
-    def test_preview_returns_display_metadata(self):
+    def test_preview_returns_mission_facts(self):
         path = self.generated_dir / "queue.jsonl"
-        path.write_text('{"type": "mission_cmd", "payload": {"cmd_id": "com_ping", "args": "", "dest": "EPS", "echo": "NONE", "ptype": "CMD"}}\n')
+        path.write_text('{"type": "mission_cmd", "payload": {"cmd_id": "com_ping", "args": {}, "packet": {"dest": "EPS"}}}\n')
         preview = asyncio.run(preview_import("queue.jsonl", _request_for(self.runtime)))
         self.assertEqual(preview["skipped"], 0)
         self.assertEqual(len(preview["items"]), 1)
         item = preview["items"][0]
         self.assertEqual(item["type"], "mission_cmd")
-        self.assertIn("display", item)
-        self.assertEqual(item["display"]["title"], "com_ping")
+        self.assertEqual(item["cmd_id"], "com_ping")
+        self.assertIn("mission", item)
+        self.assertEqual(item["mission"]["facts"]["header"]["cmd_id"], "com_ping")
+        self.assertEqual(item["mission"]["facts"]["header"]["dest"], "EPS")
 
     def test_import_produces_mission_cmd_queue_items(self):
         path = self.generated_dir / "queue.jsonl"
-        path.write_text('{"type": "mission_cmd", "payload": {"cmd_id": "com_ping", "args": "", "dest": "EPS", "echo": "NONE", "ptype": "CMD"}}\n')
+        path.write_text('{"type": "mission_cmd", "payload": {"cmd_id": "com_ping", "args": {}, "packet": {"dest": "EPS"}}}\n')
         result = asyncio.run(import_file("queue.jsonl", _request_for(self.runtime)))
         self.assertEqual(result["loaded"], 1)
         item = self.runtime.tx.queue[0]
         self.assertEqual(item["type"], "mission_cmd")
-        self.assertEqual(item["display"]["title"], "com_ping")
+        self.assertEqual(item["cmd_id"], "com_ping")
 
     def test_import_preserves_delay_and_mission_command(self):
         path = self.generated_dir / "command_and_delay.jsonl"
-        path.write_text('{"type": "mission_cmd", "payload": {"cmd_id": "com_ping", "args": "", "dest": "EPS", "echo": "NONE", "ptype": "CMD"}}\n{"type": "delay", "delay_ms": 500}\n')
+        path.write_text('{"type": "mission_cmd", "payload": {"cmd_id": "com_ping", "args": {}, "packet": {"dest": "EPS"}}}\n{"type": "delay", "delay_ms": 500}\n')
         result = asyncio.run(import_file("command_and_delay.jsonl", _request_for(self.runtime)))
         self.assertEqual(result["loaded"], 2)
         self.assertEqual([item["type"] for item in self.runtime.tx.queue], ["mission_cmd", "delay"])
@@ -144,7 +150,7 @@ class TestWebRuntimeWorkflows(unittest.TestCase):
         log_dir.mkdir(parents=True, exist_ok=True)
 
         # Write 5 unified-schema rx_packet entries
-        session_id = "downlink_20260408_120000"
+        session_id = "session_20260408_120000"
         log_file = log_dir / f"{session_id}.jsonl"
         entries = []
         for i in range(5):
@@ -170,7 +176,7 @@ class TestWebRuntimeWorkflows(unittest.TestCase):
         result = asyncio.run(api_log_entries(
             session_id=session_id,
             request=req,
-            cmd=None,
+            label=None,
             time_from=None,
             time_to=None,
             event_kind="rx_packet,tx_command",

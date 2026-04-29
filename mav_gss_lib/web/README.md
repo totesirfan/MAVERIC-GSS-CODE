@@ -71,9 +71,9 @@ src/
       dialogs/           ConfirmDialog, PromptDialog, HelpModal
       overlays/          AlarmStrip, CommandPalette, ConfirmBar, ContextMenu, StatusToast
       preflight/         PreflightScreen + .constants + .updater
-      rendering/         CellValue, Blocks, extractFromRendering (+ index barrel)
+      rendering/         CellValue, Blocks (+ index barrel)
       visualization/     PlanetGlobe
-    logs/                Log session browser + replay controls
+    logs/                Log session browser
     layout/              GlobalHeader, SplitPane, KeyboardHintBar, TabStrip, TabViewport
     ui/                  shadcn/ui primitives
   state/                 Providers and store modules (context lives here, not in hooks/)
@@ -110,7 +110,7 @@ src/
     colors.ts            Semantic tone tokens (danger/warning/info/success/active/neutral)
     columns.ts           Column-driven rendering helpers
     types.ts             Shared types (RxPacket, RxStatus, ColumnDef, etc.)
-    rendering.ts         Cell/RenderingData helpers used by shared rendering components
+    rxPacket.ts          Canonical RX packet row/detail adapter
     navigation.ts        Tab/plugin navigation builders
     auth.ts              Session token handling (+ unit test)
     ws.ts                WebSocket helpers (createSocket)
@@ -168,7 +168,7 @@ WebSocket endpoints:
 
 | Path | Purpose |
 |---|---|
-| `/ws/rx` | RX packet stream (parsed, with `_rendering` payload) |
+| `/ws/rx` | RX packet stream with canonical mission facts and parameter updates |
 | `/ws/tx` | TX queue ops: `queue` (raw CLI), `queue_mission_cmd` (mission builder), send/abort/guard/reorder |
 | `/ws/session` | Session identity, new-session and rename events |
 | `/ws/preflight` | Preflight check state and updater progress |
@@ -183,12 +183,11 @@ HTTP endpoints (see `mav_gss_lib/server/api/`):
 | `GET /api/config` | Merged runtime config (platform + mission) |
 | `PUT /api/config` | Persist operator-overridable keys to `gss.yml` |
 | `GET /api/schema` | Mission command schema |
-| `GET /api/columns` | RX column definitions |
 | `GET /api/tx-columns` | TX queue column definitions |
 | `GET /api/tx/capabilities` | Mission TX capabilities (builder metadata) |
 | `GET /api/logs` | List log sessions |
-| `GET /api/logs/{session_id}` | Fetch log records for replay |
-| `GET /api/logs/{session_id}/parameters` | Parameter snapshot for replay |
+| `GET /api/logs/{session_id}` | Fetch JSONL log records |
+| `GET /api/logs/{session_id}/parameters` | Fetch parameter JSONL records |
 | `GET /api/identity` | Operator / host / station capture |
 | `GET /api/session` | Current session info |
 | `POST /api/session/new` | Start a new session |
@@ -203,7 +202,7 @@ HTTP endpoints (see `mav_gss_lib/server/api/`):
 
 Boundaries:
 
-- Packet parsing and protocol truth belong in `mav_gss_lib/missions/<mission>/adapter.py`
+- Packet parsing and protocol truth belong in the active mission package, typically `mission.py` plus packet/command capability modules.
 - Backend packet shaping belongs in `mav_gss_lib/server/rx/service.py` and `mav_gss_lib/server/tx/service.py`
 - React components render the normalized packet, queue, and config models they receive — they do not decode wire formats
 - Mission-scoped UI (TX builders, plugin pages) lives under `src/plugins/<mission>/` and is discovered by `src/plugins/registry.ts` via `import.meta.glob`

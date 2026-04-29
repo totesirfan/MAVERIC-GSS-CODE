@@ -39,6 +39,15 @@ class TestApplyPlatformUpdate(unittest.TestCase):
         self.assertEqual(platform_cfg["rx"]["zmq_addr"], "tcp://old-rx")
         self.assertEqual(platform_cfg["rx"]["tx_blackout_ms"], 750)
 
+    def test_drops_retired_tx_uplink_mode(self):
+        platform_cfg = {"tx": {"delay_ms": 500}}
+        _apply_platform_update(platform_cfg, {
+            "tx": {"uplink_mode": "ASM+Golay", "delay_ms": 600},
+        })
+
+        self.assertEqual(platform_cfg["tx"]["delay_ms"], 600)
+        self.assertNotIn("uplink_mode", platform_cfg["tx"])
+
     def test_drops_non_editable_sections(self):
         """Sections outside editable_sections never land on platform_cfg."""
         platform_cfg = {"tx": {}, "rx": {}}

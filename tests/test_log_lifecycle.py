@@ -1,8 +1,8 @@
 """Lifecycle tests for the _BaseLog writer thread.
 
 Covers the three spots the adversarial audit flagged:
-  1. write_jsonl / _write_entry become no-ops after close() — no lost
-     writes piling up on a dead queue (previously: silent loss).
+  1. write_jsonl becomes a no-op after close() — no lost writes piling
+     up on a dead queue (previously: silent loss).
   2. Two-phase session swap (prepare + commit) happy path preserves
      session_id and file stems.
   3. commit_new_session can only be called on an open log.
@@ -27,7 +27,6 @@ def test_write_after_close_is_noop_not_crash():
         log.write_jsonl({"before": True})
         log.close()
         log.write_jsonl({"after": True})  # must not raise
-        log._write_entry(["after"])        # must not raise
         # close() is idempotent
         log.close()
 
@@ -70,7 +69,7 @@ def test_prepare_and_commit_new_session_swaps_stem():
 
 def test_session_swap_rejected_on_closed_log():
     """prepare_new_session + commit_new_session both refuse a closed log
-    so no orphan .jsonl/.txt pairs are left on disk."""
+    so no orphan .jsonl files are left on disk."""
     import pytest
 
     with tempfile.TemporaryDirectory() as tmp:

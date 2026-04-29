@@ -185,7 +185,7 @@ class TestNoSleepPollingInTxRuntimeTests(unittest.TestCase):
 
         path = Path(__file__).resolve().parent / "test_ops_tx_runtime.py"
         src = path.read_text()
-        # The legacy pattern we are eliminating is exactly:
+        # The sleep-polling pattern we are eliminating is exactly:
         #   for _ in range(20):
         #       if self.runtime.tx.sending[...]:
         #           break
@@ -250,35 +250,26 @@ class TestLogWriterBatchesFlushes(unittest.TestCase):
             log = SessionLog(tmp, "tcp://127.0.0.1:0", "0.0.0")
             try:
                 jsonl_flushes = [0]
-                text_flushes = [0]
                 real_jsonl_flush = log._jsonl_f.flush
-                real_text_flush = log._text_f.flush
 
                 def _count_jsonl():
                     jsonl_flushes[0] += 1
                     real_jsonl_flush()
 
-                def _count_text():
-                    text_flushes[0] += 1
-                    real_text_flush()
-
                 log._jsonl_f.flush = _count_jsonl
-                log._text_f.flush = _count_text
 
-                for i in range(200):
+                for i in range(400):
                     log.write_jsonl({"i": i})
-                    log._write_entry([f"line-{i}"])
             finally:
                 log.close()
 
-            total_flushes = jsonl_flushes[0] + text_flushes[0]
             self.assertGreater(
-                total_flushes, 0,
+                jsonl_flushes[0], 0,
                 "writer loop never flushed — durability regression",
             )
             self.assertLess(
-                total_flushes, 25,
-                f"writer loop flushed {total_flushes} times for 400 items — expected <25 (batched)",
+                jsonl_flushes[0], 25,
+                f"writer loop flushed {jsonl_flushes[0]} times for 400 items — expected <25 (batched)",
             )
 
     def test_close_flushes_pending_writes(self):

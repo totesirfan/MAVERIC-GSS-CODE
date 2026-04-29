@@ -1,7 +1,8 @@
 """TxService.admit gate rules (spec §6):
   1. Active-send: reject ALL queue additions.
-  2. No active-send: reject re-queue of same (cmd_id, dest)
-     while its CheckWindow is still open. Args are not part of the key.
+  2. No active-send: reject re-queue of the same mission-provided
+     correlation key while its CheckWindow is still open. Args are not part
+     of the key in this fixture.
   3. Otherwise: accept.
 """
 import unittest
@@ -41,10 +42,15 @@ def _open_instance_for(cmd_id="mtq_set_1", dest="LPPM"):
 
 
 def _item(cmd_id="mtq_set_1", args="", dest="LPPM"):
-    """Queue-item shape: `payload` is flat (no nested `cmd`). args is carried
-    on the payload but not keyed on."""
+    """Queue-item shape: payload is mission-owned; key is precomputed by CommandOps."""
     return {"type": "mission_cmd",
-            "payload": {"cmd_id": cmd_id, "args": args, "dest": dest}}
+            "cmd_id": cmd_id,
+            "correlation_key": [cmd_id, dest],
+            "payload": {
+                "cmd_id": cmd_id,
+                "args": args if isinstance(args, dict) else {},
+                "packet": {"dest": dest},
+            }}
 
 
 class AdmitResults(unittest.TestCase):

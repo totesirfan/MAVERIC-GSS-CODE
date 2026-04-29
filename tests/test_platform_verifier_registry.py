@@ -3,6 +3,7 @@
 Stage rules (spec §4.4):
   - Any FailedVerifier passed  → instance Failed (NACK wins, even post-Complete)
   - Else CompleteVerifier passed → Complete (regardless of intermediate stages)
+  - Else ACK-only sets complete when any ReceivedVerifier passes
   - Else all windows closed    → TimedOut
   - Else transient markers (Released / Received / Accepted)
 """
@@ -31,6 +32,23 @@ def _instance() -> CommandInstance:
         correlation_key=("mtq_set_1", "LPPM"),
         t0_ms=0,
         cmd_event_id="c1",
+        verifier_set=vs,
+        outcomes={v.verifier_id: VerifierOutcome.pending() for v in vs.verifiers},
+        stage="released",
+    )
+
+
+def _ack_only_instance() -> CommandInstance:
+    vs = VerifierSet(verifiers=(
+        VerifierSpec("uppm_ack", "received", CheckWindow(0, 10000), "UPPM", "info"),
+        VerifierSpec("hlnv_ack", "received", CheckWindow(0, 10000), "HLNV", "info"),
+        VerifierSpec("nack_uppm", "failed", CheckWindow(0, 30000), "NACK", "danger"),
+    ))
+    return CommandInstance(
+        instance_id="i_ack",
+        correlation_key=("eps_cut", "EPS"),
+        t0_ms=0,
+        cmd_event_id="c_ack",
         verifier_set=vs,
         outcomes={v.verifier_id: VerifierOutcome.pending() for v in vs.verifiers},
         stage="released",
@@ -94,6 +112,13 @@ class StageDerivation(unittest.TestCase):
         reg.apply("i1", "res_from_lppm", VerifierOutcome.passed(matched_at_ms=8000, match_event_id="e3"))
         self.assertEqual(inst.stage, "complete")
         self.assertEqual(inst.outcomes["uppm_ack"].state, "pending")
+
+    def test_ack_only_any_received_transitions_to_complete(self):
+        reg = VerifierRegistry()
+        inst = _ack_only_instance()
+        reg.register(inst)
+        reg.apply("i_ack", "uppm_ack", VerifierOutcome.passed(matched_at_ms=500, match_event_id="e1"))
+        self.assertEqual(inst.stage, "complete")
 
     def test_nack_transitions_to_failed(self):
         reg = VerifierRegistry()

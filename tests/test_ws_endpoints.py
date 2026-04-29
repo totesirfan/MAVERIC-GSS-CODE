@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from mav_gss_lib.platform import ColumnDef, EventOps
+from mav_gss_lib.platform import EventOps
 from mav_gss_lib.server.ws.rx import router as rx_router
 from mav_gss_lib.server.ws.tx import router as tx_router
 from mav_gss_lib.server.ws.session import router as session_router
@@ -60,9 +60,6 @@ def _build_stub_runtime():
     runtime.session_clients = []
     runtime.session_lock = threading.Lock()
 
-    runtime.mission.ui.packet_columns.return_value = [
-        ColumnDef(id="num", label="#", width="40px"),
-    ]
     runtime.mission.events = EventOps()
 
     # Parameter cache replay: empty by default; tests override to validate
@@ -87,9 +84,7 @@ class TestWsRxHandshake(unittest.TestCase):
         with TestClient(app) as client:
             url = f"/ws/rx?token={app.state.runtime.session_token}"
             with client.websocket_connect(url) as ws:
-                env = ws.receive_json()
-                self.assertEqual(env["type"], "columns")
-                self.assertIsInstance(env["data"], list)
+                self.assertTrue(app.state.runtime.had_clients)
 
     def test_bad_token_is_rejected(self):
         app = _build_app()
@@ -122,7 +117,6 @@ class TestWsRxHandshake(unittest.TestCase):
         with TestClient(app) as client:
             url = f"/ws/rx?token={runtime.session_token}"
             with client.websocket_connect(url) as ws:
-                self.assertEqual(ws.receive_json()["type"], "columns")
                 msg = ws.receive_json()
         self.assertEqual(msg["type"], "parameters")
         self.assertTrue(msg["replay"])

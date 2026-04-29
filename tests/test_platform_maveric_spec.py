@@ -41,7 +41,6 @@ def test_maveric_v2_spec_loads_with_capabilities(tmp_path):
     assert spec.commands is not None
     assert spec.spec_root is not None
     assert spec.spec_plugins
-    assert spec.ui is not None
     assert spec.http is not None
 
 
@@ -62,8 +61,8 @@ def test_maveric_v2_command_ops_prepare_schema_command(tmp_path):
     prepared = prepare_command(spec, "ftdi_log hello")
 
     assert prepared.encoded.raw
-    assert prepared.rendering.title == "ftdi_log"
-    assert "cmd" in prepared.rendering.row
+    assert prepared.encoded.cmd_id == "ftdi_log"
+    assert prepared.encoded.mission_facts["header"]["cmd_id"] == "ftdi_log"
 
 
 def test_maveric_v2_rx_pipeline_renders_unknown_raw_packet(tmp_path):
@@ -75,13 +74,14 @@ def test_maveric_v2_rx_pipeline_renders_unknown_raw_packet(tmp_path):
     assert result.packet.seq == 1
     assert result.packet.flags.is_unknown is True
     assert result.packet_message["data"]["is_unknown"] is True
-    assert result.packet_message["data"]["_rendering"]["row"]["num"]["value"] == 1
+    assert "_rendering" not in result.packet_message["data"]
+    assert result.packet_message["data"]["mission"]["id"] == "maveric"
+    assert "cmd_id" not in result.packet_message["data"]
 
 
 def test_maveric_v2_rx_pipeline_extracts_eps_hk_parameters(tmp_path):
     """EPS_HK fixture parity. Skipped when commands.yml/mission.yml routing
-    rejects the fixture as unknown — same pre-existing fixture gap that the
-    legacy version of this test had."""
+    rejects the fixture as unknown, matching the pre-existing fixture gap."""
     spec = _maveric_spec(tmp_path)
     rx = _maveric_pipeline(spec, tmp_path)
 
@@ -91,7 +91,12 @@ def test_maveric_v2_rx_pipeline_extracts_eps_hk_parameters(tmp_path):
         import pytest
         pytest.skip("EPS_HK fixture not accepted by current commands.yml routing")
 
-    assert result.packet_message["data"]["_rendering"]["row"]["cmd"]["value"] == "eps_hk"
+    mission = result.packet_message["data"]["mission"]
+    assert mission["id"] == "maveric"
+    assert mission["facts"]["header"]["cmd_id"] == "eps_hk"
+    assert result.packet_message["data"]["flags"]["integrity_ok"] == mission["facts"]["integrity"]["overall_ok"]
+    assert "body_crc_ok" in mission["facts"]["integrity"]
+    assert "csp_crc32_ok" in mission["facts"]["integrity"]
     # Walker emits qualified ParamUpdates.
     by_name = {p.name: p for p in result.packet.parameters}
     assert "eps.V_BAT" in by_name

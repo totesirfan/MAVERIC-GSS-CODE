@@ -24,7 +24,8 @@ def test_rx_pipeline_v2_processes_echo_packet_without_parameters(tmp_path):
     assert result.parameters_message is None
     assert result.packet_message["type"] == "packet"
     assert result.packet_message["data"]["raw_hex"] == "0102"
-    assert result.packet_message["data"]["_rendering"]["row"]["hex"]["value"] == "0102"
+    assert "_rendering" not in result.packet_message["data"]
+    assert result.packet_message["data"]["mission"] == {}
 
 
 def test_rx_pipeline_v2_balloon_packet_emits_no_parameters_post_swap(tmp_path):
@@ -44,8 +45,8 @@ def test_rx_pipeline_v2_balloon_packet_emits_no_parameters_post_swap(tmp_path):
     assert result.packet.flags.is_unknown is False
     assert result.packet.parameters == ()
     assert result.parameters_message is None
-    assert result.packet_message["data"]["_rendering"]["row"]["kind"]["value"] == "beacon"
-    assert result.packet_message["data"]["_rendering"]["row"]["alt"]["value"] == 1200
+    assert "_rendering" not in result.packet_message["data"]
+    assert result.packet_message["data"]["mission"] == {}
 
 
 def test_rx_pipeline_v2_marks_unknown_balloon_packet(tmp_path):

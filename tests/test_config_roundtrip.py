@@ -88,8 +88,8 @@ class TestConfigRoundTrip(unittest.TestCase):
             self.assertEqual(platform_cfg["tx"]["zmq_addr"], "tcp://127.0.0.1:52002")
             self.assertEqual(platform_cfg["rx"]["zmq_addr"], "tcp://127.0.0.1:52001")
 
-    def test_legacy_flat_file_on_disk_is_canonicalized(self):
-        """Older operator gss.yml files written in flat shape still load."""
+    def test_flat_file_on_disk_is_rejected(self):
+        """Operator gss.yml files must use the native split shape."""
         with tempfile.TemporaryDirectory() as td:
             path = os.path.join(td, "gss.yml")
             flat = {
@@ -98,13 +98,30 @@ class TestConfigRoundTrip(unittest.TestCase):
                 "csp": {"priority": 3, "source": 6},
             }
             cfg_mod.save_operator_config(flat, path)
-            platform_cfg, mission_id, mission_cfg = cfg_mod.load_split_config(path)
-            self.assertEqual(mission_id, "maveric")
-            self.assertEqual(platform_cfg["general"]["log_dir"], "native-logs")
-            self.assertEqual(platform_cfg["tx"]["zmq_addr"], "tcp://x:1")
-            self.assertEqual(platform_cfg["tx"]["delay_ms"], 250)
-            self.assertEqual(mission_cfg["csp"]["priority"], 3)
-            self.assertEqual(mission_cfg["csp"]["source"], 6)
+            with self.assertRaises(ValueError):
+                cfg_mod.load_split_config(path)
+
+    def test_non_mapping_file_is_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "gss.yml")
+            with open(path, "w") as handle:
+                handle.write("- not\n- a\n- mapping\n")
+
+            with self.assertRaises(ValueError):
+                cfg_mod.load_split_config(path)
+
+    def test_mixed_native_and_flat_file_is_rejected(self):
+        """Old top-level fragments must not be silently ignored."""
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "gss.yml")
+            mixed = {
+                "platform": {"tx": {"delay_ms": 250}},
+                "mission": {"id": "maveric", "config": {}},
+                "csp": {"priority": 3, "source": 6},
+            }
+            cfg_mod.save_operator_config(mixed, path)
+            with self.assertRaises(ValueError):
+                cfg_mod.load_split_config(path)
 
 
 if __name__ == "__main__":

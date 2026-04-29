@@ -32,6 +32,15 @@ class TestDefaultPlatformSpec(unittest.TestCase):
         self.assertEqual(platform["tx"]["zmq_addr"], "old")  # deep-merged
         self.assertEqual(platform["rx"]["tx_blackout_ms"], 250)
 
+    def test_retired_tx_keys_are_dropped(self):
+        platform = {"tx": {"delay_ms": 10}}
+        apply_platform_config_update(platform, {
+            "tx": {"uplink_mode": "ASM+Golay", "delay_ms": 20},
+        })
+
+        self.assertEqual(platform["tx"]["delay_ms"], 20)
+        self.assertNotIn("uplink_mode", platform["tx"])
+
     def test_non_editable_top_level_sections_are_dropped(self):
         """csp/nodes belong on mission_cfg — never platform."""
         platform = {"tx": {}}

@@ -17,7 +17,12 @@ from mav_gss_lib.server.state import create_runtime
 
 def _make_payload(cmd_id, args="", dest="LPPM", guard=False):
     """Build a mission payload dict for testing."""
-    return {"cmd_id": cmd_id, "args": args, "dest": dest, "echo": "NONE", "ptype": "CMD", "guard": guard}
+    return {
+        "cmd_id": cmd_id,
+        "args": args if isinstance(args, dict) else {},
+        "packet": {"dest": dest},
+        "guard": guard,
+    }
 
 
 class TestTxRuntime(unittest.TestCase):
@@ -91,7 +96,7 @@ class TestTxRuntime(unittest.TestCase):
         payload = {
             "cmd_id": "cfg_set_tle",
             "args": {"tle": "A" * 220},
-            "dest": "LPPM", "echo": "NONE", "ptype": "CMD", "guard": False,
+            "guard": False,
         }
         with self.assertRaisesRegex(ValueError, "too large for ASM\\+Golay"):
             validate_mission_cmd(payload, runtime=self.runtime)
@@ -106,7 +111,7 @@ class TestTxRuntime(unittest.TestCase):
         self.assertEqual(skipped, 1)
         self.assertEqual(len(items), 2)
         self.assertEqual(items[0]["type"], "mission_cmd")
-        self.assertEqual(items[0]["display"]["title"], "com_ping")
+        self.assertEqual(items[0]["cmd_id"], "com_ping")
         self.assertEqual(items[1]["type"], "delay")
 
     def test_run_send_processes_delay_then_command(self):
@@ -123,8 +128,24 @@ class TestTxRuntime(unittest.TestCase):
         self.assertEqual(self.runtime.tx.queue, [])
         self.assertEqual(len(self.runtime.tx.history), 1)
         self.assertEqual(self.runtime.tx.history[0]["type"], "mission_cmd")
-        self.assertEqual(self.runtime.tx.history[0]["display"]["title"], "com_ping")
+        self.assertEqual(self.runtime.tx.history[0]["cmd_id"], "com_ping")
         self.assertTrue(any(msg.get("type") == "send_complete" for msg in self.messages if isinstance(msg, dict)))
+
+    def test_run_send_handles_cli_string_payload(self):
+        item = validate_mission_cmd("LPPM NONE CMD com_ping", runtime=self.runtime)
+        self.runtime.tx.queue = [item]
+        self.runtime.tx.renumber_queue()
+        self.runtime.tx.sending.update(active=True, idx=-1, total=1, guarding=False, sent_at=0, waiting=False)
+
+        asyncio.run(self.runtime.tx.run_send())
+
+        self.assertEqual(len(self.sent_payloads), 1)
+        self.assertEqual(self.runtime.tx.queue, [])
+        self.assertEqual(self.runtime.tx.history[0]["payload"], "LPPM NONE CMD com_ping")
+        self.assertEqual(
+            self.runtime.tx.history[0]["mission"]["facts"]["header"]["dest"],
+            "LPPM",
+        )
 
     def test_run_send_waits_for_guard_confirmation(self):
         self.runtime.tx.queue = [

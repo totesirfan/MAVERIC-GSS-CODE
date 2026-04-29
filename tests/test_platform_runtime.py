@@ -67,4 +67,5 @@ def test_runtime_v2_loads_maveric_with_walker_and_cache(tmp_path):
     assert rx.packet.flags.is_unknown is True
     assert rx.packet_message["data"]["is_unknown"] is True
     assert tx.encoded.raw
-    assert tx.rendering.title == "ftdi_log"
+    assert tx.encoded.cmd_id == "ftdi_log"
+    assert tx.encoded.mission_facts["header"]["cmd_id"] == "ftdi_log"

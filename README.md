@@ -30,6 +30,7 @@
 - [Protocol stack](#protocol-stack)
 - [Uplink framing](#uplink-framing)
 - [Repository layout](#repository-layout)
+- [Logging](#logging)
 - [Configuration](#configuration)
 - [Mission contract](#mission-contract)
 - [Web UI development](#web-ui-development)
@@ -44,21 +45,21 @@
 
 MAVERIC GSS is the ground station software for the MAVERIC CubeSat mission, developed at the University of Southern California Space Engineering Research Center (SERC). The software and radio stack are full-duplex capable — a single USRP B210 driven by GNU Radio handles both uplink and downlink channels — and the operational ground station runs half-duplex over a single UHF antenna using a coax switch to alternate between transmit and receive. The platform presents a web-based operator console for command composition, live telemetry, imaging, and GNC monitoring.
 
-The platform is mission-agnostic. Transport, queue, logging, protocol toolkit, and the web UI shell are reusable. Mission-specific parsing, command encoding, and operator rendering live in pluggable mission packages under `mav_gss_lib/missions/`. MAVERIC is the first and default mission package; additional missions drop in without platform changes.
+The platform is mission-agnostic. Transport, queueing, logging, protocol primitives, the XTCE-lite runtime, alarms, and the web UI shell are reusable. Mission packages under `mav_gss_lib/missions/` provide packet parsing, command encoding/framing, mission facts, event sources, HTTP routers, and optional plugin pages. MAVERIC is the default mission package; fixture missions (`echo_v2`, `balloon_v2`) exercise the boundary.
 
 ## Features
 
 - **Single-radio, full-duplex capable** — one USRP B210 drives both uplink and downlink channels via the `MAV_DUPLEX` GNU Radio flowgraph. The deployed station operates half-duplex over a single UHF antenna switched between TX and RX by a coax switch.
 - **Declarative wire framing** — MAVERIC's chain (CSP v1 → ASM+Golay with CCSDS + Reed-Solomon FEC) is declared in `mission.yml` and assembled by the platform `DeclarativeFramer`. The `FRAMERS` registry also ships `ax25` for missions that need HDLC + G3RUH.
-- **Mission-agnostic core** — swap the mission package to retarget the platform; a single `MissionSpec` contract (packets / commands / ui / telemetry / events / http / config) is enforced at load time.
+- **Mission-agnostic core** — swap the mission package to retarget the platform; a single `MissionSpec` contract (packets / commands / events / HTTP / config / preflight) is enforced at load time.
 - **Drag-to-reorder command queue** with delay and note items, JSONL import/export, guard confirmation, and persistent recovery after restart.
-- **Live session logs** — dual JSONL and human-readable text, per-session files under `logs/json/` and `logs/text/`.
-- **Session replay** — browse and re-play any past session in the Log Viewer.
-- **Telemetry dashboards** — EPS, GNC, and spacecraft-state telemetry decoded by the declarative XTCE-lite walker, fed into the platform `ParameterCache`, and surfaced with per-domain catalogs and staleness tracking.
+- **Unified session logs** — one per-session JSONL stream under `logs/json/` for RX packets, TX commands, parameter rows, verifier events, and alarm audit records.
+- **Log browser** — browse past session JSONL files, filter RX/TX entries, and fetch parameter rows without replaying RF.
+- **Telemetry dashboards** — EPS and GNC plugin pages consume values decoded by the declarative XTCE-lite walker and stored in the platform `ParameterCache`.
 - **Unified alarm bus** — platform health, container freshness, and parameter-rule alarms in a single 4-state machine (`/ws/alarms`), with audit trail in the session log.
 - **Imaging plugin** — chunked downlink reassembly, thumbnail previews, and delete.
 - **Plugin system** — mission packages can register their own FastAPI routers and React plugin pages.
-- **NASA HFDS-compliant console** — minimum 11 px text, ≥3:1 contrast, color redundancy via icon and text, 3/4/5 Hz alarm flash rates.
+- **HFDS-informed console design** — dark operator theme, semantic color redundancy, alarm flash-rate targets, and an 11 px minimum text target for new UI work.
 - **Preflight screen** — dependencies, GNU Radio, config, web build, and ZMQ connectivity verified before operator launch.
 
 ## Quickstart
@@ -78,14 +79,14 @@ For live uplink and downlink, start the `MAV_DUPLEX` GNU Radio flowgraph before 
 
 | Component | Minimum | Recommended | Notes |
 |---|---|---|---|
-| OS | macOS or Linux | Linux x86_64 / arm64 | Tested on macOS 15 and Ubuntu 22.04 |
+| OS | macOS or Linux | Linux x86_64 / arm64 | Developed for Unix-like operator machines |
 | Python | 3.10 | 3.11 | Provided by radioconda |
 | GNU Radio | 3.10 | 3.10 with gr-satellites | Supplies `pmt` and the flowgraph runtime |
 | Node.js | — | 20 LTS | Only needed when rebuilding the UI |
-| Radio | — | Ettus USRP B210 | Required for live RF; simulation and replay do not need hardware |
+| Radio | — | Ettus USRP B210 | Required for live RF; simulation and log browsing do not need hardware |
 | Browser | Any modern Chromium/Firefox | Chrome / Edge | The dashboard is pure SPA; no extensions needed |
 
-Python packages (`requirements.txt`): `fastapi`, `uvicorn`, `websockets`, `PyYAML`, `pyzmq`, `crcmod`, `Pillow`. `pmt` is provided by the local GNU Radio install.
+Python packages (`requirements.txt`): `fastapi`, `uvicorn`, `websockets`, `PyYAML`, `pyzmq`, `crcmod`, `Pillow`, and `pydantic>=2,<3`. `pmt` is provided by the local GNU Radio install.
 
 ## Run
 
@@ -123,7 +124,7 @@ It reports pass/fail for Python dependencies, GNU Radio and PMT availability, co
 
 ## Architecture
 
-The platform sits between the operator and GNU Radio. RX traffic arrives as PMT-serialized PDUs over ZMQ SUB, runs through the active mission's `PacketOps` pipeline (normalize → parse → classify), and is broadcast to browser clients over `/ws/rx`. TX commands flow in the reverse direction: the UI submits payloads over `/ws/tx`, the mission's `CommandOps` parses / validates / encodes / frames them via the declarative `mission.yml`-driven framer chain (CSP + ASM+Golay for MAVERIC), and the platform publishes the framed bytes to GNU Radio over ZMQ PUB as-is. A unified alarm engine watches platform health, container freshness, and parameter values, fanning state changes out on `/ws/alarms`.
+The platform sits between the operator and GNU Radio. RX traffic arrives as PMT-serialized PDUs over ZMQ SUB, runs through the active mission's `PacketOps` pipeline (normalize -> parse -> classify), then through the declarative walker and `ParameterCache`, and is broadcast to browser clients over `/ws/rx`. TX commands flow in the reverse direction: the UI submits payloads over `/ws/tx`, the mission's `CommandOps` parses / validates / encodes / frames them via the declarative `mission.yml`-driven framer chain (CSP + ASM+Golay for MAVERIC), and the platform publishes the framed bytes to GNU Radio over ZMQ PUB as-is. A unified alarm engine watches platform health, container freshness, and parameter values, fanning state changes out on `/ws/alarms`.
 
 ```mermaid
 flowchart LR
@@ -134,7 +135,7 @@ flowchart LR
     GR <--> Radio[USRP B210]
     Radio <-. UHF 430-440 MHz .-> Sat([MAVERIC<br/>CubeSat])
     RT --- MS[MissionSpec<br/>missions/maveric/]
-    RT --- LOG[(Session logs<br/>logs/json/<br/>logs/text/)]
+    RT --- LOG[(Session logs<br/>logs/json/)]
     classDef op fill:transparent,stroke:#888,color:#aaa
 ```
 
@@ -146,7 +147,7 @@ Top-level platform modules:
 | `mav_gss_lib/config.py`          | Split-state loader (`load_split_config` → `(platform_cfg, mission_id, mission_cfg)`). Single-sources `general.version` from `mav_gss_lib/web/package.json`. |
 | `mav_gss_lib/platform/`          | Platform API (`MissionSpec`, `MissionContext`, capability protocols, pipelines, declarative XTCE-lite spec runtime, `ParameterCache`, alarm engine, framing primitives, `PlatformRuntime`, `load_mission_spec_from_split`). |
 | `mav_gss_lib/transport.py`       | ZMQ PUB/SUB setup, PMT PDU send/receive, socket monitoring. |
-| `mav_gss_lib/logging/`         | Dual-output session logging (JSONL + formatted text). |
+| `mav_gss_lib/logging/`         | Unified JSONL session logging with background writer thread. |
 | `mav_gss_lib/identity.py`        | Operator / host / station capture (`capture_operator`, `capture_host`, `capture_station`). |
 | `mav_gss_lib/updater/`         | Runtime dependency bootstrap and self-update flow. |
 | `mav_gss_lib/preflight.py`       | Environment-check backend used by `scripts/preflight.py` and the web preflight screen. |
@@ -197,7 +198,6 @@ Supported argument types in the command schema: `str`, `int`, `float`, `epoch_ms
 | Line coding | CCSDS scrambler |
 | Framing | 32-bit ASM + Golay(24,12) length + RS(255,223) |
 | FEC | Reed-Solomon (corrects up to 16 byte errors per frame) |
-| Approx throughput at 9k6 | 796 B/s |
 | Frame structure | `[50B preamble][4B ASM][3B Golay][scrambled RS codeword][pad to 255B]` |
 | Payload limit (post-CSP) | 223 bytes |
 
@@ -216,10 +216,9 @@ mav_gss_lib/
     textutil.py                     Text helpers
     gss.example.yml                 Public-safe station config template
 
-    logging/                        Session logs (JSONL + text)
-        _base.py                    _BaseLog — writer thread, rotation, banner
-        session.py                  SessionLog (RX)
-        tx.py                       TXLog (TX)
+    logging/                        Unified JSONL session writer
+        _base.py                    _BaseLog — writer thread, rotation, rename
+        session.py                  SessionLog for RX, TX, parameter, verifier, alarm events
 
     updater/                        Self-updater + pre-import bootstrap
         bootstrap.py                bootstrap_dependencies (pre-FastAPI)
@@ -231,40 +230,38 @@ mav_gss_lib/
     platform/                       Mission/platform boundary + runners
         runtime.py                  PlatformRuntime.from_split(...)
         loader.py                   load_mission_spec_from_split
+        log_records.py              RX/TX/parameter event record builders
+        parameter_cache.py          Flat live-parameter store persisted to parameters.json
+        _log_envelope.py            event_id + timestamp helpers
         contract/                   What missions implement (Protocols + types)
             mission.py              MissionSpec, MissionContext, MissionConfigSpec
-            ui.py                   UiOps
             http.py                 HttpOps
             packets.py              PacketOps + envelope types
             commands.py             CommandOps + draft/encoded/framed types
             parameters.py           ParamUpdate (parameter cache event type)
             events.py               EventOps + PacketEventSource
-            rendering.py            Cell + ColumnDef + PacketRendering
         rx/                         Inbound runners
-            packets.py              PacketPipeline
-            events.py               collect_* event builders
-            rendering.py            render_packet + fallback
-            logging.py              rx_log_record + parameter_log_records
+            packet_pipeline.py      Stateful PacketOps runner
             pipeline.py             RxPipeline + RxResult
+            events.py               collect_* event builders
+            frame_detect.py         gr-satellites metadata/noise filtering
         tx/                         Outbound runners
             commands.py             prepare_command + frame_command
-            logging.py              tx_log_record
+            verifiers.py            Command verification registry + persistence
         config/                     Platform config-update boundary
             spec.py                 PlatformConfigSpec
             updates.py              apply_*_config_update + persist_mission_config
         framing/                    Mission-agnostic wire framers + registry
-            contract.py             Framer Protocol + FramerChain
+            protocol.py             Framer Protocol + FramerChain
             csp_v1.py, ax25.py, asm_golay.py, crc.py
             declarative.py          DeclarativeFramer (mission.yml-driven)
         spec/                       XTCE-lite declarative runtime
             yaml_parse.py, yaml_schema.py
             parameters.py, parameter_types.py, calibrators.py
             containers.py, walker_packet.py, packet_codec.py
-            commands.py, command_ops.py
+            commands.py, command_codec.py, ui.py
             verifier_decls.py, verifier_runtime.py
             mission.py, runtime.py
-        parameters/                 ParameterCache — flat live-state store
-            cache.py
         alarms/                     Unified alarm engine
             contract.py             Severity / AlarmState / AlarmEvent / AlarmChange
             registry.py             AlarmRegistry (4-state machine + persistence)
@@ -281,10 +278,9 @@ mav_gss_lib/
             packets.py              DeclarativePacketsAdapter + MaverMissionPayload
             calibrators.py          CALIBRATORS — parameter-type calibrator plugins
             alarm_predicates.py     Mission-side alarm predicate plugins
-            plugin_tx_builder.py    /api/plugins/maveric/tx-builder router
+            plugin_tx_builder.py    /api/plugins/maveric/identity router
             preflight.py            Mission preflight factory (mission.yml + libfec)
             errors.py               Declarative-pipeline error types
-            ui/                     MavericUiOps — ops/rendering/formatters/log_format
             imaging/                ImageAssembler + /api/plugins/imaging + EventOps
         echo_v2/                    Minimal fixture mission (round-trip echo)
         balloon_v2/                 Telemetry-only fixture mission
@@ -302,8 +298,10 @@ mav_gss_lib/
 
     web/                            React + Vite + TypeScript frontend
         src/                        UI source (components/, hooks/, state/, lib/, plugins/)
+        src/plugins/maveric/        MAVERIC TX builder, Imaging, GNC, EPS plugins
         dist/                       Production build (committed)
         package.json                Frontend deps + version (single source of truth)
+        vitest.config.ts            Frontend unit-test config
 
 tests/                              unittest suite
 scripts/
@@ -313,18 +311,32 @@ tools/
     maveric_zmq_e2e_test.py         End-to-end ZMQ loopback test harness
 ```
 
+## Logging
+
+Session logging uses a single JSONL file per session under `<log_dir>/json/`, named `session_<YYYYMMDD>_<HHMMSS>[_<station>][_<operator>][_<tag>].jsonl`. `SessionLog` is the only writer; `runtime.rx.log` and `runtime.tx.log` point at the same object during app lifespan.
+
+Every row carries the unified envelope: `event_id`, `event_kind`, `session_id`, `ts_ms`, `ts_iso`, `seq`, `v`, `mission_id`, `operator`, and `station`.
+
+Current event kinds:
+
+- `rx_packet` — frame metadata, wire/inner hex and lengths, flags, warnings, and mission facts.
+- `parameter` — one `ParamUpdate` row per extracted parameter, with `rx_event_id` back to the parent packet.
+- `tx_command` — command label, frame label, inner/wire hex and lengths, plus mission facts and mission-provided log fields under `mission`.
+- `cmd_verifier` — command verification stage/outcome transitions.
+- `alarm` — alarm state transitions from the unified alarm engine.
+
 ## Configuration
 
 Two config inputs drive the runtime:
 
 - `mav_gss_lib/gss.yml` — operator station config in native split-state shape: ZMQ addresses, log directory, TX delay, station catalog, active mission id, and mission-editable overrides under `mission.config.*` (for MAVERIC: `csp.*`, `imaging.thumb_prefix`). Gitignored. Copy from `mav_gss_lib/gss.example.yml`. If the file is missing, the runtime falls back to built-in defaults.
-- `mav_gss_lib/missions/<name>/mission.example.yml` — tracked, public-safe XTCE-lite mission database template (parameter types, parameters, sequence containers, meta-commands, verifier rules, framing chain). The operational `mission.yml` is gitignored for security and must be supplied locally. Without it the server fails preflight and cannot decode telemetry or send commands.
+- `mav_gss_lib/missions/<name>/mission.example.yml` — tracked, public-safe XTCE-lite mission database template (parameter types, parameters, bitfield types, sequence containers, meta-commands, verifier specs/rules, UI columns, framing chain). The operational `mission.yml` is gitignored for security and must be supplied locally; the MAVERIC mission builder reads it during runtime creation.
 
-Mission identity constants (nodes, ptypes, mission name, command catalog) live as extensions inside `mission.yml`. The mission's own `build(ctx)` seeds operator-overridable defaults (e.g. CSP placeholders, imaging thumb prefix) into `mission_cfg`. Operator values in `gss.yml` always win.
+Mission identity constants such as nodes, ptypes, node descriptions, and the ground-station node live as extensions inside `mission.yml`; mission name, command catalog, verifier rules, framing, and UI columns live in top-level mission database sections. The mission's own `build(ctx)` seeds operator-overridable defaults (e.g. CSP placeholders, imaging thumb prefix) into `mission_cfg`. Operator values in `gss.yml` always win.
 
 Version is single-sourced from `mav_gss_lib/web/package.json` via `config.py::_read_version()`. `gss.yml` cannot pin a version — the `/api/config` save path strips any client-supplied `general.version`.
 
-Also gitignored: `logs/`, `images/`, `generated_commands/`, `.pending_queue.jsonl`, legacy telemetry snapshots such as `.gnc_snapshot.json`, and `node_modules/`. Current telemetry snapshots live under `<log_dir>/.telemetry/`.
+Also gitignored: `logs/`, `images/`, `generated_commands/`, `.pending_queue.jsonl`, and `node_modules/`. Current live parameter state persists to `<log_dir>/parameters.json`.
 
 ## Mission contract
 
@@ -336,17 +348,19 @@ def build(ctx: MissionContext) -> MissionSpec: ...
 
 `MissionContext` carries live references to `platform_config`, `mission_config`, and `data_dir`. `MissionSpec` bundles the mission's capabilities:
 
-- `packets: PacketOps` — normalize → parse → classify (required).
-- `ui: UiOps` — columns, row/detail rendering, log formatting (required).
+- `packets: PacketOps` — normalize -> parse -> classify, plus verifier matching for inbound packets (required).
 - `config: MissionConfigSpec` — declares editable / protected `mission.config` paths (required).
-- `commands: CommandOps` — parse → validate → encode → frame → render (optional; required for missions that transmit).
-- `spec_root` / `spec_plugins` — declarative XTCE-lite `Mission` root and calibrator plugin map (optional; required for the declarative pipeline + alarm engine).
+- `commands: CommandOps` — parse -> validate -> encode -> frame, plus correlation keys and schema (optional; required for missions that transmit).
+- `spec_root` / `spec_plugins` — declarative XTCE-lite `Mission` root and calibrator plugin map (optional; required for the declarative pipeline, UI column routes, verifier derivation, and alarm engine).
 - `events: EventOps` — per-packet side effects and replay-on-connect WS messages (optional).
 - `http: HttpOps` — FastAPI routers auto-mounted at startup (optional).
 - `alarm_plugins` — mission-side alarm predicate plugins consumed by the platform alarm engine (optional).
 - `preflight` — mission-specific preflight checks (optional).
+- `parse_warnings` — non-fatal mission database warnings surfaced during preflight (optional).
 
 Live parameter values flow through the platform `ParameterCache` (single source of live state, persisted to `<log_dir>/parameters.json`); mission code emits parameters via the declarative walker rather than implementing a separate `TelemetryOps`.
+
+Declarative UI columns live in `mission.yml::ui.rx_columns` and `mission.yml::ui.tx_columns`. The backend serves them through `/api/rx-columns` and `/api/tx-columns`; the React UI renders them from `mission.facts` and `parameters`.
 
 Set `mission.id` in `gss.yml` to select the active package. The default is `maveric`; `echo_v2` and `balloon_v2` are fixture missions that exercise the boundary. `mav_gss_lib/platform/contract/mission.py` and the MAVERIC package are the authoritative reference for the contract.
 
@@ -381,15 +395,16 @@ python3 -m unittest tests.test_platform_architecture      # platform boundary gu
 python3 -m unittest tests.test_mission_owned_framing      # mission CommandOps.frame contract
 python3 -m unittest tests.test_alarm_e2e_soak             # alarm fire / ack / recurrence / suppression
 python3 -m unittest tests.test_ops_server                 # server wiring
-python3 -m unittest tests.test_api_config_get_contract    # /api/config flat-projection contract
+python3 -m unittest tests.test_api_config_get_contract    # /api/config split-shape contract
 python3 -m unittest tests.test_runtime_identity           # operator + host + station capture
+python3 -m unittest tests.test_platform_ui_spec           # declarative UI columns
 ```
 
-Tests that require the full gr-satellites flowgraph are gated behind `MAVERIC_FULL_GR=1` and skip silently otherwise.
+Some tests skip when local-only `mav_gss_lib/missions/maveric/mission.yml` is absent. Tests that require the full gr-satellites flowgraph are gated behind `MAVERIC_FULL_GR=1` and skip otherwise.
 
 ## About MAVERIC
 
-MAVERIC is a science-and-technology CubeSat designed and built by students at the University of Southern California Space Engineering Research Center (SERC). It tests magnetics in orbit and carries two technology payloads demonstrating 2D and 3D visualization from an LCD screen for space applications.
+MAVERIC is a science-and-technology CubeSat designed and built by students at USC through the Space Engineering Research Center (SERC). It is designed to test magnetics in orbit and two technology payloads for 2D and 3D visualization from an LCD screen for space applications.
 
 - **Mission site:** <https://www.isi.edu/centers-serc/research/nanosatellites/maveric/>
 - **Organization:** USC Space Engineering Research Center (SERC), Information Sciences Institute (ISI)

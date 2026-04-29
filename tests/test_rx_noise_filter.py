@@ -19,7 +19,7 @@ def _build_cmd_raw_via_codec(src: int, dest: int, cmd_id: str, args: str = "") -
     """Encode an inner MAVERIC command frame via the declarative codec.
 
     Constructs MaverPacketCodec from build_declarative_capabilities, then
-    calls complete_header + wrap. Replaces the legacy
+    calls complete_header + wrap. Replaces the removed
     `wire_format.build_cmd_raw` helper used by the noise-filter regression
     tests below; output bytes are byte-identical (same wire format).
     """

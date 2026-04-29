@@ -39,7 +39,11 @@ from mav_gss_lib.server.tx.queue import validate_mission_cmd
 
 
 def _make_payload(cmd_id="com_ping", args="", dest="LPPM"):
-    return {"cmd_id": cmd_id, "args": args, "dest": dest, "echo": "NONE", "ptype": "CMD"}
+    return {
+        "cmd_id": cmd_id,
+        "args": args if isinstance(args, dict) else {},
+        "packet": {"dest": dest},
+    }
 
 
 class TestTxArmsBlackout(unittest.TestCase):

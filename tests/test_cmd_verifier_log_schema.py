@@ -1,7 +1,7 @@
 """cmd_verifier log event shape and envelope compatibility.
 
-TXLog construction:
-  TXLog(log_dir: str, zmq_addr: str, version="", mission_name=...,
+SessionLog construction:
+  SessionLog(log_dir: str, zmq_addr: str, version="", mission_name=...,
         *, mission_id="", station="", operator="", host="")
   Session opens automatically when the first write fires (via _BaseLog's
   lazy-open path); callers do NOT need an explicit `log.open()`.
@@ -11,13 +11,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mav_gss_lib.logging.tx import TXLog
+from mav_gss_lib.logging import SessionLog
 
 
 class CmdVerifierWrites(unittest.TestCase):
     def test_write_appends_a_cmd_verifier_event_to_jsonl(self):
         with tempfile.TemporaryDirectory() as tmp:
-            log = TXLog(
+            log = SessionLog(
                 tmp,                              # log_dir (positional)
                 "tcp://127.0.0.1:0",              # zmq_addr (positional, unused here)
                 version="test",

@@ -69,11 +69,10 @@ def test_run_preflight_ok_when_gss_yml_present():
         (tmp_dir / "web" / "dist" / "index.html").touch()
 
         cfg = {
-            "general": {"mission": "maveric"},
             "rx": {"zmq_addr": "tcp://1.2.3.4:1111"},
             "tx": {"zmq_addr": "tcp://5.6.7.8:2222"},
         }
-        results = list(run_preflight(cfg=cfg, lib_dir=tmp_dir))
+        results = list(run_preflight(cfg=cfg, mission_id="maveric", lib_dir=tmp_dir))
 
         gss_check = _find(results, "gss.yml exists")
         assert gss_check is not None
@@ -103,8 +102,8 @@ def test_run_preflight_fails_on_unknown_mission():
         tmp_dir = Path(tmp)
         (tmp_dir / "gss.yml").touch()
 
-        cfg = {"general": {"mission": "nonexistent"}}
-        results = list(run_preflight(cfg=cfg, lib_dir=tmp_dir))
+        cfg = {}
+        results = list(run_preflight(cfg=cfg, mission_id="nonexistent", lib_dir=tmp_dir))
 
         mission_check = _find(results, "Mission: nonexistent")
         assert mission_check is not None

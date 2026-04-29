@@ -4,7 +4,6 @@ from typing import Any
 from mav_gss_lib.platform import MissionConfigSpec, MissionPacket, MissionSpec, NormalizedPacket, PacketFlags, PacketOps
 from mav_gss_lib.platform.loader import load_mission_spec
 from mav_gss_lib.platform.rx.packet_pipeline import PacketPipeline
-from mav_gss_lib.missions.echo_v2.mission import EchoUiOps
 
 
 def test_packet_pipeline_builds_echo_envelope(tmp_path):
@@ -60,7 +59,6 @@ def test_packet_pipeline_sets_duplicate_flag_on_repeated_key():
         id="dupe",
         name="Duplicate Fixture",
         packets=DuplicatePacketOps(),
-        ui=EchoUiOps(),
         config=MissionConfigSpec(),
     )
     pipeline = PacketPipeline(spec)
@@ -78,7 +76,6 @@ def test_packet_pipeline_reset_counts_clears_duplicate_window():
         id="dupe",
         name="Duplicate Fixture",
         packets=DuplicatePacketOps(),
-        ui=EchoUiOps(),
         config=MissionConfigSpec(),
     )
     pipeline = PacketPipeline(spec)

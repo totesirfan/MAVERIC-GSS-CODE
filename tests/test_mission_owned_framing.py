@@ -74,7 +74,11 @@ class TestDeclarativeFramerReadsLiveConfig(unittest.TestCase):
         rt.mission_cfg.setdefault("csp", {}).update({
             "source": 6, "destination": 8, "src_port": 1, "dest_port": 24,
         })
-        payload = {"cmd_id": "com_ping", "args": "", "dest": "LPPM", "echo": "NONE", "ptype": "CMD"}
+        payload = {
+            "cmd_id": "com_ping",
+            "args": {},
+            "packet": {"dest": "LPPM"},
+        }
         prep = rt.platform.prepare_tx(payload)
 
         framed_before = rt.platform.frame_tx(prep.encoded)
@@ -114,19 +118,21 @@ class TestFixtureMissionFraming(unittest.TestCase):
 class TestTxLogAcceptsMissionLogFields(unittest.TestCase):
     def test_log_fields_and_frame_label_land_in_jsonl(self):
         import tempfile
-        from mav_gss_lib.logging import TXLog
-        from mav_gss_lib.platform.tx.logging import tx_log_record
+        from mav_gss_lib.logging import SessionLog
+        from mav_gss_lib.platform.log_records import tx_command_record
 
         with tempfile.TemporaryDirectory() as tmp:
-            log = TXLog(tmp, zmq_addr="tcp://127.0.0.1:52002", version="1.2.3")
+            log = SessionLog(tmp, zmq_addr="tcp://127.0.0.1:52002", version="1.2.3")
             try:
                 raw_cmd = b"\x01\x02"
                 wire = b"\x01\x02\x03\x04"
-                record = tx_log_record(
+                record = tx_command_record(
                     7,
-                    {"title": "PING", "subtitle": ""},
-                    {"cmd": "ping"},
-                    raw_cmd, wire,
+                    cmd_id="ping",
+                    mission_facts={"header": {"cmd_id": "ping"}},
+                    parameters=[],
+                    raw_cmd=raw_cmd,
+                    wire=wire,
                     session_id=log.session_id,
                     ts_ms=1_700_000_000_000,
                     version="1.2.3",
@@ -147,7 +153,7 @@ class TestTxLogAcceptsMissionLogFields(unittest.TestCase):
                 rec = json.loads(f.readline())
 
         self.assertEqual(rec["frame_label"], "ASM+Golay")
-        # Legacy `uplink_mode` alias must not surface — neither top-level
+        # Retired `uplink_mode` alias must not surface — neither top-level
         # nor under the nested mission block.
         self.assertNotIn("uplink_mode", rec)
         self.assertNotIn("uplink_mode", rec["mission"])

@@ -63,7 +63,6 @@ class TestParseWarningEndToEnd(unittest.TestCase):
             id="test_mission",
             name="Test Mission",
             packets=MagicMock(),
-            ui=MagicMock(),
             config=MagicMock(),
             parse_warnings=(ContainerShadow(broader="A", specific="B"),),
         )
@@ -78,7 +77,6 @@ class TestParseWarningEndToEnd(unittest.TestCase):
             id="test_mission",
             name="Test Mission",
             packets=MagicMock(),
-            ui=MagicMock(),
             config=MagicMock(),
         )
         self.assertEqual(ms.parse_warnings, ())
@@ -93,7 +91,6 @@ class TestParseWarningEndToEnd(unittest.TestCase):
             id="test_mission",
             name="Test Mission",
             packets=MagicMock(),
-            ui=MagicMock(),
             config=MagicMock(),
             parse_warnings=(ContainerShadow(broader="X", specific="Y"),),
         )

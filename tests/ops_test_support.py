@@ -18,8 +18,8 @@ from mav_gss_lib import config as _config_module
 from mav_gss_lib.platform.loader import load_mission_spec_from_split
 
 # Cached on first attribute access (PEP 562). Tests that import
-# CFG / CMD_DEFS / NODES trigger the load lazily, so importing
-# this module has no side effects and doesn't require gss.yml to exist.
+# CMD_DEFS / NODES trigger the load lazily, so importing this module has no
+# side effects and doesn't require gss.yml to exist.
 #
 # IMPORTANT: loaders are dereferenced via module attributes every call
 # instead of being aliased with a
@@ -45,17 +45,6 @@ def _load() -> dict:
         # when load_mission_spec_from_split invokes it.
         spec = load_mission_spec_from_split(platform_cfg, mission_id, mission_cfg)
         commands = spec.commands
-        # Expose a flat cfg snapshot for legacy test consumers (CFG). This
-        # is a point-in-time merge for convenience; production paths use
-        # split state directly.
-        flat = dict(platform_cfg)
-        flat["general"] = dict(platform_cfg.get("general", {}))
-        flat["general"]["mission"] = mission_id
-        for key, value in mission_cfg.items():
-            if key not in flat and isinstance(value, dict):
-                flat[key] = value
-        _cache["cfg"] = flat
-        _cache["adapter"] = None
         _cache["cmd_defs"] = commands.schema() if commands is not None else {}
         _cache["nodes"] = getattr(commands, "nodes", None)
     return _cache
@@ -63,9 +52,7 @@ def _load() -> dict:
 
 def __getattr__(name: str):
     # PEP 562 — invoked only for attributes that are NOT already defined
-    # at module scope (i.e. CFG, CMD_DEFS, NODES).
-    if name == "CFG":
-        return _load()["cfg"]
+    # at module scope (i.e. CMD_DEFS, NODES).
     if name == "CMD_DEFS":
         return _load()["cmd_defs"]
     if name == "NODES":
@@ -77,11 +64,11 @@ def __dir__() -> list[str]:
     # PEP 562 companion — makes `dir(ops_test_support)` include the lazy
     # attributes so tab-completion, hasattr(), and debugger introspection
     # behave as if the attributes were statically defined.
-    return sorted(set(globals()) | {"CFG", "CMD_DEFS", "NODES"})
+    return sorted(set(globals()) | {"CMD_DEFS", "NODES"})
 
 
 __all__ = [
-    "CFG", "CMD_DEFS", "NODES",
+    "CMD_DEFS", "NODES",
     "TESTS_DIR", "CODE_DIR", "ROOT_DIR",
     "GNURADIO_PYTHON",
     "decode_golay_via_gr", "decode_golay_via_flowgraph",

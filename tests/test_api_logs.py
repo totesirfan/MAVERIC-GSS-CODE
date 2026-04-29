@@ -17,7 +17,7 @@ from mav_gss_lib.server.app import create_app
 
 def _build_fixture(log_dir: Path) -> str:
     (log_dir / "json").mkdir(parents=True, exist_ok=True)
-    stem = "downlink_20260423_140000_GS-0_irfan"
+    stem = "session_20260423_140000_GS-0_irfan"
     path = log_dir / "json" / f"{stem}.jsonl"
     rx = {
         "event_id": "e1", "event_kind": "rx_packet",
@@ -30,7 +30,7 @@ def _build_fixture(log_dir: Path) -> str:
         "inner_hex": "dead", "inner_len": 2,
         "duplicate": False, "uplink_echo": False, "unknown": False,
         "warnings": [],
-        "mission": {"cmd": {"cmd_id": "eps_hk"}},
+        "mission": {"id": "maveric", "facts": {"header": {"cmd_id": "eps_hk"}}},
     }
     tel = {
         "event_id": "t1", "event_kind": "parameter",
@@ -42,11 +42,18 @@ def _build_fixture(log_dir: Path) -> str:
         "name": "eps.vbatt", "value": 7.42,
         "unit": "V", "display_only": False,
     }
-    rx2 = {**rx, "event_id": "e2", "seq": 2,
-           "ts_ms": 1714053607500,
-           "ts_iso": "2026-04-23T14:00:07.500+00:00",
-           "mission": {"cmd": {"cmd_id": "com_ping"}}}
-    path.write_text("\n".join(json.dumps(x) for x in [rx, tel, rx2]) + "\n")
+    tx = {
+        "event_id": "e2", "event_kind": "tx_command",
+        "session_id": stem, "ts_ms": 1714053607500,
+        "ts_iso": "2026-04-23T14:00:07.500+00:00",
+        "seq": 2, "v": "5.7.0", "mission_id": "maveric",
+        "operator": "irfan", "station": "GS-0",
+        "frame_label": "ASM+Golay",
+        "inner_hex": "dead", "inner_len": 2,
+        "wire_hex": "deadbeef", "wire_len": 4,
+        "mission": {"id": "maveric", "cmd_id": "com_ping", "facts": {"header": {"cmd_id": "com_ping"}}},
+    }
+    path.write_text("\n".join(json.dumps(x) for x in [rx, tel, tx]) + "\n")
     return stem
 
 
@@ -74,7 +81,7 @@ def test_entries_endpoint_defaults_exclude_parameters():
         assert r.status_code == 200
         data = r.json()
         kinds = {e["event_kind"] for e in data["entries"]}
-        assert kinds == {"rx_packet"}  # parameter records filtered out by default
+        assert kinds == {"rx_packet", "tx_command"}  # parameter records filtered out by default
         assert len(data["entries"]) == 2
 
 
@@ -89,21 +96,35 @@ def test_entries_endpoint_opt_in_parameters():
         assert r.status_code == 200
         kinds = [e["event_kind"] for e in r.json()["entries"]]
         assert kinds.count("parameter") == 1
-        assert kinds.count("rx_packet") == 2
+        assert kinds.count("rx_packet") == 1
 
 
-def test_cmd_filter_matches_mission_cmd_id():
+def test_label_filter_matches_tx_mission_cmd_id():
     with tempfile.TemporaryDirectory() as tmp:
         stem = _build_fixture(Path(tmp))
         app = create_app()
         # `log_dir` is a read-only property over platform_cfg.general.log_dir
         app.state.runtime.platform_cfg.setdefault("general", {})["log_dir"] = tmp
         with TestClient(app) as client:
-            r = client.get(f"/api/logs/{stem}?cmd=ping")
+            r = client.get(f"/api/logs/{stem}?label=ping")
         assert r.status_code == 200
         entries = r.json()["entries"]
         assert len(entries) == 1
         assert entries[0]["seq"] == 2
+
+
+def test_label_filter_matches_rx_mission_facts_cmd_id():
+    with tempfile.TemporaryDirectory() as tmp:
+        stem = _build_fixture(Path(tmp))
+        app = create_app()
+        app.state.runtime.platform_cfg.setdefault("general", {})["log_dir"] = tmp
+        with TestClient(app) as client:
+            r = client.get(f"/api/logs/{stem}?label=eps_hk")
+        assert r.status_code == 200
+        entries = r.json()["entries"]
+        assert len(entries) == 1
+        assert entries[0]["event_kind"] == "rx_packet"
+        assert entries[0]["seq"] == 1
 
 
 def test_parameters_endpoint_filters_by_name():

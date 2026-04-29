@@ -11,8 +11,8 @@ def test_platform_package_public_api_imports():
     assert platform.PlatformRuntime
     assert platform.RxPipeline
     assert platform.prepare_command
-    assert platform.rx_log_record
-    assert platform.tx_log_record
+    assert platform.rx_packet_record
+    assert platform.tx_command_record
 
 
 def test_platform_package_does_not_import_maveric():
@@ -26,7 +26,7 @@ def test_platform_package_does_not_import_maveric():
     assert offenders == []
 
 
-def test_server_does_not_use_legacy_adapter_boundary():
+def test_server_does_not_use_retired_adapter_boundary():
     root = Path("mav_gss_lib/server")
     forbidden = (
         "runtime.adapter",
@@ -44,9 +44,9 @@ def test_server_does_not_use_legacy_adapter_boundary():
     assert offenders == []
 
 
-def test_maveric_v2_runtime_does_not_import_legacy_adapter_boundary():
+def test_maveric_v2_runtime_does_not_import_retired_adapter_boundary():
     root = Path("mav_gss_lib/missions/maveric")
-    allowed = {"adapter.py", "__init__.py", "README.md"}
+    allowed = {"__init__.py", "README.md"}
     offenders = []
     for path in root.rglob("*.py"):
         if path.name in allowed:
