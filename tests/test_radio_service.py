@@ -130,5 +130,16 @@ class RadioServicePersistenceTests(unittest.TestCase):
         self.assertEqual(svc.stop_timeout_s(), 8.0)
 
 
+class RadioServiceLogPrefixTests(unittest.TestCase):
+    def test_appended_line_starts_with_timestamp(self):
+        svc = RadioService(_fake_runtime())
+        svc._append_log("hello world")
+        snapshot = svc.log_snapshot()
+        self.assertEqual(len(snapshot), 1)
+        # ISO-8601 to seconds: 2026-04-30T17:35:42Z
+        self.assertRegex(snapshot[0], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\s")
+        self.assertTrue(snapshot[0].endswith("hello world"))
+
+
 if __name__ == "__main__":
     unittest.main()

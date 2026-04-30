@@ -22,6 +22,7 @@ import sys
 import threading
 import time
 from collections import deque
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -166,10 +167,12 @@ class RadioService:
             return list(self._log)
 
     def _append_log(self, line: str) -> None:
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        stamped = f"{ts} {line}" if line else ts
         with self._state_lock:
             self._resize_log_if_needed()
-            self._log.append(line)
-        self._schedule_broadcast({"type": "log", "line": line})
+            self._log.append(stamped)
+        self._schedule_broadcast({"type": "log", "line": stamped})
 
     async def broadcast(self, msg: dict[str, Any] | str) -> None:
         text = json.dumps(msg) if isinstance(msg, dict) else msg
