@@ -31,7 +31,6 @@ async def api_radio_start(request: Request) -> dict[str, Any] | Any:
     if denied:
         return denied
     runtime = get_runtime(request)
-    runtime.radio.bind_loop(asyncio.get_running_loop())
     return await asyncio.to_thread(runtime.radio.start)
 
 
@@ -41,7 +40,6 @@ async def api_radio_stop(request: Request) -> dict[str, Any] | Any:
     if denied:
         return denied
     runtime = get_runtime(request)
-    runtime.radio.bind_loop(asyncio.get_running_loop())
     return await asyncio.to_thread(runtime.radio.stop)
 
 
@@ -51,5 +49,4 @@ async def api_radio_restart(request: Request) -> dict[str, Any] | Any:
     if denied:
         return denied
     runtime = get_runtime(request)
-    runtime.radio.bind_loop(asyncio.get_running_loop())
     return await asyncio.to_thread(runtime.radio.restart)

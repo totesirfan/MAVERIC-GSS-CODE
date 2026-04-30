@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -21,7 +20,6 @@ async def ws_radio(websocket: WebSocket) -> None:
         return
     await websocket.accept()
     runtime.had_clients = True
-    runtime.radio.bind_loop(asyncio.get_running_loop())
 
     try:
         await websocket.send_text(json.dumps({

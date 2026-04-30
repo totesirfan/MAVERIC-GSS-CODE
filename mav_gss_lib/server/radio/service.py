@@ -55,10 +55,12 @@ class RadioService:
         self._state_lock = threading.Lock()
         self._stopping = False
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._loop_lock = threading.Lock()
         self._log: deque[str] = deque(maxlen=DEFAULT_LOG_LINES)
 
     def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
-        self._loop = loop
+        with self._loop_lock:
+            self._loop = loop
 
     def config(self) -> dict[str, Any]:
         radio = self.runtime.platform_cfg.get("radio")
@@ -160,7 +162,8 @@ class RadioService:
         await broadcast_safe(self.clients, self.lock, text)
 
     def _schedule_broadcast(self, msg: dict[str, Any]) -> None:
-        loop = self._loop
+        with self._loop_lock:
+            loop = self._loop
         if loop is None or loop.is_closed():
             return
         try:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -36,6 +37,63 @@ class RadioServiceConfigTests(unittest.TestCase):
         result = svc.start()
         self.assertEqual(result["state"], "stopped")
         self.assertIn("disabled", result["error"].lower())
+
+
+class RadioServiceLoopBindingTests(unittest.TestCase):
+    def test_schedule_broadcast_no_loop_is_silent(self):
+        svc = RadioService(_fake_runtime())
+        # Must not raise even without bind_loop
+        svc._schedule_broadcast({"type": "log", "line": "hello"})
+
+    def test_schedule_broadcast_uses_most_recently_bound_loop(self):
+        svc = RadioService(_fake_runtime())
+        loop_a = asyncio.new_event_loop()
+        loop_b = asyncio.new_event_loop()
+        try:
+            calls: list[asyncio.AbstractEventLoop] = []
+
+            def fake_run(coro, loop):
+                calls.append(loop)
+                coro.close()
+                return mock.MagicMock()
+
+            with mock.patch("asyncio.run_coroutine_threadsafe", side_effect=fake_run):
+                svc.bind_loop(loop_a)
+                svc._schedule_broadcast({"type": "log", "line": "x"})
+                svc.bind_loop(loop_b)
+                svc._schedule_broadcast({"type": "log", "line": "y"})
+            self.assertEqual(calls, [loop_a, loop_b])
+        finally:
+            loop_a.close(); loop_b.close()
+
+    def test_schedule_broadcast_concurrent_bind_safe(self):
+        svc = RadioService(_fake_runtime())
+        loop = asyncio.new_event_loop()
+        try:
+            errors: list[BaseException] = []
+
+            def hammer_bind():
+                try:
+                    for _ in range(200):
+                        svc.bind_loop(loop)
+                except BaseException as e:
+                    errors.append(e)
+
+            def hammer_broadcast():
+                try:
+                    with mock.patch("asyncio.run_coroutine_threadsafe", return_value=mock.MagicMock()):
+                        for _ in range(200):
+                            svc._schedule_broadcast({"type": "log", "line": "x"})
+                except BaseException as e:
+                    errors.append(e)
+
+            t1 = threading.Thread(target=hammer_bind)
+            t2 = threading.Thread(target=hammer_broadcast)
+            t1.start(); t2.start()
+            t1.join(); t2.join()
+            self.assertEqual(errors, [])
+        finally:
+            loop.close()
 
 
 if __name__ == "__main__":
