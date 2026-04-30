@@ -96,5 +96,23 @@ class RadioServiceLoopBindingTests(unittest.TestCase):
             loop.close()
 
 
+class RadioServiceActionLockTests(unittest.TestCase):
+    def test_concurrent_start_stop_serialized(self):
+        svc = RadioService(_fake_runtime({"enabled": False}))  # disabled → start() short-circuits cheaply
+        results: list[str] = []
+
+        def call_start():
+            results.append("start:" + svc.start()["state"])
+
+        def call_stop():
+            results.append("stop:" + svc.stop()["state"])
+
+        threads = [threading.Thread(target=call_start) for _ in range(4)] + \
+                  [threading.Thread(target=call_stop) for _ in range(4)]
+        for t in threads: t.start()
+        for t in threads: t.join()
+        self.assertEqual(len(results), 8)
+
+
 if __name__ == "__main__":
     unittest.main()

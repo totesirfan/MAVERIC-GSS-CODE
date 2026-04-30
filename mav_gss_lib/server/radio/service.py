@@ -53,6 +53,7 @@ class RadioService:
         self._reader_thread: threading.Thread | None = None
         self._wait_thread: threading.Thread | None = None
         self._state_lock = threading.Lock()
+        self._action_lock = threading.Lock()
         self._stopping = False
         self._loop: asyncio.AbstractEventLoop | None = None
         self._loop_lock = threading.Lock()
@@ -204,7 +205,7 @@ class RadioService:
         except Exception:
             logging.exception("radio lifecycle log failed")
 
-    def start(self) -> dict[str, Any]:
+    def _start_locked(self) -> dict[str, Any]:
         if not self.enabled():
             self._set_error("radio integration disabled")
             status = self.status()
@@ -325,7 +326,7 @@ class RadioService:
             self._write_radio_event(action, status=status, expected=was_stopping)
         self._schedule_broadcast({"type": "exit", "code": code, "status": status})
 
-    def stop(self) -> dict[str, Any]:
+    def _stop_locked(self) -> dict[str, Any]:
         already_stopped = False
         with self._state_lock:
             proc = self.proc
@@ -374,9 +375,18 @@ class RadioService:
             self._write_radio_event("stop", status=status, expected=True)
         return status
 
+    def start(self) -> dict[str, Any]:
+        with self._action_lock:
+            return self._start_locked()
+
+    def stop(self) -> dict[str, Any]:
+        with self._action_lock:
+            return self._stop_locked()
+
     def restart(self) -> dict[str, Any]:
-        self.stop()
-        return self.start()
+        with self._action_lock:
+            self._stop_locked()
+            return self._start_locked()
 
     def shutdown(self) -> None:
         self.stop()
