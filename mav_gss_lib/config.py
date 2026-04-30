@@ -86,6 +86,9 @@ _DEFAULTS = {
         "log_dir":      "logs",
         "generated_commands_dir": "generated_commands",
     },
+    "auth": {
+        "require_token_for_reads": False,
+    },
     "stations": {},
 }
 
