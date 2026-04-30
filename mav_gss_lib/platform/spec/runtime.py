@@ -394,9 +394,18 @@ class EntryDecoder:
         decoded_into: dict[str, Any],
     ) -> Iterator[ParamUpdate]:
         if entry.type_ref in self._bitfields:
-            assert isinstance(cursor, BitCursor), "bitfield decode requires binary layout"
             bf = self._bitfields[entry.type_ref]
-            value: Any = BitfieldDecoder(types=self._types).decode(bf, cursor)
+            if isinstance(cursor, BitCursor):
+                bit_cursor = cursor
+            else:
+                # ascii_tokens layout: the wire carries the register's bytes
+                # as whitespace-delimited u8 decimal tokens in document order.
+                # Pack them into a buffer and run the existing bitfield decode
+                # — bitfield interpretation is layout-agnostic.
+                n = bf.size_bits // 8
+                buf = bytes(int(cursor.read_token(), 10) & 0xFF for _ in range(n))
+                bit_cursor = BitCursor(buf)
+            value: Any = BitfieldDecoder(types=self._types).decode(bf, bit_cursor)
             unit = ""
         else:
             t = self._types[entry.type_ref]
