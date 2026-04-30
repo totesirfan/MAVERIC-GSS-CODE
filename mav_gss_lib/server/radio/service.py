@@ -287,7 +287,6 @@ class RadioService:
             self._resize_log_if_needed()
             self._log.clear()
 
-        self._append_log(f"Executing: {command_text}")
         self._reader_thread = threading.Thread(
             target=self._reader,
             args=(proc,),

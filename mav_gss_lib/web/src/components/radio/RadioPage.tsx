@@ -25,6 +25,14 @@ function fmtUptime(startedAtMs: number | null, fallbackSeconds: number): string 
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
+function fmtSeconds(seconds: number): string {
+  const total = Math.floor(seconds)
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
+
 function basename(path: string): string {
   return path.split('/').filter(Boolean).pop() ?? path
 }
@@ -56,18 +64,20 @@ function DataCell({
   tone,
   className,
   wrap = false,
+  titleOverride,
 }: {
   label: string
   value: string
   tone?: string
   className?: string
   wrap?: boolean
+  titleOverride?: string
 }) {
   return (
     <div className={cn('min-w-0 py-1', className)}>
-      <div className="text-[10px] font-medium uppercase" style={{ color: colors.textMuted }}>{label}</div>
+      <div className="text-[11px] font-medium uppercase" style={{ color: colors.textMuted }}>{label}</div>
       <div
-        title={value}
+        title={titleOverride ?? value}
         className={cn('mt-0.5 min-w-0 font-mono text-xs', wrap ? 'break-all' : 'truncate')}
         style={{ color: tone ?? colors.textPrimary }}
       >
@@ -122,7 +132,6 @@ export function RadioPage() {
   }, [logs])
 
   const dot = processDot(status)
-  const uptime = fmtUptime(status.started_at_ms, status.uptime_s)
 
   void lastUpdateMs
   void connState
@@ -150,12 +159,29 @@ export function RadioPage() {
               right={<StatusDot status={dot.status} label={dot.label} />}
             />
             <div className="flex flex-col gap-1.5 px-3 py-2">
-              <DataCell label="Script" value={basename(status.script) || '--'} />
+              <DataCell label="Script" value={basename(status.script) || '--'} titleOverride={status.script || ''} />
               <div className="grid grid-cols-3 gap-x-4 gap-y-1">
                 <DataCell label="PID" value={status.pid === null ? '--' : String(status.pid)} />
-                <DataCell label="Uptime" value={status.running ? uptime : '00:00:00'} tone={status.running ? colors.success : colors.textMuted} />
+                <DataCell
+                  label={status.running ? 'Uptime' : 'Last Runtime'}
+                  value={
+                    status.running
+                      ? fmtUptime(status.started_at_ms, status.uptime_s)
+                      : (status.last_runtime_s > 0 ? fmtSeconds(status.last_runtime_s) : '00:00:00')
+                  }
+                  tone={status.running ? colors.success : colors.textMuted}
+                />
                 <DataCell label="Exit Code" value={status.exit_code === null ? '--' : String(status.exit_code)} tone={status.state === 'crashed' ? colors.danger : undefined} />
               </div>
+              {status.error && (
+                <div
+                  className="rounded-md border px-2 py-1.5 text-[11px]"
+                  role="alert"
+                  style={{ color: colors.danger, borderColor: `${colors.danger}44`, backgroundColor: colors.dangerFill }}
+                >
+                  {status.error}
+                </div>
+              )}
             </div>
           </section>
 
@@ -164,7 +190,7 @@ export function RadioPage() {
               icon={<RadioWave className="size-3.5 shrink-0" style={{ color: colors.dim }} />}
               title="Runtime Control"
             />
-            <div className="grid grid-cols-3 gap-2 px-3 py-2">
+            <div className={cn('grid gap-2 px-3 py-2', status.running ? 'grid-cols-3' : 'grid-cols-2')}>
               <Button
                 size="sm"
                 variant="outline"
@@ -187,17 +213,19 @@ export function RadioPage() {
                 <Square data-icon="inline-start" />
                 Stop
               </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={!status.enabled || busy !== null}
-                onClick={() => void runAction('restart')}
-                className="h-8 gap-1.5 text-xs font-bold btn-feedback"
-                style={{ color: colors.info, borderColor: `${colors.info}66`, backgroundColor: `${colors.info}08` }}
-              >
-                <RotateCcw data-icon="inline-start" />
-                Restart
-              </Button>
+              {status.running && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!status.enabled || busy !== null}
+                  onClick={() => void runAction('restart')}
+                  className="h-8 gap-1.5 text-xs font-bold btn-feedback"
+                  style={{ color: colors.info, borderColor: `${colors.info}66`, backgroundColor: `${colors.info}08` }}
+                >
+                  <RotateCcw data-icon="inline-start" />
+                  Restart
+                </Button>
+              )}
             </div>
           </section>
 
@@ -205,11 +233,6 @@ export function RadioPage() {
             <PanelHeader
               icon={<RadioWave className="size-3.5 shrink-0" style={{ color: colors.dim }} />}
               title="ZMQ Links"
-              right={(
-                <Badge variant="outline" className="h-5 rounded text-[11px]" style={{ color: colors.textMuted, borderColor: colors.borderSubtle, backgroundColor: 'transparent' }}>
-                  transport
-                </Badge>
-              )}
             />
             <div className="flex flex-col gap-2 px-3 py-2">
               <LinkRow label="RX" value={config?.platform.rx.zmq_addr ?? '--'} status={apiStatus.zmq_rx || 'DOWN'} />
@@ -228,17 +251,8 @@ export function RadioPage() {
               )}
             />
             <div className="flex flex-1 flex-col gap-1.5 px-3 py-2">
-              <DataCell label="Title" value="MAVERIC DUAL FRAME" />
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                <DataCell label="Mode" value="external Qt" tone={status.running ? colors.success : colors.textMuted} />
-                <DataCell label="Autostart" value={status.autostart ? 'enabled' : 'disabled'} tone={status.autostart ? colors.warning : colors.textMuted} />
-              </div>
+              <DataCell label="Autostart" value={status.autostart ? 'enabled' : 'disabled'} tone={status.autostart ? colors.warning : colors.textMuted} />
               <DataCell label="CWD" value={status.cwd || '--'} wrap />
-              {status.error && (
-                <div className="rounded-md border px-2 py-1.5 text-[11px]" style={{ color: colors.danger, borderColor: `${colors.danger}44`, backgroundColor: colors.dangerFill }}>
-                  {status.error}
-                </div>
-              )}
             </div>
           </section>
         </div>
