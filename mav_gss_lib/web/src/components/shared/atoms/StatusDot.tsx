@@ -12,11 +12,12 @@ function dotColor(status: string): string {
   if (upper === 'STOPPING') return colors.warning
   if (upper === 'CRASHED' || upper === 'FAULT') return colors.danger
   if (upper === 'STOPPED') return colors.neutral
+  if (upper === 'WAITING') return colors.neutral
   return colors.danger
 }
 
 /** Shape indicator visible even in monochrome:
- *  ● LIVE/BOUND, ▲ RETRY, ▶ REPLAY, ■ STOPPING, ⚠ CRASHED, ○ STOPPED, ✕ DOWN */
+ *  ● LIVE/BOUND, ▲ RETRY, ▶ REPLAY, ■ STOPPING, ⚠ CRASHED, ○ STOPPED, … WAITING, ✕ DOWN */
 function dotShape(status: string): string {
   const upper = status.toUpperCase()
   if (upper === 'ONLINE' || upper === 'LIVE' || upper === 'BOUND') return '●'  // ●
@@ -25,6 +26,7 @@ function dotShape(status: string): string {
   if (upper === 'STOPPING') return '■'                                          // ■
   if (upper === 'CRASHED' || upper === 'FAULT') return '⚠'                      // ⚠
   if (upper === 'STOPPED') return '○'                                           // ○
+  if (upper === 'WAITING') return '…'                                           // …
   return '✕'                                                                    // ✕
 }
 

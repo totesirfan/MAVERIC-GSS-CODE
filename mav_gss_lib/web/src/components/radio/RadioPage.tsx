@@ -46,6 +46,12 @@ function processDot(status: RadioStatus): { status: string; label: string } {
   }
 }
 
+function btnTone(enabled: boolean, accent: string) {
+  return enabled
+    ? { color: accent, borderColor: `${accent}66`, backgroundColor: `${accent}08` }
+    : { color: colors.textDisabled, borderColor: colors.borderSubtle, backgroundColor: 'transparent' }
+}
+
 function PanelHeader({ icon, title, right }: { icon: ReactNode; title: string; right?: ReactNode }) {
   return (
     <div className="flex min-h-[33px] shrink-0 items-center justify-between gap-3 border-b px-3 py-1.5" style={{ borderColor: colors.borderSubtle }}>
@@ -120,6 +126,21 @@ export function RadioPage() {
   const connState: 'connecting' | 'connected' | 'disconnected' =
     !connected && Date.now() - mountedAtMs < 1500 ? 'connecting' : (connected ? 'connected' : 'disconnected')
 
+  const connTone =
+    connState === 'connected' ? colors.success
+    : connState === 'connecting' ? colors.warning
+    : colors.danger
+  const connLabel =
+    connState === 'connected' ? 'CONNECTED'
+    : connState === 'connecting' ? 'CONNECTING'
+    : 'DISCONNECTED'
+
+  const rxStatus = status.state === 'stopped' ? 'WAITING' : (apiStatus.zmq_rx || 'DOWN')
+
+  const startEnabled = status.enabled && !status.running && busy === null
+  const stopEnabled = status.running && busy === null
+  const restartEnabled = status.enabled && status.running && busy === null
+
   const onLogScroll = () => {
     const node = logRef.current
     if (!node) return
@@ -134,7 +155,6 @@ export function RadioPage() {
   const dot = processDot(status)
 
   void lastUpdateMs
-  void connState
 
   return (
     <div className="flex h-full min-h-0 flex-col p-4">
@@ -156,7 +176,18 @@ export function RadioPage() {
             <PanelHeader
               icon={<Terminal className="size-3.5 shrink-0" style={{ color: colors.dim }} />}
               title="GNU Radio Process"
-              right={<StatusDot status={dot.status} label={dot.label} />}
+              right={(
+                <div className="flex items-center gap-2">
+                  <Badge
+                    variant="outline"
+                    className="h-5 rounded text-[11px]"
+                    style={{ color: connTone, borderColor: `${connTone}66`, backgroundColor: 'transparent' }}
+                  >
+                    {connLabel}
+                  </Badge>
+                  <StatusDot status={dot.status} label={dot.label} />
+                </div>
+              )}
             />
             <div className="flex flex-col gap-1.5 px-3 py-2">
               <DataCell label="Script" value={basename(status.script) || '--'} titleOverride={status.script || ''} />
@@ -194,10 +225,10 @@ export function RadioPage() {
               <Button
                 size="sm"
                 variant="outline"
-                disabled={!status.enabled || status.running || busy !== null}
+                disabled={!startEnabled}
                 onClick={() => void runAction('start')}
                 className="h-8 gap-1.5 text-xs font-bold btn-feedback"
-                style={{ color: colors.active, borderColor: `${colors.active}66`, backgroundColor: `${colors.active}08` }}
+                style={btnTone(startEnabled, colors.active)}
               >
                 <Play data-icon="inline-start" />
                 Start
@@ -205,10 +236,10 @@ export function RadioPage() {
               <Button
                 size="sm"
                 variant="outline"
-                disabled={!status.running || busy !== null}
+                disabled={!stopEnabled}
                 onClick={() => void runAction('stop')}
                 className="h-8 gap-1.5 text-xs font-bold btn-feedback"
-                style={{ color: colors.danger, borderColor: `${colors.danger}66`, backgroundColor: `${colors.danger}08` }}
+                style={btnTone(stopEnabled, colors.danger)}
               >
                 <Square data-icon="inline-start" />
                 Stop
@@ -217,10 +248,10 @@ export function RadioPage() {
                 <Button
                   size="sm"
                   variant="outline"
-                  disabled={!status.enabled || busy !== null}
+                  disabled={!restartEnabled}
                   onClick={() => void runAction('restart')}
                   className="h-8 gap-1.5 text-xs font-bold btn-feedback"
-                  style={{ color: colors.info, borderColor: `${colors.info}66`, backgroundColor: `${colors.info}08` }}
+                  style={btnTone(restartEnabled, colors.info)}
                 >
                   <RotateCcw data-icon="inline-start" />
                   Restart
@@ -235,7 +266,7 @@ export function RadioPage() {
               title="ZMQ Links"
             />
             <div className="flex flex-col gap-2 px-3 py-2">
-              <LinkRow label="RX" value={config?.platform.rx.zmq_addr ?? '--'} status={apiStatus.zmq_rx || 'DOWN'} />
+              <LinkRow label="RX" value={config?.platform.rx.zmq_addr ?? '--'} status={rxStatus} />
               <LinkRow label="TX" value={config?.platform.tx.zmq_addr ?? '--'} status={apiStatus.zmq_tx || 'DOWN'} />
             </div>
           </section>
