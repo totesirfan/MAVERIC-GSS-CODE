@@ -66,9 +66,12 @@ function basename(path: string): string {
 }
 
 function processDot(status: RadioStatus): { status: string; label: string } {
-  if (status.state === 'running') return { status: 'LIVE', label: 'RUNNING' }
-  if (status.state === 'stopping') return { status: 'RETRY', label: 'STOPPING' }
-  return { status: 'DOWN', label: status.state.toUpperCase() }
+  switch (status.state) {
+    case 'running':  return { status: 'LIVE',     label: 'RUNNING' }
+    case 'stopping': return { status: 'STOPPING', label: 'STOPPING' }
+    case 'crashed':  return { status: 'CRASHED',  label: 'CRASHED' }
+    default:         return { status: 'STOPPED',  label: 'STOPPED' }
+  }
 }
 
 function lineColor(line: string): string {

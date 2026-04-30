@@ -8,18 +8,24 @@ interface StatusDotProps {
 function dotColor(status: string): string {
   const upper = status.toUpperCase()
   if (upper === 'ONLINE' || upper === 'LIVE' || upper === 'BOUND') return colors.success
-  if (upper === 'RETRY') return colors.warning
-  if (upper === 'REPLAY') return colors.warning
+  if (upper === 'RETRY' || upper === 'REPLAY') return colors.warning
+  if (upper === 'STOPPING') return colors.warning
+  if (upper === 'CRASHED' || upper === 'FAULT') return colors.danger
+  if (upper === 'STOPPED') return colors.neutral
   return colors.danger
 }
 
-/** Shape indicator visible even in monochrome: ● LIVE, ▲ RETRY, ▶ REPLAY, ✕ DOWN */
+/** Shape indicator visible even in monochrome:
+ *  ● LIVE/BOUND, ▲ RETRY, ▶ REPLAY, ■ STOPPING, ⚠ CRASHED, ○ STOPPED, ✕ DOWN */
 function dotShape(status: string): string {
   const upper = status.toUpperCase()
-  if (upper === 'ONLINE' || upper === 'LIVE' || upper === 'BOUND') return '\u25CF'
-  if (upper === 'RETRY') return '\u25B2'
-  if (upper === 'REPLAY') return '\u25B6'
-  return '\u2715'
+  if (upper === 'ONLINE' || upper === 'LIVE' || upper === 'BOUND') return '●'  // ●
+  if (upper === 'RETRY') return '▲'                                             // ▲
+  if (upper === 'REPLAY') return '▶'                                            // ▶
+  if (upper === 'STOPPING') return '■'                                          // ■
+  if (upper === 'CRASHED' || upper === 'FAULT') return '⚠'                      // ⚠
+  if (upper === 'STOPPED') return '○'                                           // ○
+  return '✕'                                                                    // ✕
 }
 
 export function StatusDot({ status, label }: StatusDotProps) {

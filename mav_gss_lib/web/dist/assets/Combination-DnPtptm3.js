@@ -15,23 +15,23 @@ import{n as e,o as t,t as n}from"./react-DtrESx-C.js";import{t as r}from"./jsx-r
     margin-right: ${s}px ${r};
     `,n===`padding`&&`padding-right: ${s}px ${r};`].filter(Boolean).join(``)}
   }
-
+  
   .${G} {
     right: ${s}px ${r};
   }
-
+  
   .${K} {
     margin-right: ${s}px ${r};
   }
-
+  
   .${G} .${G} {
     right: 0 ${r};
   }
-
+  
   .${K} .${K} {
     margin-right: 0 ${r};
   }
-
+  
   body[${Y}] {
     ${Ht}: ${s}px;
   }
