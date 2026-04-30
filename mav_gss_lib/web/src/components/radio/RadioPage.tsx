@@ -15,6 +15,7 @@ import { authFetch } from '@/lib/auth'
 import { createSocket } from '@/lib/ws'
 import { colors } from '@/lib/colors'
 import { cn } from '@/lib/utils'
+import { lineColor } from './lineColor'
 
 interface RadioStatus {
   enabled: boolean
@@ -72,16 +73,6 @@ function processDot(status: RadioStatus): { status: string; label: string } {
     case 'crashed':  return { status: 'CRASHED',  label: 'CRASHED' }
     default:         return { status: 'STOPPED',  label: 'STOPPED' }
   }
-}
-
-function lineColor(line: string): string {
-  const lower = line.toLowerCase()
-  if (lower.includes('warning')) return colors.warning
-  if (lower.includes('error') || lower.includes('overflow') || lower.includes('underflow') || lower.includes('failed')) return colors.danger
-  if (lower.includes('[info]') || lower.startsWith('info')) return colors.info
-  if (line.includes('***** VERBOSE PDU DEBUG PRINT ******') || line.includes('************************************')) return colors.info
-  if (line.startsWith('Executing:')) return colors.textPrimary
-  return colors.textSecondary
 }
 
 function PanelHeader({ icon, title, right }: { icon: ReactNode; title: string; right?: ReactNode }) {
