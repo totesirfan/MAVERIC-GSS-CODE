@@ -15,6 +15,7 @@ from PyQt5 import Qt
 from gnuradio import qtgui
 from PyQt5 import QtCore
 from gnuradio import blocks
+from gnuradio import blocks, gr
 from gnuradio import digital
 from gnuradio import filter
 from gnuradio.filter import firdes
@@ -278,6 +279,8 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
             log=False,
             do_unpack=True)
         self.blocks_multiply_const_vxx_0 = blocks.multiply_const_cc(tx_amp)
+        self.blocks_message_debug_txcmd = blocks.message_debug(True, gr.log_levels.info)
+        self.blocks_message_debug_rxcmd = blocks.message_debug(True, gr.log_levels.info)
 
 
         ##################################################
@@ -287,7 +290,9 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.msg_connect((self.satellites_satellite_decoder_0, 'out'), (self.zeromq_pub_msg_sink_0, 'in'))
         self.msg_connect((self.zeromq_sub_msg_source_0, 'out'), (self.pdu_pdu_to_tagged_stream_0, 'pdus'))
         self.msg_connect((self.zeromq_sub_msg_source_0, 'out'), (self.satellites_hexdump_sink_0_0, 'in'))
+        self.msg_connect((self.zeromq_sub_msg_source_rxcmd, 'out'), (self.blocks_message_debug_rxcmd, 'print'))
         self.msg_connect((self.zeromq_sub_msg_source_rxcmd, 'out'), (self.uhd_usrp_source_0, 'command'))
+        self.msg_connect((self.zeromq_sub_msg_source_txcmd, 'out'), (self.blocks_message_debug_txcmd, 'print'))
         self.msg_connect((self.zeromq_sub_msg_source_txcmd, 'out'), (self.uhd_usrp_sink_0, 'command'))
         self.connect((self.blocks_multiply_const_vxx_0, 0), (self.qtgui_freq_sink_x_0, 0))
         self.connect((self.blocks_multiply_const_vxx_0, 0), (self.uhd_usrp_sink_0, 0))
