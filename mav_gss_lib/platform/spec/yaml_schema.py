@@ -45,7 +45,9 @@ class _IntegerType(_Strict):
     # Default: ascii_tokens reads ONE decimal token per int. With
     # `u8_tokens`, the ascii path reads size_bits/8 decimal u8 tokens
     # and packs them in declared byte_order before decoding as int.
-    wire_format: Literal["single_token", "u8_tokens"] = "single_token"
+    # With `i16_tokens`, it reads size_bits/16 signed-int16 tokens and
+    # packs them the same way (e.g. AdcsTmp / FssTmp ship int16 pairs).
+    wire_format: Literal["single_token", "u8_tokens", "i16_tokens"] = "single_token"
 
 
 class _FloatType(_Strict):
@@ -92,6 +94,7 @@ class _AbsoluteTimeType(_Strict):
 class _AggregateMember(_Strict):
     name: str
     type: str
+    unit: str = ""
 
 
 class _AggregateType(_Strict):
@@ -99,6 +102,18 @@ class _AggregateType(_Strict):
     member_list: list[_AggregateMember]
     unit: str = ""
     description: str = ""
+    # Optional wire-encoding fields. When `size_bits` is set, the
+    # aggregate is a calibrator-backed wire type: the runtime reads
+    # size_bits/8 bytes (binary) or size_bits/{8,16}/single decimal
+    # tokens (ascii_tokens, dispatched on `wire_format`) and the
+    # `calibrator` turns the resulting integer into the member dict.
+    # When `size_bits` is None (default), the aggregate is decoded by
+    # walking members in place — the historic behavior.
+    size_bits: Literal[8, 16, 32, 64] | None = None
+    byte_order: Literal["little", "big"] | None = None
+    signed: bool = False
+    wire_format: Literal["single_token", "u8_tokens", "i16_tokens"] = "single_token"
+    calibrator: _CalibratorYaml = None
 
 
 class _ArrayType(_Strict):

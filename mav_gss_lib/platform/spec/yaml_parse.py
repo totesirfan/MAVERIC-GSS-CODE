@@ -218,9 +218,15 @@ def _project_one_param_type(name: str, t) -> ParameterType:
             byte_order=t.byte_order, description=t.description,
         )
     if kind == "aggregate":
-        members = tuple(AggregateMember(name=m.name, type_ref=m.type) for m in t.member_list)
+        members = tuple(
+            AggregateMember(name=m.name, type_ref=m.type, unit=m.unit)
+            for m in t.member_list
+        )
         return AggregateParameterType(
             name=name, member_list=members, unit=t.unit, description=t.description,
+            size_bits=t.size_bits, byte_order=t.byte_order, signed=t.signed,
+            wire_format=t.wire_format,
+            calibrator=_project_calibrator(t.calibrator),
         )
     if kind == "array":
         if len(t.dimension_list) != 1:

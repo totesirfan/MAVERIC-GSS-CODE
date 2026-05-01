@@ -389,6 +389,187 @@ class TestIntegerWireFormatU8Tokens(unittest.TestCase):
         ascii_cursor = TokenCursor(b"123456")
         self.assertEqual(codec.decode_ascii("SingleU32", ascii_cursor), 123456)
 
+    def test_i16_tokens_decodes_pair_under_both_layouts(self):
+        # 32-bit LE unsigned int with wire_format=i16_tokens. The wire
+        # delivers size_bits/16 = 2 signed-int16 ASCII tokens. Mirrors
+        # AdcsTmp / FssTmp: the spacecraft sends "<low_i16> <high_i16>"
+        # which packs into the same uint32 the calibrator unwraps.
+        u32_i16 = IntegerParameterType(
+            name="U32I16Pair",
+            size_bits=32,
+            signed=False,
+            byte_order="little",
+            wire_format="i16_tokens",
+        )
+        types = dict(BUILT_IN_PARAMETER_TYPES)
+        types["U32I16Pair"] = u32_i16
+        codec = TypeCodec(types=types)
+
+        bin_cursor = BitCursor(b"\x0d\x03\x00\x00")
+        ascii_cursor = TokenCursor(b"781 0")
+        bin_value = codec.decode_binary("U32I16Pair", bin_cursor)
+        ascii_value = codec.decode_ascii("U32I16Pair", ascii_cursor)
+
+        self.assertEqual(bin_value, 0x0000030D)
+        self.assertEqual(ascii_value, 0x0000030D)
+        self.assertEqual(bin_value, ascii_value)
+
+    def test_i16_tokens_negative_values_round_trip(self):
+        # Negative ASCII tokens must pack as two's-complement int16 bytes,
+        # producing the same uint32 the binary path would yield. Also
+        # validates that out-of-range tokens raise ValueError naming the
+        # owning type so spacecraft-side bugs surface loudly.
+        u32_i16 = IntegerParameterType(
+            name="U32I16Pair",
+            size_bits=32,
+            signed=False,
+            byte_order="little",
+            wire_format="i16_tokens",
+        )
+        types = dict(BUILT_IN_PARAMETER_TYPES)
+        types["U32I16Pair"] = u32_i16
+        codec = TypeCodec(types=types)
+
+        bin_value = codec.decode_binary("U32I16Pair", BitCursor(b"\xff\xff\x00\x00"))
+        ascii_value = codec.decode_ascii("U32I16Pair", TokenCursor(b"-1 0"))
+        self.assertEqual(bin_value, 0x0000FFFF)
+        self.assertEqual(ascii_value, 0x0000FFFF)
+        self.assertEqual(bin_value, ascii_value)
+
+        with self.assertRaisesRegex(ValueError, r"U32I16Pair"):
+            codec.decode_ascii("U32I16Pair", TokenCursor(b"32768 0"))
+        with self.assertRaisesRegex(ValueError, r"U32I16Pair"):
+            codec.decode_ascii("U32I16Pair", TokenCursor(b"-32769 0"))
+
+
+class TestCalibratorBackedAggregateType(unittest.TestCase):
+    """First-class AggregateParameterType with wire encoding.
+
+    Closes the last `kind: int (calibrator-returns-dict)` smell. When an
+    aggregate carries `size_bits` it decodes N raw bytes from the cursor
+    (binary or ascii_tokens via the same wire_format dispatch as
+    IntegerParameterType), then a calibrator turns the decoded int into
+    the member dict. The XTCE 1.3 declaration finally matches the shape
+    the runtime emits.
+    """
+
+    def test_calibrator_backed_aggregate_decodes_under_both_layouts(self):
+        # Mirrors AdcsTmp / FssTmp: 32-bit LE unsigned wire footprint,
+        # i16_tokens ASCII shape, calibrator that returns the member dict.
+        from mav_gss_lib.platform.spec.parameter_types import (
+            AggregateMember,
+            AggregateParameterType,
+        )
+
+        def fake_calibrator(raw):
+            low = raw & 0xFFFF
+            return ({"brdtmp": low, "doubled": low * 2}, "°C")
+
+        adcs_like = AggregateParameterType(
+            name="AdcsLikeAgg",
+            member_list=(
+                AggregateMember(name="brdtmp", type_ref="i16"),
+                AggregateMember(name="doubled", type_ref="i32"),
+            ),
+            unit="°C",
+            description="aggregate produced by calibrator",
+            size_bits=32,
+            byte_order="little",
+            signed=False,
+            wire_format="i16_tokens",
+            calibrator=PythonCalibrator(callable_ref="fake.adcs_agg", unit="°C"),
+        )
+        param = Parameter(name="STAT", type_ref="AdcsLikeAgg", domain="adcs")
+        rc_binary = RestrictionCriteria(
+            packet=(Comparison(parameter_ref="cmd_id", value="bin_pkt"),),
+        )
+        rc_ascii = RestrictionCriteria(
+            packet=(Comparison(parameter_ref="cmd_id", value="ascii_pkt"),),
+        )
+        binary_container = SequenceContainer(
+            name="binary_container",
+            entry_list=(ParameterRefEntry(name="STAT", type_ref="AdcsLikeAgg"),),
+            restriction_criteria=rc_binary,
+            layout="binary",
+            domain="adcs",
+        )
+        ascii_container = SequenceContainer(
+            name="ascii_container",
+            entry_list=(ParameterRefEntry(name="STAT", type_ref="AdcsLikeAgg"),),
+            restriction_criteria=rc_ascii,
+            layout="ascii_tokens",
+            domain="adcs",
+        )
+        types = dict(BUILT_IN_PARAMETER_TYPES)
+        types["AdcsLikeAgg"] = adcs_like
+        mission = Mission(
+            id="test_mission",
+            name="test_mission",
+            header=MissionHeader(version="0", date="2026-01-01"),
+            parameter_types=types,
+            parameters={param.name: param},
+            bitfield_types={},
+            sequence_containers={
+                binary_container.name: binary_container,
+                ascii_container.name: ascii_container,
+            },
+            meta_commands={},
+        )
+        walker = DeclarativeWalker(
+            mission, plugins={"fake.adcs_agg": fake_calibrator},
+        )
+
+        bin_pkt = _StubPacket(
+            args_raw=b"\x29\x2A\x00\x00", header={"cmd_id": "bin_pkt"},
+        )
+        ascii_pkt = _StubPacket(
+            args_raw=b"10793 0", header={"cmd_id": "ascii_pkt"},
+        )
+        bin_updates = list(walker.extract(bin_pkt, now_ms=0))
+        ascii_updates = list(walker.extract(ascii_pkt, now_ms=0))
+
+        self.assertEqual(len(bin_updates), 1)
+        self.assertEqual(len(ascii_updates), 1)
+        expected = {"brdtmp": 0x2A29, "doubled": 0x2A29 * 2}
+        self.assertEqual(bin_updates[0].value, expected)
+        self.assertEqual(ascii_updates[0].value, expected)
+        self.assertEqual(bin_updates[0].unit, "°C")
+        self.assertEqual(ascii_updates[0].unit, "°C")
+
+    def test_in_place_aggregate_without_size_bits_walks_members(self):
+        # Sanity: the existing in-place aggregate path (no size_bits) keeps
+        # walking members as before. This guards against the new code
+        # accidentally taking the wire-encoded branch for plain aggregates.
+        from mav_gss_lib.platform.spec.parameter_types import (
+            AggregateMember,
+            AggregateParameterType,
+        )
+
+        xy = AggregateParameterType(
+            name="XYInPlace",
+            member_list=(
+                AggregateMember(name="x", type_ref="f32_le"),
+                AggregateMember(name="y", type_ref="f32_le"),
+            ),
+        )
+        types = dict(BUILT_IN_PARAMETER_TYPES)
+        types["XYInPlace"] = xy
+        codec = TypeCodec(types=types)
+
+        # ASCII: two whitespace-delimited float tokens
+        out_ascii = codec.decode_ascii("XYInPlace", TokenCursor(b"1.5 2.5"))
+        self.assertIsInstance(out_ascii, dict)
+        self.assertAlmostEqual(out_ascii["x"], 1.5)
+        self.assertAlmostEqual(out_ascii["y"], 2.5)
+
+        # Binary: two LE float32 values
+        import struct as _struct
+        wire = _struct.pack("<ff", 1.5, 2.5)
+        out_bin = codec.decode_binary("XYInPlace", BitCursor(wire))
+        self.assertIsInstance(out_bin, dict)
+        self.assertAlmostEqual(out_bin["x"], 1.5)
+        self.assertAlmostEqual(out_bin["y"], 2.5)
+
 
 if __name__ == "__main__":
     unittest.main()

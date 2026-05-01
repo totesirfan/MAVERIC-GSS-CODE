@@ -54,13 +54,7 @@ class TypeCodec:
     def decode_ascii(self, type_ref: str, cursor: TokenCursor) -> Any:
         t = self._types[type_ref]
         if isinstance(t, IntegerParameterType):
-            if t.wire_format == "u8_tokens":
-                # Multi-byte int delivered as size_bits/8 decimal u8 tokens
-                # in document order; pack and decode in declared byte_order.
-                n = t.size_bits // 8
-                buf = bytes(_u8_from_token(cursor.read_token(), t.name) for _ in range(n))
-                return int.from_bytes(buf, t.byte_order, signed=t.signed)
-            return int(cursor.read_token(), 10)
+            return _decode_int_ascii(t, cursor)
         if isinstance(t, FloatParameterType):
             return float(cursor.read_token())
         if isinstance(t, EnumeratedParameterType):
@@ -86,6 +80,12 @@ class TypeCodec:
             count = t.dimension_list[0]
             return [self.decode_ascii(t.array_type_ref, cursor) for _ in range(count)]
         if isinstance(t, AggregateParameterType):
+            if t.size_bits is not None:
+                # Calibrator-backed aggregate: decode the wire as a single
+                # integer of the declared footprint (same dispatch as
+                # IntegerParameterType). The CalibratorRuntime turns the
+                # int into the member dict downstream.
+                return _decode_aggregate_int_ascii(t, cursor)
             return {m.name: self.decode_ascii(m.type_ref, cursor) for m in t.member_list}
         raise TypeError(
             f"TypeCodec.decode_ascii: type {type_ref!r} of kind {type(t).__name__} "
@@ -165,6 +165,17 @@ class TypeCodec:
             count = t.dimension_list[0]
             return [self.decode_binary(t.array_type_ref, cursor) for _ in range(count)]
         if isinstance(t, AggregateParameterType):
+            if t.size_bits is not None:
+                # Calibrator-backed aggregate: read N raw bytes and decode
+                # as a single integer in the declared byte_order/signed.
+                # The calibrator (run by CalibratorRuntime) turns the int
+                # into the emitted member dict.
+                assert t.byte_order is not None, (
+                    f"AggregateParameterType {t.name!r} declares size_bits "
+                    f"without byte_order"
+                )
+                buf = cursor.read_bytes(t.size_bits // 8)
+                return int.from_bytes(buf, t.byte_order, signed=t.signed)
             return {m.name: self.decode_binary(m.type_ref, cursor) for m in t.member_list}
         raise TypeError(
             f"TypeCodec.decode_binary: type {type_ref!r} of kind "
@@ -351,6 +362,73 @@ def _u8_from_token(token: str, owner_name: str) -> int:
             f"{owner_name!r}: ascii token {token!r} out of u8 range [0, 255]"
         )
     return value
+
+
+def _i16_from_token(token: str, owner_name: str) -> int:
+    """Parse one ascii_tokens decimal token as a signed int16 for multi-int packing.
+
+    Used by TypeCodec for IntegerParameterType wire_format=i16_tokens.
+    Out-of-range values are spacecraft-side bugs that should surface
+    loudly, not silently wrap and corrupt the decoded value.
+    """
+    value = int(token, 10)
+    if not -0x8000 <= value <= 0x7FFF:
+        raise ValueError(
+            f"{owner_name!r}: ascii token {token!r} out of i16 range [-32768, 32767]"
+        )
+    return value
+
+
+def _decode_int_ascii(t: IntegerParameterType, cursor: TokenCursor) -> int:
+    """Read one IntegerParameterType from a TokenCursor per its `wire_format`.
+
+    Shared between IntegerParameterType decoding and the calibrator-backed
+    AggregateParameterType branch (size_bits set) so the two stay in
+    lock-step.
+    """
+    if t.wire_format == "u8_tokens":
+        n = t.size_bits // 8
+        buf = bytes(_u8_from_token(cursor.read_token(), t.name) for _ in range(n))
+        return int.from_bytes(buf, t.byte_order, signed=t.signed)
+    if t.wire_format == "i16_tokens":
+        n = t.size_bits // 16
+        buf = b"".join(
+            _i16_from_token(cursor.read_token(), t.name).to_bytes(
+                2, t.byte_order, signed=True,
+            )
+            for _ in range(n)
+        )
+        return int.from_bytes(buf, t.byte_order, signed=t.signed)
+    return int(cursor.read_token(), 10)
+
+
+def _decode_aggregate_int_ascii(t: "AggregateParameterType", cursor: TokenCursor) -> int:
+    """ASCII-side wire decoder for calibrator-backed aggregates.
+
+    Mirrors `_decode_int_ascii` but operates on the aggregate's own
+    wire-encoding fields. Kept separate (not a fake IntegerParameterType
+    coerced through the int helper) so the type-error messages on
+    out-of-range tokens name the aggregate, not a synthetic shim.
+    """
+    assert t.size_bits is not None and t.byte_order is not None, (
+        f"AggregateParameterType {t.name!r} ascii decode requires size_bits "
+        f"and byte_order"
+    )
+    if t.wire_format == "u8_tokens":
+        n = t.size_bits // 8
+        buf = bytes(_u8_from_token(cursor.read_token(), t.name) for _ in range(n))
+        return int.from_bytes(buf, t.byte_order, signed=t.signed)
+    if t.wire_format == "i16_tokens":
+        n = t.size_bits // 16
+        buf = b"".join(
+            _i16_from_token(cursor.read_token(), t.name).to_bytes(
+                2, t.byte_order, signed=True,
+            )
+            for _ in range(n)
+        )
+        return int.from_bytes(buf, t.byte_order, signed=t.signed)
+    # single_token: read one decimal token as the underlying int.
+    return int(cursor.read_token(), 10)
 
 
 class EntryDecoder:
