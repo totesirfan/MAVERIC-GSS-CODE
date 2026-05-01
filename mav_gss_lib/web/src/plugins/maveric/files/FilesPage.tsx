@@ -84,7 +84,7 @@ export default function FilesPage() {
         </span>
       </div>
 
-      <ResizablePanelGroup direction="horizontal" className="flex-1">
+      <ResizablePanelGroup orientation="horizontal" className="flex-1">
         <ResizablePanel defaultSize={60} minSize={30}>
           <div className="h-full overflow-auto">
             <FilesTable
