@@ -257,10 +257,12 @@ def _project_sequence_containers(
 ) -> dict[str, SequenceContainer]:
     out: dict[str, SequenceContainer] = {}
     parameters = set(doc.parameters)
+    parameter_types_by_name = {pname: p.type for pname, p in doc.parameters.items()}
     for name, c in doc.sequence_containers.items():
         rc = _project_restriction(c.restriction_criteria) if c.restriction_criteria else None
         entry_list = tuple(
-            _project_entry(e, parameters) for e in c.entry_list
+            _project_entry(e, parameters, parameter_types_by_name, container_name=name)
+            for e in c.entry_list
         )
         out[name] = SequenceContainer(
             name=name, entry_list=entry_list, restriction_criteria=rc,
@@ -293,7 +295,55 @@ def _project_comparisons(block: dict) -> list[Comparison]:
     return out
 
 
-def _project_entry(entry: dict, parameters: set[str]) -> Entry:
+def _resolve_entry_type(
+    entry_name: str,
+    declared_type: str | None,
+    parameter_types_by_name: Mapping[str, str],
+    *,
+    container_name: str,
+    role: str = "entry_list",
+) -> str:
+    """Resolve a container entry's type per XTCE 1.3 ParameterRefEntry.
+
+    XTCE 1.3 (CCSDS 660.1-B-2) ParameterRefEntry carries only
+    `parameterRef`; per-entry type overrides are not allowed. We accept
+    a redundant `type:` field for legacy YAML, but it must match the
+    parameter's declared type. Mismatch is a parse error naming the
+    entry, both types, and the container. Absence resolves the type
+    from the parameter declaration.
+
+    Falls through to the declared override when the entry name is not a
+    declared parameter (anonymous entries — e.g. ASCII-token fillers).
+    """
+    canonical = parameter_types_by_name.get(entry_name)
+    if canonical is None:
+        # Anonymous entry (no matching declared parameter). The legacy
+        # path requires a type; absence is a schema bug we surface here
+        # rather than tripping a downstream NoneType.
+        if declared_type is None:
+            raise ParseError(
+                f"sequence_containers.{container_name}.{role} entry {entry_name!r} "
+                f"has no declared parameter and no `type:` — declare the parameter "
+                f"or attach a type"
+            )
+        return declared_type
+    if declared_type is not None and declared_type != canonical:
+        raise ParseError(
+            f"sequence_containers.{container_name}.{role} entry {entry_name!r} "
+            f"declares type {declared_type!r} but parameter {entry_name!r} "
+            f"is declared with type {canonical!r}; XTCE 1.3 ParameterRefEntry "
+            f"carries only parameterRef — drop the per-entry type or align it"
+        )
+    return canonical
+
+
+def _project_entry(
+    entry: dict,
+    parameters: set[str],
+    parameter_types_by_name: Mapping[str, str],
+    *,
+    container_name: str,
+) -> Entry:
     if "paged_frame_entry" in entry:
         e = entry["paged_frame_entry"]
         return PagedFrameEntry(
@@ -305,8 +355,12 @@ def _project_entry(entry: dict, parameters: set[str]) -> Entry:
     if "repeat_entry" in entry:
         e = entry["repeat_entry"]
         inner = e["entry"]
+        inner_type_ref = _resolve_entry_type(
+            inner["name"], inner.get("type"), parameter_types_by_name,
+            container_name=container_name, role="repeat_entry",
+        )
         inner_entry = ParameterRefEntry(
-            name=inner["name"], type_ref=inner["type"],
+            name=inner["name"], type_ref=inner_type_ref,
             parameter_ref=inner["name"] if inner["name"] in parameters else None,
             emit=inner.get("emit", True),
         )
@@ -316,8 +370,12 @@ def _project_entry(entry: dict, parameters: set[str]) -> Entry:
         if isinstance(count, dict) and "ref" in count:
             return RepeatEntry(entry=inner_entry, count_kind="dynamic_ref", count_ref=count["ref"])
         return RepeatEntry(entry=inner_entry, count_kind="fixed", count_fixed=int(count))
+    type_ref = _resolve_entry_type(
+        entry["name"], entry.get("type"), parameter_types_by_name,
+        container_name=container_name, role="entry_list",
+    )
     return ParameterRefEntry(
-        name=entry["name"], type_ref=entry["type"],
+        name=entry["name"], type_ref=type_ref,
         parameter_ref=entry["name"] if entry["name"] in parameters else None,
         emit=entry.get("emit", True),
     )

@@ -139,7 +139,12 @@ class _Parameter(_Strict):
 
 class _ParameterRefEntry(_Strict):
     name: str
-    type: str
+    # XTCE 1.3 ParameterRefEntry carries only `parameterRef`. The optional
+    # `type:` field is a redundant/legacy hint — when present, it must
+    # equal the referenced parameter's declared type (validated in
+    # yaml_parse._project_entry). When absent, type resolves from the
+    # parameter declaration.
+    type: str | None = None
     emit: bool = True
 
 
