@@ -114,3 +114,6 @@ benchmarks/
 
 # === Local design sandbox (HTML previews, component comparisons) ===
 .preview/
+
+# === Local worktrees ===
+.worktrees/
