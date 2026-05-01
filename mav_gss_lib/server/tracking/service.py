@@ -1,0 +1,204 @@
+"""Runtime tracking service.
+
+The service reads the live platform config, computes authoritative tracking
+state, and publishes Doppler corrections through an intentionally small sink
+interface. Engage/disengage swaps a real ZmqDopplerSink in place of the null
+sink so GNU Radio integration can hook in without changing tracking math or UI
+contracts.
+"""
+
+from __future__ import annotations
+
+import copy
+import threading
+import time
+from dataclasses import asdict
+from typing import TYPE_CHECKING, Callable, Protocol
+
+from mav_gss_lib.platform.tracking import (
+    DopplerCorrection,
+    TrackingError,
+    build_satellite,
+    normalize_tracking_config,
+    pass_detail,
+    to_plain,
+    tracking_state,
+    upcoming_passes,
+)
+from mav_gss_lib.platform.tracking.models import DopplerMode
+from mav_gss_lib.platform.tracking.propagation import look_angles_at, doppler_correction
+
+if TYPE_CHECKING:
+    from mav_gss_lib.server.state import WebRuntime
+
+
+class DopplerSink(Protocol):
+    def publish(self, correction: DopplerCorrection) -> None: ...
+    def close(self) -> None: ...
+
+
+class NullDopplerSink:
+    def publish(self, correction: DopplerCorrection) -> None:
+        return None
+
+    def close(self) -> None:
+        return None
+
+
+SinkFactory = Callable[..., DopplerSink]
+
+
+def _default_sink_factory(*, rx_addr: str, tx_addr: str) -> DopplerSink:
+    # Lazy import keeps pyzmq + pmt out of the import chain when tracking is
+    # imported in a context that never engages (e.g., unit tests).
+    from mav_gss_lib.server.tracking.sink_zmq import ZmqDopplerSink
+    return ZmqDopplerSink(rx_addr=rx_addr, tx_addr=tx_addr)
+
+
+class TrackingService:
+    def __init__(
+        self,
+        runtime: "WebRuntime",
+        sink: DopplerSink | None = None,
+        *,
+        sink_factory: SinkFactory | None = None,
+    ) -> None:
+        self.runtime = runtime
+        self._sink: DopplerSink = sink or NullDopplerSink()
+        self._doppler_mode: DopplerMode = "disconnected"
+        self._sink_lock = threading.Lock()
+        self._sink_factory: SinkFactory = sink_factory or _default_sink_factory
+        self._last_error: str = ""
+        self._last_tick_ms: int = 0
+
+    @property
+    def doppler_mode(self) -> DopplerMode:
+        return self._doppler_mode
+
+    @property
+    def last_error(self) -> str:
+        return self._last_error
+
+    def set_doppler_connected(self, connected: bool) -> DopplerMode:
+        return self.engage() if connected else self.disengage()
+
+    def engage(self) -> DopplerMode:
+        # Idempotent: re-engaging while already connected is a no-op.
+        # A second bind() on the same port would EADDRINUSE and tear down
+        # the working engagement.
+        with self._sink_lock:
+            if self._doppler_mode == "connected":
+                return self._doppler_mode
+        control = self._control_config()
+        sink = self._sink_factory(
+            rx_addr=control["rx_zmq_addr"],
+            tx_addr=control["tx_zmq_addr"],
+        )
+        with self._sink_lock:
+            self._sink = sink
+            self._doppler_mode = "connected"
+            self._last_error = ""
+        return self._doppler_mode
+
+    def disengage(self) -> DopplerMode:
+        previous: DopplerSink | None = None
+        with self._sink_lock:
+            if self._doppler_mode == "disconnected":
+                return self._doppler_mode
+            previous = self._sink
+            self._sink = NullDopplerSink()
+            self._doppler_mode = "disconnected"
+        if previous is not None:
+            previous.close()
+        return self._doppler_mode
+
+    def _control_config(self) -> dict:
+        with self.runtime.cfg_lock:
+            tracking_cfg = (self.runtime.platform_cfg or {}).get("tracking") or {}
+            control = tracking_cfg.get("control") or {}
+            return {
+                "rx_zmq_addr": str(control.get("rx_zmq_addr", "tcp://127.0.0.1:52003")),
+                "tx_zmq_addr": str(control.get("tx_zmq_addr", "tcp://127.0.0.1:52004")),
+                "tick_period_s": float(control.get("tick_period_s", 1.0)),
+            }
+
+    def config_model(self):
+        with self.runtime.cfg_lock:
+            raw = copy.deepcopy((self.runtime.platform_cfg or {}).get("tracking"))
+        return normalize_tracking_config(raw)
+
+    def config(self) -> dict:
+        return to_plain(self.config_model())
+
+    def state(self, *, time_ms: int | None = None, pass_count: int = 10) -> dict:
+        ts_ms = _now_ms() if time_ms is None else int(time_ms)
+        config = self.config_model()
+        state = tracking_state(
+            config,
+            time_ms=ts_ms,
+            doppler_mode=self._doppler_mode,
+            pass_count=pass_count,
+        )
+        if self._doppler_mode == "connected":
+            self._publish(state.doppler)
+        return to_plain(state)
+
+    def passes(self, *, from_ms: int | None = None, count: int = 10) -> dict:
+        ts_ms = _now_ms() if from_ms is None else int(from_ms)
+        config = self.config_model()
+        satellite = build_satellite(config)
+        passes = upcoming_passes(satellite, config.selected_station, ts_ms, count=count)
+        return {
+            "ts_ms": ts_ms,
+            "station_id": config.selected_station.id,
+            "satellite": config.tle.name,
+            "passes": [asdict(item) for item in passes],
+        }
+
+    def pass_by_id(self, pass_id: str, *, from_ms: int | None = None) -> dict | None:
+        ts_ms = _now_ms() if from_ms is None else int(from_ms)
+        config = self.config_model()
+        satellite = build_satellite(config)
+        passes = upcoming_passes(satellite, config.selected_station, ts_ms, count=20)
+        match = next((item for item in passes if item.id == pass_id), None)
+        if match is None:
+            return None
+        return to_plain(pass_detail(satellite, config.selected_station, match))
+
+    def doppler(self, *, time_ms: int | None = None) -> dict:
+        ts_ms = _now_ms() if time_ms is None else int(time_ms)
+        config = self.config_model()
+        satellite = build_satellite(config)
+        look = look_angles_at(satellite, config.selected_station, ts_ms)
+        correction = doppler_correction(
+            time_ms=ts_ms,
+            station=config.selected_station,
+            satellite_name=config.tle.name,
+            mode=self._doppler_mode,
+            look=look,
+            rx_hz=config.frequencies.rx_hz,
+            tx_hz=config.frequencies.tx_hz,
+        )
+        if self._doppler_mode == "connected":
+            self._publish(correction)
+        self._last_tick_ms = ts_ms
+        return asdict(correction)
+
+    def status(self) -> dict:
+        return {
+            "mode": self._doppler_mode,
+            "last_error": self._last_error,
+            "last_tick_ms": self._last_tick_ms,
+        }
+
+    def _publish(self, correction: DopplerCorrection) -> None:
+        with self._sink_lock:
+            sink = self._sink
+        sink.publish(correction)
+
+
+def _now_ms() -> int:
+    return int(time.time() * 1000)
+
+
+__all__ = ["DopplerSink", "NullDopplerSink", "TrackingService"]
