@@ -175,6 +175,16 @@ def _project_parameter_types(doc: MissionDocument) -> dict[str, ParameterType]:
 def _project_one_param_type(name: str, t) -> ParameterType:
     kind = t.kind
     if kind == "int":
+        if t.wire_format == "i16_tokens" and t.size_bits < 16:
+            raise ParseError(
+                f"int {name!r}: wire_format=i16_tokens requires size_bits >= 16 "
+                f"(got {t.size_bits})"
+            )
+        if t.wire_format == "u8_tokens" and t.size_bits < 8:
+            raise ParseError(
+                f"int {name!r}: wire_format=u8_tokens requires size_bits >= 8 "
+                f"(got {t.size_bits})"
+            )
         return IntegerParameterType(
             name=name, size_bits=t.size_bits, signed=t.signed,
             byte_order=t.byte_order, calibrator=_project_calibrator(t.calibrator),
@@ -222,6 +232,37 @@ def _project_one_param_type(name: str, t) -> ParameterType:
             AggregateMember(name=m.name, type_ref=m.type, unit=m.unit)
             for m in t.member_list
         )
+        # Wire-encoding fields are mutually-required for calibrator-backed
+        # aggregates. Reject incoherent combinations at parse time so the
+        # walker doesn't have to guess later.
+        if t.size_bits is not None:
+            if t.byte_order is None:
+                raise ParseError(
+                    f"aggregate {name!r}: size_bits requires byte_order"
+                )
+            if t.calibrator is None:
+                raise ParseError(
+                    f"aggregate {name!r}: size_bits requires a calibrator "
+                    "(wire-encoded aggregates are produced by a calibrator "
+                    "from the raw integer)"
+                )
+            if t.wire_format == "i16_tokens" and t.size_bits < 16:
+                raise ParseError(
+                    f"aggregate {name!r}: wire_format=i16_tokens requires "
+                    f"size_bits >= 16 (got {t.size_bits})"
+                )
+        else:
+            if t.byte_order is not None or t.signed or t.wire_format != "single_token":
+                raise ParseError(
+                    f"aggregate {name!r}: byte_order / signed / wire_format "
+                    "are only valid when size_bits is set (in-place aggregate "
+                    "decode walks members; wire encoding does not apply)"
+                )
+            if t.calibrator is not None:
+                raise ParseError(
+                    f"aggregate {name!r}: calibrator is only valid when "
+                    "size_bits is set"
+                )
         return AggregateParameterType(
             name=name, member_list=members, unit=t.unit, description=t.description,
             size_bits=t.size_bits, byte_order=t.byte_order, signed=t.signed,
@@ -499,18 +540,52 @@ def _check_verifier_refs(
 
 def _check_type_refs(parameter_types, bitfield_types, parameters, containers, meta_commands):
     legal = set(parameter_types) | set(bitfield_types)
+    # Top-level parameter refs
     for p in parameters.values():
         if p.type_ref not in legal:
             raise UnknownTypeRef(p.type_ref, source=f"parameters.{p.name}.type")
+    # Container entry refs (incl. inner refs of repeat entries)
     for c in containers.values():
         for e in c.entry_list:
             if isinstance(e, ParameterRefEntry):
                 if e.type_ref not in legal:
                     raise UnknownTypeRef(e.type_ref, source=f"sequence_containers.{c.name}.entry_list[{e.name}].type")
+            elif isinstance(e, RepeatEntry):
+                inner = e.entry
+                if inner.type_ref not in legal:
+                    raise UnknownTypeRef(
+                        inner.type_ref,
+                        source=f"sequence_containers.{c.name}.entry_list[{inner.name}@repeat].type",
+                    )
+    # Command argument refs
     for m in meta_commands.values():
         for a in m.argument_list + m.rx_args:
             if a.type_ref not in legal:
                 raise UnknownTypeRef(a.type_ref, source=f"meta_commands.{m.id}.argument_list[{a.name}].type")
+    # Aggregate member refs
+    for tname, t in parameter_types.items():
+        if isinstance(t, AggregateParameterType):
+            for m in t.member_list:
+                if m.type_ref not in legal:
+                    raise UnknownTypeRef(
+                        m.type_ref,
+                        source=f"parameter_types.{tname}.member_list[{m.name}].type",
+                    )
+        elif isinstance(t, ArrayParameterType):
+            if t.array_type_ref not in legal:
+                raise UnknownTypeRef(
+                    t.array_type_ref,
+                    source=f"parameter_types.{tname}.array_type_ref",
+                )
+    # Bitfield enum refs
+    for bname, bf in bitfield_types.items():
+        for e in bf.entry_list:
+            if e.kind == "enum" and e.enum_ref is not None:
+                if e.enum_ref not in legal:
+                    raise UnknownTypeRef(
+                        e.enum_ref,
+                        source=f"bitfield_types.{bname}.entry_list[{e.name}].enum_ref",
+                    )
 
 
 def _check_base_container_refs(containers: Mapping[str, SequenceContainer]) -> None:

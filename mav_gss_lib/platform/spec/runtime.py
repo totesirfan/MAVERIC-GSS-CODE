@@ -507,6 +507,10 @@ class EntryDecoder:
                 bit_cursor = BitCursor(buf)
             value: Any = BitfieldDecoder(types=self._types).decode(bf, bit_cursor)
             unit = ""
+            # Bitfield decode produces the slice dict; record it in decoded_into
+            # so a child container's parent_args predicates can dispatch on a
+            # named slice (e.g., MODE) of this register.
+            decoded_into[entry.name] = value
         else:
             t = self._types[entry.type_ref]
             if container.layout == "binary":
@@ -530,7 +534,10 @@ class EntryDecoder:
                 else:
                     raw = self._codec.decode_ascii(entry.type_ref, cursor)
                     value, unit = self._calibrators.apply(entry.type_ref, raw)
-            decoded_into[entry.name] = value if entry.type_ref in self._bitfields else raw
+            # Non-bitfield path: record the raw decoded value (pre-calibrator)
+            # so dynamic_ref / parent_args lookups see the underlying integer
+            # rather than a calibrator-produced dict.
+            decoded_into[entry.name] = raw
         if entry.emit:
             group = self._domain_for(container, entry.name)
             yield ParamUpdate(

@@ -571,5 +571,97 @@ class TestCalibratorBackedAggregateType(unittest.TestCase):
         self.assertAlmostEqual(out_bin["y"], 2.5)
 
 
+class TestCalibratorMemberListContract(unittest.TestCase):
+    """Calibrator-backed aggregates must produce dicts matching the declared
+    MemberList exactly. Mismatches surface as ValueError rather than emitting
+    malformed dicts."""
+
+    def _build(self, calibrator_fn):
+        from mav_gss_lib.platform.spec.bitfield import BitfieldType
+        from mav_gss_lib.platform.spec.calibrator_runtime import CalibratorRuntime
+        from mav_gss_lib.platform.spec.calibrators import PythonCalibrator
+        from mav_gss_lib.platform.spec.parameter_types import (
+            AggregateMember,
+            AggregateParameterType,
+        )
+
+        agg = AggregateParameterType(
+            name="Stub",
+            member_list=(
+                AggregateMember(name="brdtmp", type_ref="i16"),
+                AggregateMember(name="celsius", type_ref="f32_le"),
+                AggregateMember(name="comm_fault", type_ref="bool"),
+            ),
+            size_bits=32, byte_order="little", signed=False,
+            wire_format="i16_tokens",
+            calibrator=PythonCalibrator(callable_ref="stub.cal"),
+        )
+        types = {**BUILT_IN_PARAMETER_TYPES, "Stub": agg}
+        return CalibratorRuntime(types=types, plugins={"stub.cal": calibrator_fn})
+
+    def test_complete_dict_passes(self):
+        cal = self._build(lambda raw: ({"brdtmp": 0, "celsius": 0.0, "comm_fault": False}, "°C"))
+        value, unit = cal.apply("Stub", 0)
+        self.assertEqual(set(value), {"brdtmp", "celsius", "comm_fault"})
+
+    def test_missing_member_raises(self):
+        cal = self._build(lambda raw: ({"brdtmp": 0, "celsius": 0.0}, "°C"))
+        with self.assertRaisesRegex(ValueError, r"missing.*comm_fault"):
+            cal.apply("Stub", 0)
+
+    def test_extra_member_raises(self):
+        cal = self._build(lambda raw: ({
+            "brdtmp": 0, "celsius": 0.0, "comm_fault": False, "rogue": 1,
+        }, "°C"))
+        with self.assertRaisesRegex(ValueError, r"extra.*rogue"):
+            cal.apply("Stub", 0)
+
+    def test_non_dict_output_raises(self):
+        cal = self._build(lambda raw: ([1, 2, 3], ""))
+        with self.assertRaisesRegex(ValueError, r"expected dict"):
+            cal.apply("Stub", 0)
+
+
+class TestBitfieldDispatchPopulatesDecodedInto(unittest.TestCase):
+    """Bitfield decode must record its slice dict into decoded_into so
+    a child container can dispatch on a named slice via parent_args."""
+
+    def test_bitfield_value_is_visible_to_parent_args_lookup(self):
+        from mav_gss_lib.platform.spec.bitfield import BitfieldEntry, BitfieldType
+        from mav_gss_lib.platform.spec.calibrator_runtime import CalibratorRuntime
+        from mav_gss_lib.platform.spec.runtime import EntryDecoder, TypeCodec
+
+        bf = BitfieldType(
+            name="MyReg",
+            size_bits=32,
+            byte_order="little",
+            entry_list=(
+                BitfieldEntry(name="MODE", bits=(0, 6), kind="uint", enum_ref=None, unit=""),
+                BitfieldEntry(name="FLAG7", bits=(7, 7), kind="bool", enum_ref=None, unit=""),
+            ),
+        )
+        param = Parameter(name="STAT", type_ref="MyReg", description="", domain="gnc")
+        types = dict(BUILT_IN_PARAMETER_TYPES)
+        codec = TypeCodec(types=types)
+        cals = CalibratorRuntime(types=types, plugins={})
+        decoder = EntryDecoder(
+            types=types, codec=codec, calibrators=cals,
+            bitfields={"MyReg": bf}, parameters={"STAT": param},
+        )
+        container = SequenceContainer(
+            name="c", domain="gnc", layout="binary", abstract=False,
+            base_container_ref=None, restriction_criteria=None,
+            entry_list=(ParameterRefEntry(name="STAT", type_ref="MyReg", emit=True),),
+        )
+        cursor = BitCursor(b"\x01\x80\x00\x00")
+        decoded: dict = {}
+        list(decoder.walk(container, cursor, now_ms=0, decoded_into=decoded))
+        # decoded_into must carry the bitfield slice dict so parent_args
+        # predicates like {STAT.MODE: 1} could resolve.
+        self.assertIn("STAT", decoded)
+        self.assertEqual(decoded["STAT"]["MODE"], 1)
+        self.assertEqual(decoded["STAT"]["FLAG7"], False)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -171,5 +171,160 @@ class TestEntryListPureParameterRef(unittest.TestCase):
             self.assertIn("GncMode", msg)
 
 
+class TestWireBackedAggregateValidation(unittest.TestCase):
+    """Wire-backed aggregate parameter types must declare a coherent set of
+    fields. Incoherent combinations are parse-time errors so the walker
+    doesn't have to guess later."""
+
+    def _agg_yaml(self, agg_block: str) -> str:
+        # Minimal mission with a custom aggregate type
+        return textwrap.dedent(f"""
+        schema_version: 1
+        id: m
+        name: m
+        header:
+          version: "1.0.0"
+          date: "2026-04-30"
+          description: "test"
+        parameter_types:
+          MyAgg:
+{textwrap.indent(agg_block, '            ')}
+        parameters:
+          P: {{ type: MyAgg, domain: gnc }}
+        sequence_containers:
+          c:
+            domain: gnc
+            layout: ascii_tokens
+            restriction_criteria:
+              packet:
+                cmd_id: foo
+                ptype: RES
+            entry_list:
+              - {{ name: P }}
+        meta_commands: {{}}
+        """).lstrip()
+
+    def test_size_bits_without_byte_order_raises(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            block = textwrap.dedent("""
+                kind: aggregate
+                size_bits: 32
+                wire_format: u8_tokens
+                calibrator:
+                  python: "stub"
+                member_list:
+                  - { name: x, type: u8 }
+            """).strip()
+            p = _write_tmp_yaml(tmp, "m.yml", self._agg_yaml(block))
+            with self.assertRaisesRegex(ParseError, r"byte_order"):
+                parse_yaml(p, plugins={"stub": lambda r: ({"x": 0}, "")})
+
+    def test_size_bits_without_calibrator_raises(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            block = textwrap.dedent("""
+                kind: aggregate
+                size_bits: 32
+                byte_order: little
+                wire_format: u8_tokens
+                member_list:
+                  - { name: x, type: u8 }
+            """).strip()
+            p = _write_tmp_yaml(tmp, "m.yml", self._agg_yaml(block))
+            with self.assertRaisesRegex(ParseError, r"calibrator"):
+                parse_yaml(p, plugins={})
+
+    def test_i16_tokens_with_size_bits_8_raises(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            block = textwrap.dedent("""
+                kind: aggregate
+                size_bits: 8
+                byte_order: little
+                wire_format: i16_tokens
+                calibrator:
+                  python: "stub"
+                member_list:
+                  - { name: x, type: u8 }
+            """).strip()
+            p = _write_tmp_yaml(tmp, "m.yml", self._agg_yaml(block))
+            with self.assertRaisesRegex(ParseError, r"i16_tokens.*size_bits"):
+                parse_yaml(p, plugins={"stub": lambda r: ({"x": 0}, "")})
+
+    def test_in_place_aggregate_with_calibrator_raises(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            block = textwrap.dedent("""
+                kind: aggregate
+                calibrator:
+                  python: "stub"
+                member_list:
+                  - { name: x, type: u8 }
+            """).strip()
+            p = _write_tmp_yaml(tmp, "m.yml", self._agg_yaml(block))
+            with self.assertRaisesRegex(ParseError, r"calibrator.*size_bits"):
+                parse_yaml(p, plugins={"stub": lambda r: ({"x": 0}, "")})
+
+
+class TestNestedTypeRefChecks(unittest.TestCase):
+    """Cross-reference checks must catch unknown type refs in aggregate
+    member lists, array element refs, and bitfield enum refs."""
+
+    _HEADER = textwrap.dedent("""
+        schema_version: 1
+        id: m
+        name: m
+        header:
+          version: "1.0.0"
+          date: "2026-04-30"
+          description: "test"
+    """).lstrip()
+
+    def test_aggregate_member_unknown_type_ref_raises(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            yaml_text = self._HEADER + textwrap.dedent("""
+            parameter_types:
+              Bad:
+                kind: aggregate
+                member_list:
+                  - { name: x, type: NoSuchType }
+            parameters:
+              P: { type: Bad }
+            sequence_containers: {}
+            meta_commands: {}
+            """)
+            p = _write_tmp_yaml(tmp, "m.yml", yaml_text)
+            with self.assertRaisesRegex(Exception, r"NoSuchType"):
+                parse_yaml(p, plugins={})
+
+    def test_bitfield_enum_ref_unknown_raises(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            yaml_text = self._HEADER + textwrap.dedent("""
+            parameter_types: {}
+            bitfield_types:
+              MyReg:
+                size_bits: 32
+                byte_order: little
+                entry_list:
+                  - { name: MODE, bits: [0, 6], kind: enum, enum_ref: NoSuchEnum }
+            parameters:
+              S: { type: MyReg }
+            sequence_containers: {}
+            meta_commands: {}
+            """)
+            p = _write_tmp_yaml(tmp, "m.yml", yaml_text)
+            with self.assertRaisesRegex(Exception, r"NoSuchEnum"):
+                parse_yaml(p, plugins={})
+
+
 if __name__ == "__main__":
     unittest.main()
