@@ -57,8 +57,12 @@ class ZmqDopplerSink:
 
 
 def _freq_message(freq_hz: float) -> bytes:
+    # Explicit chan=0 so the command is unambiguous against any future
+    # multi-channel build of MAV_DUO. Matches the .grc's center_freq0
+    # binding for both uhd_usrp_source and uhd_usrp_sink.
     msg = pmt.make_dict()
     msg = pmt.dict_add(msg, pmt.intern("freq"), pmt.from_double(float(freq_hz)))
+    msg = pmt.dict_add(msg, pmt.intern("chan"), pmt.from_long(0))
     return pmt.serialize_str(msg)
 
 
