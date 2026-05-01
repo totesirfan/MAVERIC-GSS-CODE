@@ -1,6 +1,24 @@
 import unittest
 from dataclasses import dataclass
 
+from mav_gss_lib.platform.spec.bitfield import BitfieldEntry, BitfieldType
+from mav_gss_lib.platform.spec.calibrators import PythonCalibrator
+from mav_gss_lib.platform.spec.containers import (
+    Comparison,
+    ParameterRefEntry,
+    RestrictionCriteria,
+    SequenceContainer,
+)
+from mav_gss_lib.platform.spec.cursor import BitCursor, TokenCursor
+from mav_gss_lib.platform.spec.mission import Mission, MissionHeader
+from mav_gss_lib.platform.spec.parameter_types import (
+    BUILT_IN_PARAMETER_TYPES,
+    EnumeratedParameterType,
+    EnumValue,
+    IntegerParameterType,
+)
+from mav_gss_lib.platform.spec.parameters import Parameter
+from mav_gss_lib.platform.spec.runtime import DeclarativeWalker, TypeCodec
 from mav_gss_lib.platform.spec.walker_packet import WalkerPacket
 
 
@@ -21,6 +39,628 @@ class TestWalkerPacket(unittest.TestCase):
             header: dict
 
         self.assertNotIsInstance(NoArgs(header={}), WalkerPacket)
+
+
+def _build_mission(
+    *,
+    bitfield: BitfieldType,
+    parameter: Parameter,
+    binary_container: SequenceContainer,
+    ascii_container: SequenceContainer,
+    extra_types: dict | None = None,
+) -> Mission:
+    types = dict(BUILT_IN_PARAMETER_TYPES)
+    if extra_types:
+        types.update(extra_types)
+    return Mission(
+        id="test_mission",
+        name="test_mission",
+        header=MissionHeader(version="0", date="2026-01-01"),
+        parameter_types=types,
+        parameters={parameter.name: parameter},
+        bitfield_types={bitfield.name: bitfield},
+        sequence_containers={
+            binary_container.name: binary_container,
+            ascii_container.name: ascii_container,
+        },
+        meta_commands={},
+    )
+
+
+class TestBitfieldDecodeUnderBothLayouts(unittest.TestCase):
+    """Phase 1 of XTCE 1.3 alignment: bitfield types decode identically
+    under both binary and ascii_tokens layouts. The wire transport (raw
+    bytes vs. whitespace-delimited u8 tokens) is orthogonal to type-system
+    interpretation.
+    """
+
+    def test_simple_bitfield_decodes_identically_under_both_layouts(self):
+        # 32-bit register, byte_order=little:
+        # document-order byte 0 is the LSB byte → register = 0x00008001.
+        # MODE (bits 0..6) = 1, FLAG7 (bit 7) = 0, B15 (bit 15) = 1.
+        bf = BitfieldType(
+            name="MyReg",
+            size_bits=32,
+            byte_order="little",
+            entry_list=(
+                BitfieldEntry(name="MODE", bits=(0, 6), kind="uint"),
+                BitfieldEntry(name="FLAG7", bits=(7, 7), kind="bool"),
+                BitfieldEntry(name="B15", bits=(15, 15), kind="bool"),
+            ),
+        )
+        param = Parameter(name="STAT", type_ref="MyReg", domain="reg")
+        rc_binary = RestrictionCriteria(
+            packet=(Comparison(parameter_ref="cmd_id", value="bin_pkt"),),
+        )
+        rc_ascii = RestrictionCriteria(
+            packet=(Comparison(parameter_ref="cmd_id", value="ascii_pkt"),),
+        )
+        binary_container = SequenceContainer(
+            name="binary_container",
+            entry_list=(ParameterRefEntry(name="STAT", type_ref="MyReg"),),
+            restriction_criteria=rc_binary,
+            layout="binary",
+            domain="reg",
+        )
+        ascii_container = SequenceContainer(
+            name="ascii_container",
+            entry_list=(ParameterRefEntry(name="STAT", type_ref="MyReg"),),
+            restriction_criteria=rc_ascii,
+            layout="ascii_tokens",
+            domain="reg",
+        )
+        mission = _build_mission(
+            bitfield=bf,
+            parameter=param,
+            binary_container=binary_container,
+            ascii_container=ascii_container,
+        )
+        walker = DeclarativeWalker(mission, plugins={})
+
+        bin_pkt = _StubPacket(
+            args_raw=b"\x01\x80\x00\x00", header={"cmd_id": "bin_pkt"},
+        )
+        ascii_pkt = _StubPacket(
+            args_raw=b"1 128 0 0", header={"cmd_id": "ascii_pkt"},
+        )
+
+        bin_updates = list(walker.extract(bin_pkt, now_ms=0))
+        ascii_updates = list(walker.extract(ascii_pkt, now_ms=0))
+
+        self.assertEqual(len(bin_updates), 1)
+        self.assertEqual(len(ascii_updates), 1)
+        self.assertEqual(bin_updates[0].name, "reg.STAT")
+        self.assertEqual(ascii_updates[0].name, "reg.STAT")
+        expected = {"MODE": 1, "FLAG7": False, "B15": True}
+        self.assertEqual(bin_updates[0].value, expected)
+        self.assertEqual(ascii_updates[0].value, expected)
+        self.assertEqual(bin_updates[0].value, ascii_updates[0].value)
+
+    def test_realistic_bitfield_with_enum_and_bools_under_both_layouts(self):
+        # Mirrors the shape of a real status register: an enum mode slice in
+        # the low bits, a handful of bools, an unsigned counter, all packed
+        # into a 32-bit little-endian register. Test does not import any
+        # mission package — just exercises the same shape declaratively.
+        ctrl_mode_t = EnumeratedParameterType(
+            name="CtrlMode",
+            size_bits=8,
+            values=(
+                EnumValue(raw=0, label="IDLE"),
+                EnumValue(raw=1, label="RUN"),
+                EnumValue(raw=2, label="SAFE"),
+            ),
+        )
+        bf = BitfieldType(
+            name="StatReg",
+            size_bits=32,
+            byte_order="little",
+            entry_list=(
+                BitfieldEntry(
+                    name="ctrl_mode", bits=(0, 2), kind="enum", enum_ref="CtrlMode",
+                ),
+                BitfieldEntry(name="run_ok", bits=(3, 3), kind="bool"),
+                BitfieldEntry(name="fault", bits=(4, 4), kind="bool"),
+                BitfieldEntry(name="self_test", bits=(5, 5), kind="bool"),
+                BitfieldEntry(name="err_cnt", bits=(8, 15), kind="uint"),
+            ),
+        )
+        param = Parameter(name="STAT", type_ref="StatReg", domain="reg")
+        rc_binary = RestrictionCriteria(
+            packet=(Comparison(parameter_ref="cmd_id", value="bin_pkt"),),
+        )
+        rc_ascii = RestrictionCriteria(
+            packet=(Comparison(parameter_ref="cmd_id", value="ascii_pkt"),),
+        )
+        binary_container = SequenceContainer(
+            name="binary_container",
+            entry_list=(ParameterRefEntry(name="STAT", type_ref="StatReg"),),
+            restriction_criteria=rc_binary,
+            layout="binary",
+            domain="reg",
+        )
+        ascii_container = SequenceContainer(
+            name="ascii_container",
+            entry_list=(ParameterRefEntry(name="STAT", type_ref="StatReg"),),
+            restriction_criteria=rc_ascii,
+            layout="ascii_tokens",
+            domain="reg",
+        )
+        mission = _build_mission(
+            bitfield=bf,
+            parameter=param,
+            binary_container=binary_container,
+            ascii_container=ascii_container,
+            extra_types={"CtrlMode": ctrl_mode_t},
+        )
+        walker = DeclarativeWalker(mission, plugins={})
+
+        # Build a register value = 0x00057E + (err_cnt=0x2A << 8) = 0x2A057E? Easier:
+        # Choose: ctrl_mode=1 (RUN), run_ok=1, fault=0, self_test=1, err_cnt=42.
+        # Low byte: bits 0..2=001, bit3=1, bit4=0, bit5=1, bits6,7=0 → 0b00101001 = 0x29.
+        # Next byte: err_cnt low 8 bits = 42 = 0x2A.
+        # High two bytes = 0.
+        bin_pkt = _StubPacket(
+            args_raw=b"\x29\x2A\x00\x00", header={"cmd_id": "bin_pkt"},
+        )
+        ascii_pkt = _StubPacket(
+            args_raw=b"41 42 0 0", header={"cmd_id": "ascii_pkt"},
+        )
+
+        bin_updates = list(walker.extract(bin_pkt, now_ms=0))
+        ascii_updates = list(walker.extract(ascii_pkt, now_ms=0))
+
+        self.assertEqual(len(bin_updates), 1)
+        self.assertEqual(len(ascii_updates), 1)
+
+        expected = {
+            "ctrl_mode": 1,
+            "ctrl_mode_name": "RUN",
+            "run_ok": True,
+            "fault": False,
+            "self_test": True,
+            "err_cnt": 42,
+        }
+        self.assertEqual(bin_updates[0].value, expected)
+        self.assertEqual(ascii_updates[0].value, expected)
+        self.assertEqual(bin_updates[0].value, ascii_updates[0].value)
+
+    def test_ascii_bitfield_token_out_of_u8_range_raises(self):
+        # An ascii_tokens register should not silently truncate `256` or `-1`
+        # to a low byte — that hides spacecraft-side bugs. The walker must
+        # raise ValueError naming the offending bitfield.
+        bf = BitfieldType(
+            name="MyReg",
+            size_bits=32,
+            byte_order="little",
+            entry_list=(
+                BitfieldEntry(name="MODE", bits=(0, 6), kind="uint"),
+            ),
+        )
+        param = Parameter(name="STAT", type_ref="MyReg", domain="reg")
+        rc_binary = RestrictionCriteria(
+            packet=(Comparison(parameter_ref="cmd_id", value="bin_pkt"),),
+        )
+        rc_ascii = RestrictionCriteria(
+            packet=(Comparison(parameter_ref="cmd_id", value="ascii_pkt"),),
+        )
+        binary_container = SequenceContainer(
+            name="binary_container",
+            entry_list=(ParameterRefEntry(name="STAT", type_ref="MyReg"),),
+            restriction_criteria=rc_binary,
+            layout="binary",
+            domain="reg",
+        )
+        ascii_container = SequenceContainer(
+            name="ascii_container",
+            entry_list=(ParameterRefEntry(name="STAT", type_ref="MyReg"),),
+            restriction_criteria=rc_ascii,
+            layout="ascii_tokens",
+            domain="reg",
+        )
+        mission = _build_mission(
+            bitfield=bf,
+            parameter=param,
+            binary_container=binary_container,
+            ascii_container=ascii_container,
+        )
+        walker = DeclarativeWalker(mission, plugins={})
+
+        bad_pkt = _StubPacket(
+            args_raw=b"256 0 0 0", header={"cmd_id": "ascii_pkt"},
+        )
+        with self.assertRaisesRegex(ValueError, r"MyReg"):
+            list(walker.extract(bad_pkt, now_ms=0))
+
+
+class TestIntegerWireFormatU8Tokens(unittest.TestCase):
+    """Phase 2 of XTCE 1.3 alignment: IntegerParameterType opt-in
+    wire_format=u8_tokens decodes ascii_tokens layout as size_bits/8 u8
+    decimal tokens packed in declared byte_order. Binary layout
+    unchanged. Default (single_token) preserves the prior single-int
+    behavior.
+    """
+
+    def test_u8_tokens_decodes_same_int_under_both_layouts(self):
+        # 32-bit little-endian unsigned int with wire_format=u8_tokens.
+        # Document-order byte 0 is the LSB → register = 0x00002A29.
+        u32_packed = IntegerParameterType(
+            name="U32Packed",
+            size_bits=32,
+            signed=False,
+            byte_order="little",
+            wire_format="u8_tokens",
+        )
+        types = dict(BUILT_IN_PARAMETER_TYPES)
+        types["U32Packed"] = u32_packed
+        codec = TypeCodec(types=types)
+
+        bin_cursor = BitCursor(b"\x29\x2A\x00\x00")
+        ascii_cursor = TokenCursor(b"41 42 0 0")
+        bin_value = codec.decode_binary("U32Packed", bin_cursor)
+        ascii_value = codec.decode_ascii("U32Packed", ascii_cursor)
+
+        self.assertEqual(bin_value, 0x00002A29)
+        self.assertEqual(ascii_value, 0x00002A29)
+        self.assertEqual(bin_value, ascii_value)
+
+    def test_calibrator_runs_on_decoded_int_under_both_layouts(self):
+        # Mirrors AdcsTmp shape: int kind, 32-bit LE unsigned, u8_tokens
+        # wire format, calibrator that returns (dict, unit). The same byte
+        # content (binary or ASCII) must produce the same calibrated dict.
+        def fake_calibrator(raw):
+            low = raw & 0xFFFF
+            return ({"brdtmp": low, "doubled": low * 2}, "°C")
+
+        adcs_like = IntegerParameterType(
+            name="AdcsLike",
+            size_bits=32,
+            signed=False,
+            byte_order="little",
+            calibrator=PythonCalibrator(callable_ref="fake.adcs", unit="°C"),
+            wire_format="u8_tokens",
+        )
+        param = Parameter(name="STAT", type_ref="AdcsLike", domain="adcs")
+        rc_binary = RestrictionCriteria(
+            packet=(Comparison(parameter_ref="cmd_id", value="bin_pkt"),),
+        )
+        rc_ascii = RestrictionCriteria(
+            packet=(Comparison(parameter_ref="cmd_id", value="ascii_pkt"),),
+        )
+        binary_container = SequenceContainer(
+            name="binary_container",
+            entry_list=(ParameterRefEntry(name="STAT", type_ref="AdcsLike"),),
+            restriction_criteria=rc_binary,
+            layout="binary",
+            domain="adcs",
+        )
+        ascii_container = SequenceContainer(
+            name="ascii_container",
+            entry_list=(ParameterRefEntry(name="STAT", type_ref="AdcsLike"),),
+            restriction_criteria=rc_ascii,
+            layout="ascii_tokens",
+            domain="adcs",
+        )
+        types = dict(BUILT_IN_PARAMETER_TYPES)
+        types["AdcsLike"] = adcs_like
+        mission = Mission(
+            id="test_mission",
+            name="test_mission",
+            header=MissionHeader(version="0", date="2026-01-01"),
+            parameter_types=types,
+            parameters={param.name: param},
+            bitfield_types={},
+            sequence_containers={
+                binary_container.name: binary_container,
+                ascii_container.name: ascii_container,
+            },
+            meta_commands={},
+        )
+        walker = DeclarativeWalker(mission, plugins={"fake.adcs": fake_calibrator})
+
+        bin_pkt = _StubPacket(
+            args_raw=b"\x29\x2A\x00\x00", header={"cmd_id": "bin_pkt"},
+        )
+        ascii_pkt = _StubPacket(
+            args_raw=b"41 42 0 0", header={"cmd_id": "ascii_pkt"},
+        )
+        bin_updates = list(walker.extract(bin_pkt, now_ms=0))
+        ascii_updates = list(walker.extract(ascii_pkt, now_ms=0))
+
+        self.assertEqual(len(bin_updates), 1)
+        self.assertEqual(len(ascii_updates), 1)
+        expected = {"brdtmp": 0x2A29, "doubled": 0x2A29 * 2}
+        self.assertEqual(bin_updates[0].value, expected)
+        self.assertEqual(ascii_updates[0].value, expected)
+        self.assertEqual(bin_updates[0].unit, "°C")
+        self.assertEqual(ascii_updates[0].unit, "°C")
+
+    def test_default_wire_format_reads_single_token_as_int(self):
+        # Regression: an IntegerParameterType without wire_format declared
+        # must continue to read ONE ascii token as the integer value.
+        single = IntegerParameterType(
+            name="SingleU32",
+            size_bits=32,
+            signed=False,
+            byte_order="little",
+        )
+        types = dict(BUILT_IN_PARAMETER_TYPES)
+        types["SingleU32"] = single
+        codec = TypeCodec(types=types)
+        ascii_cursor = TokenCursor(b"123456")
+        self.assertEqual(codec.decode_ascii("SingleU32", ascii_cursor), 123456)
+
+    def test_i16_tokens_decodes_pair_under_both_layouts(self):
+        # 32-bit LE unsigned int with wire_format=i16_tokens. The wire
+        # delivers size_bits/16 = 2 signed-int16 ASCII tokens. Mirrors
+        # AdcsTmp / FssTmp: the spacecraft sends "<low_i16> <high_i16>"
+        # which packs into the same uint32 the calibrator unwraps.
+        u32_i16 = IntegerParameterType(
+            name="U32I16Pair",
+            size_bits=32,
+            signed=False,
+            byte_order="little",
+            wire_format="i16_tokens",
+        )
+        types = dict(BUILT_IN_PARAMETER_TYPES)
+        types["U32I16Pair"] = u32_i16
+        codec = TypeCodec(types=types)
+
+        bin_cursor = BitCursor(b"\x0d\x03\x00\x00")
+        ascii_cursor = TokenCursor(b"781 0")
+        bin_value = codec.decode_binary("U32I16Pair", bin_cursor)
+        ascii_value = codec.decode_ascii("U32I16Pair", ascii_cursor)
+
+        self.assertEqual(bin_value, 0x0000030D)
+        self.assertEqual(ascii_value, 0x0000030D)
+        self.assertEqual(bin_value, ascii_value)
+
+    def test_i16_tokens_negative_values_round_trip(self):
+        # Negative ASCII tokens must pack as two's-complement int16 bytes,
+        # producing the same uint32 the binary path would yield. Also
+        # validates that out-of-range tokens raise ValueError naming the
+        # owning type so spacecraft-side bugs surface loudly.
+        u32_i16 = IntegerParameterType(
+            name="U32I16Pair",
+            size_bits=32,
+            signed=False,
+            byte_order="little",
+            wire_format="i16_tokens",
+        )
+        types = dict(BUILT_IN_PARAMETER_TYPES)
+        types["U32I16Pair"] = u32_i16
+        codec = TypeCodec(types=types)
+
+        bin_value = codec.decode_binary("U32I16Pair", BitCursor(b"\xff\xff\x00\x00"))
+        ascii_value = codec.decode_ascii("U32I16Pair", TokenCursor(b"-1 0"))
+        self.assertEqual(bin_value, 0x0000FFFF)
+        self.assertEqual(ascii_value, 0x0000FFFF)
+        self.assertEqual(bin_value, ascii_value)
+
+        with self.assertRaisesRegex(ValueError, r"U32I16Pair"):
+            codec.decode_ascii("U32I16Pair", TokenCursor(b"32768 0"))
+        with self.assertRaisesRegex(ValueError, r"U32I16Pair"):
+            codec.decode_ascii("U32I16Pair", TokenCursor(b"-32769 0"))
+
+
+class TestCalibratorBackedAggregateType(unittest.TestCase):
+    """First-class AggregateParameterType with wire encoding.
+
+    Closes the last `kind: int (calibrator-returns-dict)` smell. When an
+    aggregate carries `size_bits` it decodes N raw bytes from the cursor
+    (binary or ascii_tokens via the same wire_format dispatch as
+    IntegerParameterType), then a calibrator turns the decoded int into
+    the member dict. The XTCE 1.3 declaration finally matches the shape
+    the runtime emits.
+    """
+
+    def test_calibrator_backed_aggregate_decodes_under_both_layouts(self):
+        # Mirrors AdcsTmp / FssTmp: 32-bit LE unsigned wire footprint,
+        # i16_tokens ASCII shape, calibrator that returns the member dict.
+        from mav_gss_lib.platform.spec.parameter_types import (
+            AggregateMember,
+            AggregateParameterType,
+        )
+
+        def fake_calibrator(raw):
+            low = raw & 0xFFFF
+            return ({"brdtmp": low, "doubled": low * 2}, "°C")
+
+        adcs_like = AggregateParameterType(
+            name="AdcsLikeAgg",
+            member_list=(
+                AggregateMember(name="brdtmp", type_ref="i16"),
+                AggregateMember(name="doubled", type_ref="i32"),
+            ),
+            unit="°C",
+            description="aggregate produced by calibrator",
+            size_bits=32,
+            byte_order="little",
+            signed=False,
+            wire_format="i16_tokens",
+            calibrator=PythonCalibrator(callable_ref="fake.adcs_agg", unit="°C"),
+        )
+        param = Parameter(name="STAT", type_ref="AdcsLikeAgg", domain="adcs")
+        rc_binary = RestrictionCriteria(
+            packet=(Comparison(parameter_ref="cmd_id", value="bin_pkt"),),
+        )
+        rc_ascii = RestrictionCriteria(
+            packet=(Comparison(parameter_ref="cmd_id", value="ascii_pkt"),),
+        )
+        binary_container = SequenceContainer(
+            name="binary_container",
+            entry_list=(ParameterRefEntry(name="STAT", type_ref="AdcsLikeAgg"),),
+            restriction_criteria=rc_binary,
+            layout="binary",
+            domain="adcs",
+        )
+        ascii_container = SequenceContainer(
+            name="ascii_container",
+            entry_list=(ParameterRefEntry(name="STAT", type_ref="AdcsLikeAgg"),),
+            restriction_criteria=rc_ascii,
+            layout="ascii_tokens",
+            domain="adcs",
+        )
+        types = dict(BUILT_IN_PARAMETER_TYPES)
+        types["AdcsLikeAgg"] = adcs_like
+        mission = Mission(
+            id="test_mission",
+            name="test_mission",
+            header=MissionHeader(version="0", date="2026-01-01"),
+            parameter_types=types,
+            parameters={param.name: param},
+            bitfield_types={},
+            sequence_containers={
+                binary_container.name: binary_container,
+                ascii_container.name: ascii_container,
+            },
+            meta_commands={},
+        )
+        walker = DeclarativeWalker(
+            mission, plugins={"fake.adcs_agg": fake_calibrator},
+        )
+
+        bin_pkt = _StubPacket(
+            args_raw=b"\x29\x2A\x00\x00", header={"cmd_id": "bin_pkt"},
+        )
+        ascii_pkt = _StubPacket(
+            args_raw=b"10793 0", header={"cmd_id": "ascii_pkt"},
+        )
+        bin_updates = list(walker.extract(bin_pkt, now_ms=0))
+        ascii_updates = list(walker.extract(ascii_pkt, now_ms=0))
+
+        self.assertEqual(len(bin_updates), 1)
+        self.assertEqual(len(ascii_updates), 1)
+        expected = {"brdtmp": 0x2A29, "doubled": 0x2A29 * 2}
+        self.assertEqual(bin_updates[0].value, expected)
+        self.assertEqual(ascii_updates[0].value, expected)
+        self.assertEqual(bin_updates[0].unit, "°C")
+        self.assertEqual(ascii_updates[0].unit, "°C")
+
+    def test_in_place_aggregate_without_size_bits_walks_members(self):
+        # Sanity: the existing in-place aggregate path (no size_bits) keeps
+        # walking members as before. This guards against the new code
+        # accidentally taking the wire-encoded branch for plain aggregates.
+        from mav_gss_lib.platform.spec.parameter_types import (
+            AggregateMember,
+            AggregateParameterType,
+        )
+
+        xy = AggregateParameterType(
+            name="XYInPlace",
+            member_list=(
+                AggregateMember(name="x", type_ref="f32_le"),
+                AggregateMember(name="y", type_ref="f32_le"),
+            ),
+        )
+        types = dict(BUILT_IN_PARAMETER_TYPES)
+        types["XYInPlace"] = xy
+        codec = TypeCodec(types=types)
+
+        # ASCII: two whitespace-delimited float tokens
+        out_ascii = codec.decode_ascii("XYInPlace", TokenCursor(b"1.5 2.5"))
+        self.assertIsInstance(out_ascii, dict)
+        self.assertAlmostEqual(out_ascii["x"], 1.5)
+        self.assertAlmostEqual(out_ascii["y"], 2.5)
+
+        # Binary: two LE float32 values
+        import struct as _struct
+        wire = _struct.pack("<ff", 1.5, 2.5)
+        out_bin = codec.decode_binary("XYInPlace", BitCursor(wire))
+        self.assertIsInstance(out_bin, dict)
+        self.assertAlmostEqual(out_bin["x"], 1.5)
+        self.assertAlmostEqual(out_bin["y"], 2.5)
+
+
+class TestCalibratorMemberListContract(unittest.TestCase):
+    """Calibrator-backed aggregates must produce dicts matching the declared
+    MemberList exactly. Mismatches surface as ValueError rather than emitting
+    malformed dicts."""
+
+    def _build(self, calibrator_fn):
+        from mav_gss_lib.platform.spec.bitfield import BitfieldType
+        from mav_gss_lib.platform.spec.calibrator_runtime import CalibratorRuntime
+        from mav_gss_lib.platform.spec.calibrators import PythonCalibrator
+        from mav_gss_lib.platform.spec.parameter_types import (
+            AggregateMember,
+            AggregateParameterType,
+        )
+
+        agg = AggregateParameterType(
+            name="Stub",
+            member_list=(
+                AggregateMember(name="brdtmp", type_ref="i16"),
+                AggregateMember(name="celsius", type_ref="f32_le"),
+                AggregateMember(name="comm_fault", type_ref="bool"),
+            ),
+            size_bits=32, byte_order="little", signed=False,
+            wire_format="i16_tokens",
+            calibrator=PythonCalibrator(callable_ref="stub.cal"),
+        )
+        types = {**BUILT_IN_PARAMETER_TYPES, "Stub": agg}
+        return CalibratorRuntime(types=types, plugins={"stub.cal": calibrator_fn})
+
+    def test_complete_dict_passes(self):
+        cal = self._build(lambda raw: ({"brdtmp": 0, "celsius": 0.0, "comm_fault": False}, "°C"))
+        value, unit = cal.apply("Stub", 0)
+        self.assertEqual(set(value), {"brdtmp", "celsius", "comm_fault"})
+
+    def test_missing_member_raises(self):
+        cal = self._build(lambda raw: ({"brdtmp": 0, "celsius": 0.0}, "°C"))
+        with self.assertRaisesRegex(ValueError, r"missing.*comm_fault"):
+            cal.apply("Stub", 0)
+
+    def test_extra_member_raises(self):
+        cal = self._build(lambda raw: ({
+            "brdtmp": 0, "celsius": 0.0, "comm_fault": False, "rogue": 1,
+        }, "°C"))
+        with self.assertRaisesRegex(ValueError, r"extra.*rogue"):
+            cal.apply("Stub", 0)
+
+    def test_non_dict_output_raises(self):
+        cal = self._build(lambda raw: ([1, 2, 3], ""))
+        with self.assertRaisesRegex(ValueError, r"expected dict"):
+            cal.apply("Stub", 0)
+
+
+class TestBitfieldDispatchPopulatesDecodedInto(unittest.TestCase):
+    """Bitfield decode must record its slice dict into decoded_into so
+    a child container can dispatch on a named slice via parent_args."""
+
+    def test_bitfield_value_is_visible_to_parent_args_lookup(self):
+        from mav_gss_lib.platform.spec.bitfield import BitfieldEntry, BitfieldType
+        from mav_gss_lib.platform.spec.calibrator_runtime import CalibratorRuntime
+        from mav_gss_lib.platform.spec.runtime import EntryDecoder, TypeCodec
+
+        bf = BitfieldType(
+            name="MyReg",
+            size_bits=32,
+            byte_order="little",
+            entry_list=(
+                BitfieldEntry(name="MODE", bits=(0, 6), kind="uint", enum_ref=None, unit=""),
+                BitfieldEntry(name="FLAG7", bits=(7, 7), kind="bool", enum_ref=None, unit=""),
+            ),
+        )
+        param = Parameter(name="STAT", type_ref="MyReg", description="", domain="gnc")
+        types = dict(BUILT_IN_PARAMETER_TYPES)
+        codec = TypeCodec(types=types)
+        cals = CalibratorRuntime(types=types, plugins={})
+        decoder = EntryDecoder(
+            types=types, codec=codec, calibrators=cals,
+            bitfields={"MyReg": bf}, parameters={"STAT": param},
+        )
+        container = SequenceContainer(
+            name="c", domain="gnc", layout="binary", abstract=False,
+            base_container_ref=None, restriction_criteria=None,
+            entry_list=(ParameterRefEntry(name="STAT", type_ref="MyReg", emit=True),),
+        )
+        cursor = BitCursor(b"\x01\x80\x00\x00")
+        decoded: dict = {}
+        list(decoder.walk(container, cursor, now_ms=0, decoded_into=decoded))
+        # decoded_into must carry the bitfield slice dict so parent_args
+        # predicates like {STAT.MODE: 1} could resolve.
+        self.assertIn("STAT", decoded)
+        self.assertEqual(decoded["STAT"]["MODE"], 1)
+        self.assertEqual(decoded["STAT"]["FLAG7"], False)
 
 
 if __name__ == "__main__":

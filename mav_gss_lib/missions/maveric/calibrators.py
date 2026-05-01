@@ -30,27 +30,28 @@ def _bcd_byte(value: int) -> int:
 
 
 def _maveric_bcd_time(raw: int) -> tuple[dict, str]:
-    """uint32 LE BCD time -> {hour, minute, second, display}.
+    """uint32 LE BCD time -> {hour, minute, second}.
 
     Byte layout (LE): byte[0]=unused, byte[1]=second, byte[2]=minute, byte[3]=hour.
+    Display formatting is the renderer's responsibility.
     """
     second = _bcd_byte((int(raw) >> 8) & 0xFF)
     minute = _bcd_byte((int(raw) >> 16) & 0xFF)
     hour = _bcd_byte((int(raw) >> 24) & 0xFF)
-    display = f"{hour:02d}:{minute:02d}:{second:02d}"
-    return ({"hour": hour, "minute": minute, "second": second, "display": display}, "")
+    return ({"hour": hour, "minute": minute, "second": second}, "")
 
 
 def _maveric_bcd_date(raw: int) -> tuple[dict, str]:
-    """uint32 LE BCD date -> {year, month, day, weekday, display}."""
+    """uint32 LE BCD date -> {year, month, day, weekday}.
+
+    Display formatting is the renderer's responsibility.
+    """
     weekday = _bcd_byte(int(raw) & 0xFF)
     day = _bcd_byte((int(raw) >> 8) & 0xFF)
     month = _bcd_byte((int(raw) >> 16) & 0xFF)
     year = _bcd_byte((int(raw) >> 24) & 0xFF)
-    display = f"{year:02d}-{month:02d}-{day:02d}"
     return (
-        {"year": year, "month": month, "day": day,
-         "weekday": weekday, "display": display},
+        {"year": year, "month": month, "day": day, "weekday": weekday},
         "",
     )
 

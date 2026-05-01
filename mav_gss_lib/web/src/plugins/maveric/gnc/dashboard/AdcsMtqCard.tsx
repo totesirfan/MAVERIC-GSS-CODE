@@ -4,7 +4,7 @@ import { Maveric3DViewer } from './Maveric3DViewer'
 import { ModeStrip } from '../shared/ModeStrip'
 import { MtqBar, MtqBlock, type AxisTick } from '../shared/MtqBars'
 import { TempGauge } from '../shared/TempGauge'
-import { fmtQuat, fmtYpr, fmtDateDisplay } from './format'
+import { fmtQuat, fmtYpr, fmtBcdDate, fmtBcdTime } from './format'
 import {
   qFrom,
   rateFrom,
@@ -150,13 +150,13 @@ export function AdcsMtqCard({ state, nowMs }: AdcsMtqCardProps) {
           />
           <FieldDisplay
             label="Time"
-            value={timeV?.display ?? '—'}
+            value={fmtBcdTime(timeV)}
             receivedAt={time?.t}
             nowMs={nowMs}
           />
           <FieldDisplay
             label="Date"
-            value={fmtDateDisplay(dateV)}
+            value={fmtBcdDate(dateV)}
             receivedAt={date?.t}
             nowMs={nowMs}
           />
@@ -170,33 +170,27 @@ export function AdcsMtqCard({ state, nowMs }: AdcsMtqCardProps) {
               axis="MX"
               valueText={mtqArr ? mtqArr[0].toFixed(4) : '—'}
               unit="A·m²"
-              kind={{
-                type: 'saturation',
-                loPercent: mtqPercent(-MTQ_WARN_LIMIT),
-                hiPercent: mtqPercent(MTQ_WARN_LIMIT),
-              }}
+              valuePercent={mtqArr ? mtqPercent(mtqArr[0]) : undefined}
+              warnLoPercent={mtqPercent(-MTQ_WARN_LIMIT)}
+              warnHiPercent={mtqPercent(MTQ_WARN_LIMIT)}
               muted={!mtqArr}
             />
             <MtqBar
               axis="MY"
               valueText={mtqArr ? mtqArr[1].toFixed(4) : '—'}
               unit="A·m²"
-              kind={{
-                type: 'saturation',
-                loPercent: mtqPercent(-MTQ_WARN_LIMIT),
-                hiPercent: mtqPercent(MTQ_WARN_LIMIT),
-              }}
+              valuePercent={mtqArr ? mtqPercent(mtqArr[1]) : undefined}
+              warnLoPercent={mtqPercent(-MTQ_WARN_LIMIT)}
+              warnHiPercent={mtqPercent(MTQ_WARN_LIMIT)}
               muted={!mtqArr}
             />
             <MtqBar
               axis="MZ"
               valueText={mtqArr ? mtqArr[2].toFixed(4) : '—'}
               unit="A·m²"
-              kind={{
-                type: 'saturation',
-                loPercent: mtqPercent(-MTQ_WARN_LIMIT),
-                hiPercent: mtqPercent(MTQ_WARN_LIMIT),
-              }}
+              valuePercent={mtqArr ? mtqPercent(mtqArr[2]) : undefined}
+              warnLoPercent={mtqPercent(-MTQ_WARN_LIMIT)}
+              warnHiPercent={mtqPercent(MTQ_WARN_LIMIT)}
               muted={!mtqArr}
             />
           </MtqBlock>

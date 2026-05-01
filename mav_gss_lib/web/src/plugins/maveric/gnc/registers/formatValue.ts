@@ -1,4 +1,5 @@
 import type { RegisterSnapshot, RegisterValue } from '../types'
+import { fmtBcdDate, fmtBcdTime } from '../dashboard/format'
 
 /** Collapse a decoded register's `value` into one display string suited
  *  for a table cell. Mirrors the backend shape dispatch used by the
@@ -28,8 +29,13 @@ export function formatRegisterValue(snap: RegisterSnapshot | undefined): string 
     return head ? `status=${status}  ${head}` : `status=${status}`
   }
 
-  // BCD (TIME/DATE)
-  if (typeof obj.display === 'string') return obj.display as string
+  // BCD time/date — structural dispatch on canonical fields.
+  if ('hour' in obj && 'minute' in obj && 'second' in obj) {
+    return fmtBcdTime(obj as { hour: number; minute: number; second: number })
+  }
+  if ('year' in obj && 'month' in obj && 'day' in obj) {
+    return fmtBcdDate(obj as { year: number; month: number; day: number; weekday?: number })
+  }
 
   // ADCS_TMP
   if ('celsius' in obj) {

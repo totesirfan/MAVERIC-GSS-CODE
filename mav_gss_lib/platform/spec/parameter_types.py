@@ -24,6 +24,9 @@ ParameterTypeKind = Literal[
 ]
 
 
+IntegerWireFormat = Literal["single_token", "u8_tokens", "i16_tokens"]
+
+
 @dataclass(frozen=True, slots=True)
 class IntegerParameterType:
     name: str
@@ -34,6 +37,16 @@ class IntegerParameterType:
     unit: str = ""
     valid_range: tuple[float, float] | None = None
     description: str = ""
+    # Controls how the ascii_tokens layout sources the underlying integer.
+    # "single_token" (default): one decimal token == int value.
+    # "u8_tokens": size_bits/8 decimal u8 tokens packed in `byte_order`,
+    # then decoded as int — used for byte-as-token wire shapes like BCD
+    # bytes (BcdTime, BcdDate).
+    # "i16_tokens": size_bits/16 decimal int16 tokens packed in
+    # `byte_order`, then decoded as int — used for spacecraft types that
+    # ship int16 pairs over ASCII (AdcsTmp, FssTmp). Binary path is
+    # unaffected by either token mode.
+    wire_format: IntegerWireFormat = "single_token"
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +108,7 @@ class AbsoluteTimeParameterType:
 class AggregateMember:
     name: str
     type_ref: str
+    unit: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +117,19 @@ class AggregateParameterType:
     member_list: tuple[AggregateMember, ...]
     unit: str = ""
     description: str = ""
+    # Optional wire-encoding fields. When `size_bits` is None (default),
+    # the aggregate is decoded by walking its members in place from the
+    # cursor — the historic behavior. When `size_bits` is set, the
+    # aggregate is read from the wire as a single integer of that
+    # footprint (binary: N raw bytes; ASCII: dispatched on `wire_format`),
+    # and a calibrator turns that int into the emitted member dict. This
+    # lets calibrator-backed types like AdcsTmp / FssTmp / BcdTime /
+    # BcdDate declare their kind honestly: aggregate, not int.
+    size_bits: int | None = None
+    byte_order: ByteOrder | None = None
+    signed: bool = False
+    wire_format: IntegerWireFormat = "single_token"
+    calibrator: Calibrator = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,6 +204,7 @@ BUILT_IN_PARAMETER_TYPES: dict[str, ParameterType] = {
 __all__ = [
     "ParameterType",
     "ParameterTypeKind",
+    "IntegerWireFormat",
     "IntegerParameterType",
     "FloatParameterType",
     "StringParameterType",

@@ -175,10 +175,21 @@ def _project_parameter_types(doc: MissionDocument) -> dict[str, ParameterType]:
 def _project_one_param_type(name: str, t) -> ParameterType:
     kind = t.kind
     if kind == "int":
+        if t.wire_format == "i16_tokens" and t.size_bits < 16:
+            raise ParseError(
+                f"int {name!r}: wire_format=i16_tokens requires size_bits >= 16 "
+                f"(got {t.size_bits})"
+            )
+        if t.wire_format == "u8_tokens" and t.size_bits < 8:
+            raise ParseError(
+                f"int {name!r}: wire_format=u8_tokens requires size_bits >= 8 "
+                f"(got {t.size_bits})"
+            )
         return IntegerParameterType(
             name=name, size_bits=t.size_bits, signed=t.signed,
             byte_order=t.byte_order, calibrator=_project_calibrator(t.calibrator),
             unit=t.unit, valid_range=t.valid_range, description=t.description,
+            wire_format=t.wire_format,
         )
     if kind == "float":
         return FloatParameterType(
@@ -217,9 +228,46 @@ def _project_one_param_type(name: str, t) -> ParameterType:
             byte_order=t.byte_order, description=t.description,
         )
     if kind == "aggregate":
-        members = tuple(AggregateMember(name=m.name, type_ref=m.type) for m in t.member_list)
+        members = tuple(
+            AggregateMember(name=m.name, type_ref=m.type, unit=m.unit)
+            for m in t.member_list
+        )
+        # Wire-encoding fields are mutually-required for calibrator-backed
+        # aggregates. Reject incoherent combinations at parse time so the
+        # walker doesn't have to guess later.
+        if t.size_bits is not None:
+            if t.byte_order is None:
+                raise ParseError(
+                    f"aggregate {name!r}: size_bits requires byte_order"
+                )
+            if t.calibrator is None:
+                raise ParseError(
+                    f"aggregate {name!r}: size_bits requires a calibrator "
+                    "(wire-encoded aggregates are produced by a calibrator "
+                    "from the raw integer)"
+                )
+            if t.wire_format == "i16_tokens" and t.size_bits < 16:
+                raise ParseError(
+                    f"aggregate {name!r}: wire_format=i16_tokens requires "
+                    f"size_bits >= 16 (got {t.size_bits})"
+                )
+        else:
+            if t.byte_order is not None or t.signed or t.wire_format != "single_token":
+                raise ParseError(
+                    f"aggregate {name!r}: byte_order / signed / wire_format "
+                    "are only valid when size_bits is set (in-place aggregate "
+                    "decode walks members; wire encoding does not apply)"
+                )
+            if t.calibrator is not None:
+                raise ParseError(
+                    f"aggregate {name!r}: calibrator is only valid when "
+                    "size_bits is set"
+                )
         return AggregateParameterType(
             name=name, member_list=members, unit=t.unit, description=t.description,
+            size_bits=t.size_bits, byte_order=t.byte_order, signed=t.signed,
+            wire_format=t.wire_format,
+            calibrator=_project_calibrator(t.calibrator),
         )
     if kind == "array":
         if len(t.dimension_list) != 1:
@@ -256,10 +304,12 @@ def _project_sequence_containers(
 ) -> dict[str, SequenceContainer]:
     out: dict[str, SequenceContainer] = {}
     parameters = set(doc.parameters)
+    parameter_types_by_name = {pname: p.type for pname, p in doc.parameters.items()}
     for name, c in doc.sequence_containers.items():
         rc = _project_restriction(c.restriction_criteria) if c.restriction_criteria else None
         entry_list = tuple(
-            _project_entry(e, parameters) for e in c.entry_list
+            _project_entry(e, parameters, parameter_types_by_name, container_name=name)
+            for e in c.entry_list
         )
         out[name] = SequenceContainer(
             name=name, entry_list=entry_list, restriction_criteria=rc,
@@ -292,7 +342,55 @@ def _project_comparisons(block: dict) -> list[Comparison]:
     return out
 
 
-def _project_entry(entry: dict, parameters: set[str]) -> Entry:
+def _resolve_entry_type(
+    entry_name: str,
+    declared_type: str | None,
+    parameter_types_by_name: Mapping[str, str],
+    *,
+    container_name: str,
+    role: str = "entry_list",
+) -> str:
+    """Resolve a container entry's type per XTCE 1.3 ParameterRefEntry.
+
+    XTCE 1.3 (CCSDS 660.1-B-2) ParameterRefEntry carries only
+    `parameterRef`; per-entry type overrides are not allowed. We accept
+    a redundant `type:` field for legacy YAML, but it must match the
+    parameter's declared type. Mismatch is a parse error naming the
+    entry, both types, and the container. Absence resolves the type
+    from the parameter declaration.
+
+    Falls through to the declared override when the entry name is not a
+    declared parameter (anonymous entries — e.g. ASCII-token fillers).
+    """
+    canonical = parameter_types_by_name.get(entry_name)
+    if canonical is None:
+        # Anonymous entry (no matching declared parameter). The legacy
+        # path requires a type; absence is a schema bug we surface here
+        # rather than tripping a downstream NoneType.
+        if declared_type is None:
+            raise ParseError(
+                f"sequence_containers.{container_name}.{role} entry {entry_name!r} "
+                f"has no declared parameter and no `type:` — declare the parameter "
+                f"or attach a type"
+            )
+        return declared_type
+    if declared_type is not None and declared_type != canonical:
+        raise ParseError(
+            f"sequence_containers.{container_name}.{role} entry {entry_name!r} "
+            f"declares type {declared_type!r} but parameter {entry_name!r} "
+            f"is declared with type {canonical!r}; XTCE 1.3 ParameterRefEntry "
+            f"carries only parameterRef — drop the per-entry type or align it"
+        )
+    return canonical
+
+
+def _project_entry(
+    entry: dict,
+    parameters: set[str],
+    parameter_types_by_name: Mapping[str, str],
+    *,
+    container_name: str,
+) -> Entry:
     if "paged_frame_entry" in entry:
         e = entry["paged_frame_entry"]
         return PagedFrameEntry(
@@ -304,8 +402,12 @@ def _project_entry(entry: dict, parameters: set[str]) -> Entry:
     if "repeat_entry" in entry:
         e = entry["repeat_entry"]
         inner = e["entry"]
+        inner_type_ref = _resolve_entry_type(
+            inner["name"], inner.get("type"), parameter_types_by_name,
+            container_name=container_name, role="repeat_entry",
+        )
         inner_entry = ParameterRefEntry(
-            name=inner["name"], type_ref=inner["type"],
+            name=inner["name"], type_ref=inner_type_ref,
             parameter_ref=inner["name"] if inner["name"] in parameters else None,
             emit=inner.get("emit", True),
         )
@@ -315,8 +417,12 @@ def _project_entry(entry: dict, parameters: set[str]) -> Entry:
         if isinstance(count, dict) and "ref" in count:
             return RepeatEntry(entry=inner_entry, count_kind="dynamic_ref", count_ref=count["ref"])
         return RepeatEntry(entry=inner_entry, count_kind="fixed", count_fixed=int(count))
+    type_ref = _resolve_entry_type(
+        entry["name"], entry.get("type"), parameter_types_by_name,
+        container_name=container_name, role="entry_list",
+    )
     return ParameterRefEntry(
-        name=entry["name"], type_ref=entry["type"],
+        name=entry["name"], type_ref=type_ref,
         parameter_ref=entry["name"] if entry["name"] in parameters else None,
         emit=entry.get("emit", True),
     )
@@ -434,18 +540,52 @@ def _check_verifier_refs(
 
 def _check_type_refs(parameter_types, bitfield_types, parameters, containers, meta_commands):
     legal = set(parameter_types) | set(bitfield_types)
+    # Top-level parameter refs
     for p in parameters.values():
         if p.type_ref not in legal:
             raise UnknownTypeRef(p.type_ref, source=f"parameters.{p.name}.type")
+    # Container entry refs (incl. inner refs of repeat entries)
     for c in containers.values():
         for e in c.entry_list:
             if isinstance(e, ParameterRefEntry):
                 if e.type_ref not in legal:
                     raise UnknownTypeRef(e.type_ref, source=f"sequence_containers.{c.name}.entry_list[{e.name}].type")
+            elif isinstance(e, RepeatEntry):
+                inner = e.entry
+                if inner.type_ref not in legal:
+                    raise UnknownTypeRef(
+                        inner.type_ref,
+                        source=f"sequence_containers.{c.name}.entry_list[{inner.name}@repeat].type",
+                    )
+    # Command argument refs
     for m in meta_commands.values():
         for a in m.argument_list + m.rx_args:
             if a.type_ref not in legal:
                 raise UnknownTypeRef(a.type_ref, source=f"meta_commands.{m.id}.argument_list[{a.name}].type")
+    # Aggregate member refs
+    for tname, t in parameter_types.items():
+        if isinstance(t, AggregateParameterType):
+            for m in t.member_list:
+                if m.type_ref not in legal:
+                    raise UnknownTypeRef(
+                        m.type_ref,
+                        source=f"parameter_types.{tname}.member_list[{m.name}].type",
+                    )
+        elif isinstance(t, ArrayParameterType):
+            if t.array_type_ref not in legal:
+                raise UnknownTypeRef(
+                    t.array_type_ref,
+                    source=f"parameter_types.{tname}.array_type_ref",
+                )
+    # Bitfield enum refs
+    for bname, bf in bitfield_types.items():
+        for e in bf.entry_list:
+            if e.kind == "enum" and e.enum_ref is not None:
+                if e.enum_ref not in legal:
+                    raise UnknownTypeRef(
+                        e.enum_ref,
+                        source=f"bitfield_types.{bname}.entry_list[{e.name}].enum_ref",
+                    )
 
 
 def _check_base_container_refs(containers: Mapping[str, SequenceContainer]) -> None:

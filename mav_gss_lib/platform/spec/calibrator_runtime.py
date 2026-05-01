@@ -57,8 +57,43 @@ class CalibratorRuntime:
         if isinstance(cal, PythonCalibrator):
             fn = self._plugins[cal.callable_ref]
             value, unit_from_plugin = fn(raw)
+            # If the type is a calibrator-backed aggregate, the calibrator's
+            # dict output IS the parameter's emitted shape — so it must match
+            # the declared MemberList exactly. Mismatch is a contract bug
+            # between the type declaration and the calibrator implementation;
+            # surface it loudly rather than silently emitting a malformed dict.
+            if isinstance(t, AggregateParameterType) and t.size_bits is not None:
+                _validate_aggregate_calibrator_output(t, value, cal.callable_ref)
             return value, unit_from_plugin or cal.unit or type_unit
         raise TypeError(f"Unknown calibrator type {type(cal).__name__}")
+
+
+def _validate_aggregate_calibrator_output(
+    t: AggregateParameterType, value: Any, callable_ref: str,
+) -> None:
+    """Enforce the MemberList contract on calibrator-backed aggregates.
+
+    Raises ValueError if the calibrator's output is not a dict, is missing
+    declared members, or carries members that aren't declared. The set must
+    match exactly — this is the type's honest contract.
+    """
+    if not isinstance(value, dict):
+        raise ValueError(
+            f"calibrator {callable_ref!r} for aggregate {t.name!r} returned "
+            f"{type(value).__name__}, expected dict matching MemberList "
+            f"{[m.name for m in t.member_list]}"
+        )
+    declared = {m.name for m in t.member_list}
+    got = set(value.keys())
+    missing = declared - got
+    extra = got - declared
+    if missing or extra:
+        raise ValueError(
+            f"calibrator {callable_ref!r} for aggregate {t.name!r} produced "
+            f"keys {sorted(got)}, declared MemberList {sorted(declared)}"
+            + (f"; missing {sorted(missing)}" if missing else "")
+            + (f"; extra {sorted(extra)}" if extra else "")
+        )
 
 
 __all__ = ["CalibratorRuntime", "PluginCallable"]

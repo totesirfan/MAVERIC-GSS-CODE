@@ -104,6 +104,10 @@ export function protocolBlocks(packet: RxPacket): DetailBlock[] {
   return blocks
 }
 
+function pad2(n: number): string {
+  return String(n).padStart(2, '0')
+}
+
 function formatParamValue(value: unknown): string {
   if (value === null || value === undefined) return ''
   if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'string') {
@@ -113,7 +117,24 @@ function formatParamValue(value: unknown): string {
     return '[' + value.map(formatParamValue).join(', ') + ']'
   }
   if (typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>)
+    const obj = value as Record<string, unknown>
+    // BCD time/date — render as one line so the packet-detail viewer
+    // doesn't dump every structured field.
+    if (
+      typeof obj.hour === 'number' &&
+      typeof obj.minute === 'number' &&
+      typeof obj.second === 'number'
+    ) {
+      return `${pad2(obj.hour)}:${pad2(obj.minute)}:${pad2(obj.second)}`
+    }
+    if (
+      typeof obj.year === 'number' &&
+      typeof obj.month === 'number' &&
+      typeof obj.day === 'number'
+    ) {
+      return `${2000 + obj.year}-${pad2(obj.month)}-${pad2(obj.day)}`
+    }
+    const entries = Object.entries(obj)
       .filter(([, v]) => v !== null && v !== undefined && v !== '')
       .map(([k, v]) => `${k}: ${formatParamValue(v)}`)
     return '{' + entries.join(', ') + '}'

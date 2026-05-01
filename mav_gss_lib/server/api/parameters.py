@@ -16,7 +16,10 @@ from typing import Any
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from mav_gss_lib.platform.spec.parameter_types import EnumeratedParameterType
+from mav_gss_lib.platform.spec.parameter_types import (
+    AggregateParameterType,
+    EnumeratedParameterType,
+)
 from mav_gss_lib.server.security import require_api_token
 from mav_gss_lib.server.state import get_runtime
 
@@ -31,6 +34,15 @@ def _enum_table(parameter_type: Any) -> dict[str, int] | None:
     if isinstance(parameter_type, EnumeratedParameterType):
         return {ev.label: ev.raw for ev in parameter_type.values}
     return None
+
+
+def _aggregate_members(parameter_type: Any) -> list[dict[str, str]] | None:
+    """Surface AggregateParameterType.member_list so frontends can dispatch
+    on declared shape (codegen, type-driven rendering, alarm authoring on
+    individual members) without duck-typing the runtime dict."""
+    if not isinstance(parameter_type, AggregateParameterType):
+        return None
+    return [{"name": m.name, "type": m.type_ref, "unit": m.unit} for m in parameter_type.member_list]
 
 
 def _resolve_group(spec_root, parameter) -> str | None:
@@ -58,6 +70,7 @@ def _build_spec_payload(spec_root) -> dict[str, Any]:
             "unit": _unit_for(ptype) if ptype else "",
             "description": p.description or (getattr(ptype, "description", "") if ptype else ""),
             "enum": _enum_table(ptype) if ptype else None,
+            "members": _aggregate_members(ptype) if ptype else None,
             "tags": dict(p.tags),
         })
     return {"parameters": out}

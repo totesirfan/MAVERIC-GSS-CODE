@@ -13,29 +13,55 @@ interface MtqBarProps {
   axis: string
   valueText: string
   unit: string
-  kind:
-    | { type: 'saturation'; loPercent: number; hiPercent: number }
-    | { type: 'fill'; leftPercent: number; widthPercent: number }
-    | { type: 'none' }
+  /** 0..100 — center-anchored fill drawn between 50% and this position,
+   *  plus a 1 px marker line at the value's own position. */
+  valuePercent?: number
+  /** 0..100 — warn-low threshold line. */
+  warnLoPercent?: number
+  /** 0..100 — warn-high threshold line. */
+  warnHiPercent?: number
   muted?: boolean
 }
 
-export function MtqBar({ axis, valueText, unit, kind, muted }: MtqBarProps) {
+export function MtqBar({
+  axis,
+  valueText,
+  unit,
+  valuePercent,
+  warnLoPercent,
+  warnHiPercent,
+  muted,
+}: MtqBarProps) {
+  // Center-anchored fill between 50% and the value's position.
+  let fillLeft: number | null = null
+  let fillWidth = 0
+  if (valuePercent != null) {
+    if (valuePercent >= 50) {
+      fillLeft = 50
+      fillWidth = valuePercent - 50
+    } else {
+      fillLeft = valuePercent
+      fillWidth = 50 - valuePercent
+    }
+  }
   return (
     <div className={styles.axisRow}>
       <span className={styles.axisLabel}>{axis}</span>
       <div className={styles.bar}>
-        {kind.type === 'saturation' && (
-          <>
-            <div className={styles.satLo} style={{ left: `${kind.loPercent}%` }} />
-            <div className={styles.satHi} style={{ left: `${kind.hiPercent}%` }} />
-          </>
+        {warnLoPercent != null && (
+          <div className={styles.satLo} style={{ left: `${warnLoPercent}%` }} />
         )}
-        {kind.type === 'fill' && (
+        {warnHiPercent != null && (
+          <div className={styles.satHi} style={{ left: `${warnHiPercent}%` }} />
+        )}
+        {fillLeft != null && (
           <div
             className={styles.fill}
-            style={{ left: `${kind.leftPercent}%`, width: `${kind.widthPercent}%` }}
+            style={{ left: `${fillLeft}%`, width: `${fillWidth}%` }}
           />
+        )}
+        {valuePercent != null && (
+          <div className={styles.marker} style={{ left: `${valuePercent}%` }} />
         )}
       </div>
       <span className={`${styles.val} ${muted ? styles.valMuted : ''}`}>

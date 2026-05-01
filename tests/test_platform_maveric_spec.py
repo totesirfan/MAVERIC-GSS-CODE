@@ -16,6 +16,21 @@ EPS_HK_PAYLOAD_HEX = (
     "0000050f079ba7a4"
 )
 
+# Real on-orbit beacon captured 2026-04-29T19:27:26 in the function-test
+# session log. ADCS_TMP at the recorded offset decodes as IEEE-754 LE float
+# 26.9989013671875 °C — pinning this prevents anyone from re-collapsing
+# the parameter back to the AdcsTmp aggregate (which would reinterpret the
+# same bytes as raw int16 brdtmp and produce ~-2.6 °C).
+TLM_BEACON_PAYLOAD_HEX = (
+    "90060000030600050a69746c6d5f626561636f6e00"
+    "57513258494300da4db5da9d010000010200000700064394410038bc6a00010101"
+    "010000018000000000"
+    "3ea80bbbdb9f8bbb3ea80bbbeb64b7c1d3b38140ef21c2c1"
+    "cdcc4c3ecdcc4c3ecdcccc3d"
+    "c0fdd741"  # ADCS_TMP_BEACON: f32_le 26.9989013671875 °C
+    "8f02f301b020a220c02039024600020001000000000000003435799e02ef"
+)
+
 
 def _maveric_spec(tmp_path):
     platform_cfg, mission_id, mission_cfg = load_split_config()
@@ -106,3 +121,28 @@ def test_maveric_v2_rx_pipeline_extracts_eps_hk_parameters(tmp_path):
     assert changes
     update_names = {u["name"] for u in changes}
     assert "eps.V_BAT" in update_names
+
+
+def test_tlm_beacon_adcs_tmp_split(tmp_path):
+    """tlm_beacon's ADCS_TMP is f32_le precomputed celsius; the AX100
+    register at module 0 / reg 0x94 is uint32 holding raw int16 brdtmp.
+    They must stay split — collapsing both to the AdcsTmp aggregate
+    misreads beacon bytes as raw int16 (300 of 305 captured beacons
+    produced wrong-sign celsius before the split was reinstated)."""
+    import pytest
+
+    spec = _maveric_spec(tmp_path)
+    if spec.spec_root is None or "ADCS_TMP_BEACON" not in spec.spec_root.parameters:
+        pytest.skip("local mission.yml does not declare the ADCS_TMP_BEACON split")
+    rx = _maveric_pipeline(spec, tmp_path)
+
+    result = rx.process({"transmitter": "fixture"}, bytes.fromhex(TLM_BEACON_PAYLOAD_HEX))
+    if result.packet.flags.is_unknown:
+        pytest.skip("tlm_beacon fixture not accepted by current routing")
+
+    by_name = {p.name: p for p in result.packet.parameters}
+    assert "gnc.ADCS_TMP_BEACON" in by_name
+    assert by_name["gnc.ADCS_TMP_BEACON"].value == 26.9989013671875
+    assert by_name["gnc.ADCS_TMP_BEACON"].unit == "°C"
+    # The aggregate parameter belongs to the register, not the beacon.
+    assert "gnc.ADCS_TMP" not in by_name

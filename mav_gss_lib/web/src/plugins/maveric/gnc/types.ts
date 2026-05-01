@@ -48,16 +48,13 @@ export interface TimeBCD {
   hour: number
   minute: number
   second: number
-  display: string
 }
 
 export interface DateBCD {
-  year_yy: number
   year: number
   month: number
   day: number
   weekday: number
-  display: string
 }
 
 export interface AdcsTmp {
