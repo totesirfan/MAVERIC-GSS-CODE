@@ -61,7 +61,7 @@ class TestTrackingService(unittest.TestCase):
     def test_connected_mode_publishes_to_sink(self):
         runtime = _Runtime()
         sink = _CaptureSink()
-        runtime.tracking = TrackingService(runtime, sink=sink)
+        runtime.tracking = TrackingService(runtime, sink_factory=lambda **_: sink)
 
         runtime.tracking.set_doppler_connected(True)
         correction = runtime.tracking.doppler()
