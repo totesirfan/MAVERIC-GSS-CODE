@@ -79,6 +79,13 @@ _DEFAULTS = {
         "log_lines": 1000,
         "stop_timeout_s": 8.0,
     },
+    "tracking": {
+        "control": {
+            "rx_zmq_addr": "tcp://127.0.0.1:52003",
+            "tx_zmq_addr": "tcp://127.0.0.1:52004",
+            "tick_period_s": 1.0,
+        },
+    },
     "general": {
         "mission":      DEFAULT_MISSION,
         "version":      _read_version(),
