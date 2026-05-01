@@ -10,6 +10,7 @@ Author:  Irfan Annuar - USC ISI SERC
 from __future__ import annotations
 
 import asyncio
+import logging
 import signal
 
 from .state import WebRuntime
@@ -31,6 +32,12 @@ async def check_shutdown(runtime: WebRuntime) -> None:
         if sending_active:
             schedule_shutdown_check(runtime)
             return
+        # Stop the GNU Radio child first so it can't outlive the browser
+        # session if anything later in the lifespan teardown blocks.
+        try:
+            await asyncio.to_thread(runtime.radio.shutdown)
+        except Exception:
+            logging.exception("radio shutdown during check_shutdown")
         signal.raise_signal(signal.SIGINT)
 
 
