@@ -35,10 +35,10 @@ interface FlagsStripProps {
 export function FlagsStrip({ state, nowMs }: FlagsStripProps) {
   // STAT is the STAT register (module 0, reg 128). Both the RES path
   // (mtq_get_1 / mtq_get_active / mtq_get_hk / mtq_get_param) and
-  // tlm_beacon populate it; the platform router LWW-merges them, so
-  // this consumer sees the newest value regardless of source. Errors
-  // and status flags both live in STAT, so they share one cluster
-  // header + one timer.
+  // tlm_beacon populate it as the same canonical StatBitfield shape, so
+  // this consumer reads one field regardless of source. Errors and
+  // status flags both live in STAT, so they share one cluster header +
+  // one timer.
   const stat = state.STAT
   const actErr = state.ACT_ERR
   const senErr = state.SEN_ERR
