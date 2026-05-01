@@ -4,7 +4,7 @@ import { Maveric3DViewer } from './Maveric3DViewer'
 import { ModeStrip } from '../shared/ModeStrip'
 import { MtqBar, MtqBlock, type AxisTick } from '../shared/MtqBars'
 import { TempGauge } from '../shared/TempGauge'
-import { fmtQuat, fmtYpr, fmtDateDisplay } from './format'
+import { fmtQuat, fmtYpr, fmtBcdDate, fmtBcdTime } from './format'
 import {
   qFrom,
   rateFrom,
@@ -150,13 +150,13 @@ export function AdcsMtqCard({ state, nowMs }: AdcsMtqCardProps) {
           />
           <FieldDisplay
             label="Time"
-            value={timeV?.display ?? '—'}
+            value={fmtBcdTime(timeV)}
             receivedAt={time?.t}
             nowMs={nowMs}
           />
           <FieldDisplay
             label="Date"
-            value={fmtDateDisplay(dateV)}
+            value={fmtBcdDate(dateV)}
             receivedAt={date?.t}
             nowMs={nowMs}
           />
