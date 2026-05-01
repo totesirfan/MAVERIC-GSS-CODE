@@ -87,3 +87,128 @@ class FileKindAdapter(Protocol):
     def on_complete(self, path: str) -> dict[str, Any]: ...
 
     def status_view(self, store: ChunkFileStore) -> dict[str, Any]: ...
+
+
+# ── ImageKindAdapter ───────────────────────────────────────────────
+
+
+@dataclass(slots=True)
+class ImageKindAdapter:
+    """JPEG image kind: thumb pairing, EOI repair, cam_capture twin-seed.
+
+    ``mission_cfg`` is a live reference into ``runtime.mission_cfg`` so
+    ``/api/config`` edits to ``imaging.thumb_prefix`` apply without a
+    MissionSpec rebuild — same closure-over-live-cfg pattern the legacy
+    imaging router used.
+    """
+
+    mission_cfg: dict[str, Any]
+    kind: str = "image"
+    cnt_cmd: str = "img_cnt_chunks"
+    get_cmd: str = "img_get_chunks"
+    capture_cmd: str | None = "cam_capture"
+    media_type: str = "image/jpeg"
+
+    def seed_from_cnt(self, args: dict[str, Any]) -> Iterable[tuple[str, int]]:
+        return self._seed_full_and_thumb(args)
+
+    def seed_from_capture(self, args: dict[str, Any]) -> Iterable[tuple[str, int]]:
+        return self._seed_full_and_thumb(args)
+
+    def _seed_full_and_thumb(self, args: dict[str, Any]) -> list[tuple[str, int]]:
+        out: list[tuple[str, int]] = []
+        for filename_key, total_key in (
+            ("filename", "num_chunks"),
+            ("thumb_filename", "thumb_num_chunks"),
+        ):
+            filename = str(args.get(filename_key, ""))
+            if not filename:
+                continue
+            try:
+                total = int(args.get(total_key, ""))
+            except (ValueError, TypeError):
+                continue
+            out.append((filename, total))
+        return out
+
+    def partial_repair(self, path: str) -> None:
+        from mav_gss_lib.missions.maveric.files.repair import jpeg_eoi_repair
+        jpeg_eoi_repair(path)
+
+    def on_complete(self, path: str) -> dict[str, Any]:
+        return {}
+
+    @property
+    def thumb_prefix(self) -> str:
+        return (self.mission_cfg.get("imaging") or {}).get("thumb_prefix", "") or ""
+
+    def status_view(self, store: ChunkFileStore) -> dict[str, Any]:
+        prefix = self.thumb_prefix
+        all_refs = store.known_files(kind=self.kind)
+        ref_set = set(all_refs)
+
+        def real_leaf(ref: FileRef) -> dict[str, Any]:
+            received, total = store.progress(ref)
+            return {
+                "id": ref.id,
+                "kind": ref.kind,
+                "source": ref.source,
+                "filename": ref.filename,
+                "received": received,
+                "total": total,
+                "complete": store.is_complete(ref),
+                "chunk_size": store.chunk_size(ref),
+            }
+
+        def placeholder_leaf(ref: FileRef) -> dict[str, Any]:
+            return {
+                "id": ref.id,
+                "kind": ref.kind,
+                "source": ref.source,
+                "filename": ref.filename,
+                "received": 0,
+                "total": None,
+                "complete": False,
+                "chunk_size": None,
+            }
+
+        def leaf(ref: FileRef) -> dict[str, Any]:
+            return real_leaf(ref) if ref in ref_set else placeholder_leaf(ref)
+
+        if not prefix:
+            entries = [
+                {
+                    "id": r.id, "kind": r.kind, "source": r.source,
+                    "stem": r.filename, "full": real_leaf(r), "thumb": None,
+                    "last_activity_ms": store.meta_mtime_ms(r),
+                }
+                for r in all_refs
+            ]
+            entries.sort(key=lambda p: (-(p["last_activity_ms"] or 0), p["source"] or "", p["stem"]))
+            return {"files": entries}
+
+        stems_by_source: dict[str | None, set[str]] = {}
+        for r in all_refs:
+            stem = r.filename[len(prefix):] if r.filename.startswith(prefix) else r.filename
+            stems_by_source.setdefault(r.source, set()).add(stem)
+
+        pairs: list[dict[str, Any]] = []
+        for source, stems in stems_by_source.items():
+            for stem in stems:
+                full_ref = FileRef(kind=self.kind, source=source, filename=stem)
+                thumb_ref = FileRef(kind=self.kind, source=source, filename=f"{prefix}{stem}")
+                full = leaf(full_ref)
+                thumb = leaf(thumb_ref)
+                mtime = max(
+                    store.meta_mtime_ms(full_ref) or 0 if full_ref in ref_set else 0,
+                    store.meta_mtime_ms(thumb_ref) or 0 if thumb_ref in ref_set else 0,
+                )
+                pairs.append({
+                    "id": full_ref.id,  # matches FileRef.id — no double-slash for source-less refs
+                    "kind": self.kind, "source": source, "stem": stem,
+                    "full": full, "thumb": thumb,
+                    "last_activity_ms": mtime or None,
+                })
+
+        pairs.sort(key=lambda p: (-(p["last_activity_ms"] or 0), p["source"] or "", p["stem"]))
+        return {"files": pairs}
