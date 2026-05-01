@@ -16,6 +16,8 @@ import { colors } from '@/lib/colors'
 import { cn } from '@/lib/utils'
 import { lineColor } from './lineColor'
 import { useRadioSocket, type RadioStatus } from './useRadioSocket'
+import { useTrackingSocket } from './useTrackingSocket'
+import { DopplerSection } from './DopplerSection'
 
 function fmtUptime(startedAtMs: number | null, fallbackSeconds: number): string {
   const total = startedAtMs ? Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000)) : Math.floor(fallbackSeconds)
@@ -96,6 +98,7 @@ function DataCell({
 export function RadioPage() {
   const { config } = useConfig()
   const { status, logs, connected, lastUpdateMs, busy, actionError, runAction, dismissError } = useRadioSocket()
+  const tracking = useTrackingSocket()
   const [apiStatus, setApiStatus] = useState<{ zmq_rx?: string; zmq_tx?: string }>({})
   const [, setNowTick] = useState(0)
   const [mountedAtMs] = useState(() => Date.now())
@@ -272,6 +275,17 @@ export function RadioPage() {
               )}
             </div>
           </section>
+
+          <DopplerSection
+            doppler={tracking.doppler}
+            mode={tracking.mode}
+            error={tracking.error}
+            busy={tracking.busy}
+            actionError={tracking.actionError}
+            engage={tracking.engage}
+            disengage={tracking.disengage}
+            dismissError={tracking.dismissError}
+          />
 
           <section className="flex flex-col rounded-lg border shadow-panel" style={{ borderColor: colors.borderSubtle, backgroundColor: colors.bgPanel }}>
             <PanelHeader
