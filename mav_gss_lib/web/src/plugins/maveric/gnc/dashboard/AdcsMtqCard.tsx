@@ -170,33 +170,27 @@ export function AdcsMtqCard({ state, nowMs }: AdcsMtqCardProps) {
               axis="MX"
               valueText={mtqArr ? mtqArr[0].toFixed(4) : '—'}
               unit="A·m²"
-              kind={{
-                type: 'saturation',
-                loPercent: mtqPercent(-MTQ_WARN_LIMIT),
-                hiPercent: mtqPercent(MTQ_WARN_LIMIT),
-              }}
+              valuePercent={mtqArr ? mtqPercent(mtqArr[0]) : undefined}
+              warnLoPercent={mtqPercent(-MTQ_WARN_LIMIT)}
+              warnHiPercent={mtqPercent(MTQ_WARN_LIMIT)}
               muted={!mtqArr}
             />
             <MtqBar
               axis="MY"
               valueText={mtqArr ? mtqArr[1].toFixed(4) : '—'}
               unit="A·m²"
-              kind={{
-                type: 'saturation',
-                loPercent: mtqPercent(-MTQ_WARN_LIMIT),
-                hiPercent: mtqPercent(MTQ_WARN_LIMIT),
-              }}
+              valuePercent={mtqArr ? mtqPercent(mtqArr[1]) : undefined}
+              warnLoPercent={mtqPercent(-MTQ_WARN_LIMIT)}
+              warnHiPercent={mtqPercent(MTQ_WARN_LIMIT)}
               muted={!mtqArr}
             />
             <MtqBar
               axis="MZ"
               valueText={mtqArr ? mtqArr[2].toFixed(4) : '—'}
               unit="A·m²"
-              kind={{
-                type: 'saturation',
-                loPercent: mtqPercent(-MTQ_WARN_LIMIT),
-                hiPercent: mtqPercent(MTQ_WARN_LIMIT),
-              }}
+              valuePercent={mtqArr ? mtqPercent(mtqArr[2]) : undefined}
+              warnLoPercent={mtqPercent(-MTQ_WARN_LIMIT)}
+              warnHiPercent={mtqPercent(MTQ_WARN_LIMIT)}
               muted={!mtqArr}
             />
           </MtqBlock>

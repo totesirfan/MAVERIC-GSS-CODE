@@ -41,19 +41,9 @@ function fmtNvgVec(vals: (number | null)[] | null, count: number, decimals = 2):
   return vals.slice(0, count).map(v => v != null ? v.toFixed(decimals) : '—').join(', ')
 }
 
-type BarKind =
-  | { type: 'fill'; leftPercent: number; widthPercent: number }
-  | { type: 'none' }
-
-function gyroBarValue(value: number | null): { text: string; kind: BarKind } {
-  if (value == null) return { text: '—', kind: { type: 'none' } }
-  const pct = gyroPercent(value)
-  const text = value.toFixed(3)
-  // Draw from center (50%) toward the value's position.
-  const kind: BarKind = pct >= 50
-    ? { type: 'fill', leftPercent: 50, widthPercent: pct - 50 }
-    : { type: 'fill', leftPercent: pct, widthPercent: 50 - pct }
-  return { text, kind }
+function gyroBarText(value: number | null): { text: string; valuePercent: number | undefined } {
+  if (value == null) return { text: '—', valuePercent: undefined }
+  return { text: value.toFixed(3), valuePercent: gyroPercent(value) }
 }
 
 export function NaviGuiderCard({ state, nowMs }: NaviGuiderCardProps) {
@@ -101,14 +91,14 @@ export function NaviGuiderCard({ state, nowMs }: NaviGuiderCardProps) {
       >
         {(['ωX', 'ωY', 'ωZ'] as const).map((axis, i) => {
           const v = gyroDegPerSec?.[i] ?? null
-          const { text, kind } = gyroBarValue(v)
+          const { text, valuePercent } = gyroBarText(v)
           return (
             <MtqBar
               key={axis}
               axis={axis}
               valueText={text}
               unit="°/s"
-              kind={kind}
+              valuePercent={valuePercent}
               muted={v == null}
             />
           )

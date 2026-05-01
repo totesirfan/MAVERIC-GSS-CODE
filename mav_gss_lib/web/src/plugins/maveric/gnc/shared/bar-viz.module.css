@@ -38,6 +38,11 @@
   background: #3CC98E; opacity: 0.85;
   max-width: 100%;
 }
+.marker {
+  position: absolute; top: -2px; bottom: -2px; width: 1px;
+  transform: translateX(-50%);
+  background: #E5E5E5; opacity: 0.95; z-index: 3;
+}
 
 .val {
   font-family: 'JetBrains Mono', monospace; font-size: 12px;
