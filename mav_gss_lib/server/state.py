@@ -155,6 +155,7 @@ class WebRuntime:
         self.tx = TxService(self)
         self.radio = RadioService(self)
         self.tracking = TrackingService(self)
+        self.radio.add_exit_callback(self.tracking.disengage)
         self.doppler_broadcaster = None  # set by create_app at startup
 
     def queue_file(self) -> Path:
