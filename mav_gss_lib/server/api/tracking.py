@@ -82,7 +82,10 @@ async def api_tracking_doppler_connection(state: str, request: Request) -> dict[
     else:
         return JSONResponse(status_code=422, content={"error": f"unsupported Doppler connection state: {state}"})
     runtime = get_runtime(request)
-    result = runtime.tracking.set_doppler_connected(connected)
+    try:
+        result = runtime.tracking.set_doppler_connected(connected)
+    except (TrackingError, OSError, RuntimeError) as exc:
+        return JSONResponse(status_code=422, content={"error": str(exc)})
     return {"connected": connected, "mode": result}
 
 
