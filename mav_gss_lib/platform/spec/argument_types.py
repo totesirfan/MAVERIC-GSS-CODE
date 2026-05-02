@@ -115,10 +115,35 @@ BUILT_IN_ARGUMENT_TYPES: dict[str, ArgumentType] = {
 }
 
 
+from collections.abc import Mapping
+
+
+def is_to_end_argument(
+    argument_types: Mapping[str, ArgumentType], type_ref: str,
+) -> bool:
+    """True iff `type_ref` resolves to a `StringArgumentType` with
+    `encoding="to_end"` in the given argument-type registry.
+
+    Public helper so every parser layer (platform `parse_input`,
+    MAVERIC's routing-prefix wrapper, future mission wrappers, the
+    UI-side TxBuilder if it ever needs to gate a multi-line input) can
+    consult one source of truth. Don't duplicate the isinstance check
+    elsewhere — call this and let the type registry decide.
+
+    Takes the registry directly, NOT a `Mission`, so the type module
+    stays at the bottom of the dependency stack (no upward import on
+    the mission aggregate). Callers pass `self._mission.argument_types`
+    or `self.mission.argument_types` at the call site.
+    """
+    t = argument_types.get(type_ref)
+    return isinstance(t, StringArgumentType) and t.encoding == "to_end"
+
+
 __all__ = [
     "ArgumentType",
     "IntegerArgumentType",
     "FloatArgumentType",
     "StringArgumentType",
     "BUILT_IN_ARGUMENT_TYPES",
+    "is_to_end_argument",
 ]

@@ -25,7 +25,7 @@ from mav_gss_lib.platform.contract.commands import (
 )
 from mav_gss_lib.platform.contract.parameters import ParamUpdate
 
-from .commands import MetaCommand
+from .commands import Argument, MetaCommand
 from .errors import (
     HeaderFieldNotOverridable,
     HeaderValueNotAllowed,
@@ -76,17 +76,43 @@ class DeclarativeCommandOpsAdapter:
 
     def parse_input(self, value: str | dict[str, Any]) -> CommandDraft:
         if isinstance(value, str):
-            # Raw CLI: split into "cmd_id arg1 arg2 ..."
-            parts = value.strip().split()
-            if not parts:
+            from .argument_types import is_to_end_argument
+            stripped = value.strip()
+            head = stripped.split(maxsplit=1)
+            if not head:
                 raise ValueError("empty command input")
-            cmd_id = parts[0]
-            tokens = parts[1:]
+            cmd_id = head[0]
             meta = self._meta_by_id.get(cmd_id)
             args: dict[str, Any] = {}
             if meta:
-                for arg, token in zip(meta.argument_list, tokens):
-                    args[arg.name] = _coerce_token(token)
+                n = len(meta.argument_list)
+                # If the LAST arg is a to_end string, use split(maxsplit=n)
+                # so the remainder keeps its original inner whitespace
+                # (Python guarantees the trailing element of split(maxsplit)
+                # is the verbatim tail). Otherwise plain split() is fine —
+                # numeric args canonicalize anyway.
+                last_to_end = (
+                    n > 0
+                    and is_to_end_argument(
+                        self._mission.argument_types,
+                        meta.argument_list[-1].type_ref,
+                    )
+                )
+                if last_to_end:
+                    pieces = stripped.split(maxsplit=n)
+                else:
+                    pieces = stripped.split()
+                tokens = pieces[1:]  # drop cmd_id
+                last_index = n - 1
+                for arg_idx, arg in enumerate(meta.argument_list):
+                    if arg_idx >= len(tokens):
+                        break
+                    if last_to_end and arg_idx == last_index:
+                        # Verbatim — do NOT _coerce_token (would str-shape
+                        # multi-word remainders) and do NOT join.
+                        args[arg.name] = tokens[arg_idx]
+                    else:
+                        args[arg.name] = _coerce_token(tokens[arg_idx])
             return CommandDraft(payload={"cmd_id": cmd_id, "args": args, "packet": {}})
         return CommandDraft(payload={
             "cmd_id": value["cmd_id"],
@@ -114,25 +140,138 @@ class DeclarativeCommandOpsAdapter:
                     field=arg.name,
                 ))
                 continue
-            v = args[arg.name]
-            if arg.valid_range is not None:
-                lo, hi = arg.valid_range
-                if not (lo <= v <= hi):
-                    issues.append(ValidationIssue(
-                        message=f"{arg.name}={v} outside valid_range {arg.valid_range}",
-                        field=arg.name,
-                    ))
-            if arg.invalid_values is not None and v in arg.invalid_values:
-                issues.append(ValidationIssue(
-                    message=f"{arg.name}={v} is reserved (invalid_values)",
-                    field=arg.name,
-                ))
-            if arg.valid_values is not None and v not in arg.valid_values:
-                issues.append(ValidationIssue(
-                    message=f"{arg.name}={v} not in valid_values",
-                    field=arg.name,
-                ))
+            issues.extend(self._check_arg_against_type(arg, args[arg.name]))
         return issues
+
+    def _check_arg_against_type(
+        self, arg: "Argument", value: Any,
+    ) -> list[ValidationIssue]:
+        from .argument_types import (
+            FloatArgumentType,
+            IntegerArgumentType,
+            StringArgumentType,
+        )
+
+        t = self._mission.argument_types.get(arg.type_ref)
+        if t is None:
+            return [ValidationIssue(
+                message=f"{arg.name}: unknown argument type {arg.type_ref!r}",
+                field=arg.name,
+            )]
+
+        # String contract enforcement.
+        #
+        # `ascii_token` is defined as a single whitespace-delimited
+        # token on the wire. The CLI parser already enforces this
+        # implicitly (it splits on whitespace and zips arg-by-token),
+        # but DICT/API input bypasses the CLI — and
+        # `AsciiArgumentEncoder.encode_ascii()` for strings just does
+        # `str(value)`. Without a validate-time check, a caller could
+        # pass `{"name": "foo bar"}` for an `ascii_token` arg and emit
+        # two wire tokens, breaking the downstream framer's positional
+        # decoding.
+        #
+        # `to_end` strings, by contrast, are explicitly allowed to
+        # contain whitespace — that's their entire purpose. No check
+        # there.
+        #
+        # Enum validation is a deferred follow-up.
+        if isinstance(t, StringArgumentType):
+            if t.encoding == "ascii_token":
+                s = str(value)
+                if any(ch.isspace() for ch in s):
+                    return [ValidationIssue(
+                        message=(
+                            f"{arg.name}={value!r} contains whitespace; "
+                            f"type {arg.type_ref!r} is encoding=ascii_token "
+                            f"(single whitespace-delimited token on the wire). "
+                            f"Use a to_end-encoded type for free-form text."
+                        ),
+                        field=arg.name,
+                    )]
+            return []
+
+        if not isinstance(t, (IntegerArgumentType, FloatArgumentType)):
+            # Unknown / future types have no numeric constraints at this
+            # layer. (Enum validation is a deferred follow-up.)
+            return []
+
+        # Reject bool explicitly (subclass of int in Python).
+        if isinstance(value, bool):
+            return [ValidationIssue(
+                message=f"{arg.name} must be a number (got {value!r})",
+                field=arg.name,
+            )]
+
+        if isinstance(t, FloatArgumentType):
+            if isinstance(value, (int, float)):
+                n: float = float(value)
+            else:
+                try:
+                    n = float(value)
+                except (TypeError, ValueError):
+                    return [ValidationIssue(
+                        message=f"{arg.name}={value!r} must be a number",
+                        field=arg.name,
+                    )]
+        else:
+            # IntegerArgumentType: must be an exact integer. Reject 26.5
+            # to prevent silent truncation; accept 26.0 as integer-valued.
+            if isinstance(value, int):
+                n = value
+            elif isinstance(value, float):
+                if not value.is_integer():
+                    return [ValidationIssue(
+                        message=f"{arg.name} must be an integer (got {value!r})",
+                        field=arg.name,
+                    )]
+                n = int(value)
+            else:
+                try:
+                    n = int(str(value), 10)
+                except (TypeError, ValueError):
+                    return [ValidationIssue(
+                        message=f"{arg.name} must be an integer (got {value!r})",
+                        field=arg.name,
+                    )]
+
+        # Effective range: explicit `valid_range` wins; otherwise derive
+        # from size_bits/signed for IntegerArgumentType so primitives
+        # like u8 implicitly reject 999.
+        #
+        # SAFETY: parse_yaml has already proven (Task 2 Step 5) that any
+        # explicit valid_range is ⊆ representable range for size_bits.
+        # So when valid_range is set, it can only be tighter than the
+        # implicit bounds — never looser.
+        out: list[ValidationIssue] = []
+        if isinstance(t, IntegerArgumentType):
+            if t.valid_range is not None:
+                lo, hi = int(t.valid_range[0]), int(t.valid_range[1])
+            else:
+                size = t.size_bits
+                if t.signed:
+                    lo, hi = -(2 ** (size - 1)), (2 ** (size - 1)) - 1
+                else:
+                    lo, hi = 0, (2 ** size) - 1
+            if not (lo <= n <= hi):
+                out.append(ValidationIssue(
+                    message=f"{arg.name}={n} outside range [{lo}, {hi}]"
+                            f"{' (from valid_range)' if t.valid_range else ' (from size_bits)'}",
+                    field=arg.name,
+                ))
+        elif t.valid_range is not None:
+            lo, hi = t.valid_range
+            if not (lo <= n <= hi):
+                out.append(ValidationIssue(
+                    message=f"{arg.name}={n} outside valid_range {t.valid_range}",
+                    field=arg.name,
+                ))
+        if t.valid_values is not None and n not in t.valid_values:
+            out.append(ValidationIssue(
+                message=f"{arg.name}={n} not in valid_values {t.valid_values}",
+                field=arg.name,
+            ))
+        return out
 
     def encode(self, draft: CommandDraft) -> EncodedCommand:
         cmd_id = draft.payload["cmd_id"]
