@@ -200,10 +200,6 @@ class DeclarativeCommandOpsAdapter:
                         {"name": a.name, "type": a.type_ref, "description": a.description}
                         for a in cmd.argument_list
                     ],
-                    "rx_args": [
-                        {"name": a.name, "type": a.type_ref}
-                        for a in cmd.rx_args
-                    ],
                     "guard": cmd.guard,
                     "no_response": cmd.no_response,
                     "deprecated": cmd.deprecated,

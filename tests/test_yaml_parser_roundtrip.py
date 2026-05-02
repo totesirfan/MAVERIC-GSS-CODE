@@ -116,8 +116,6 @@ class TestEntryListPureParameterRef(unittest.TestCase):
             meta_commands:
               gnc_get_mode:
                 packet: {dest: NODE_A, echo: NONE, ptype: CMD}
-                rx_args:
-                  - {name: mode, type: GncMode}
 
             sequence_containers:
               eps_hk:

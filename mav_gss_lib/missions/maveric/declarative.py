@@ -119,7 +119,6 @@ class _MaverCommandOpsWrapper:
                     }
                     for a in meta.argument_list
                 ],
-                "rx_args": [],
                 "dest":  fixed_dest,
                 "echo":  meta.packet.get("echo"),
                 "ptype": meta.packet.get("ptype"),

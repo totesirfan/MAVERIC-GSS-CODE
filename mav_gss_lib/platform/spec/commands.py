@@ -40,9 +40,6 @@ class MetaCommand:
     rx_only: bool = False
     deprecated: bool = False
     argument_list: tuple[Argument, ...] = ()
-    rx_args: tuple[Argument, ...] = ()
-    rx_count_from: str | None = None
-    rx_index_field: str | None = None
     description: str = ""
     verifier_override: Mapping[VerifierStage, VerifierOverrideValue] = field(default_factory=dict)
 

@@ -26,7 +26,6 @@ class TestMetaCommand(unittest.TestCase):
         self.assertFalse(m.guard)
         self.assertFalse(m.no_response)
         self.assertEqual(m.argument_list, ())
-        self.assertEqual(m.rx_args, ())
 
     def test_meta_command_with_argument_list(self):
         m = MetaCommand(
@@ -37,10 +36,8 @@ class TestMetaCommand(unittest.TestCase):
                 Argument(name="count", type_ref="u8"),
                 Argument(name="interval_s", type_ref="u16"),
             ),
-            rx_count_from="count",
         )
         self.assertEqual(len(m.argument_list), 2)
-        self.assertEqual(m.rx_count_from, "count")
 
 
 if __name__ == "__main__":

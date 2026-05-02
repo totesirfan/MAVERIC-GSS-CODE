@@ -446,8 +446,6 @@ def _project_meta_commands(
             guard=m.guard, no_response=m.no_response,
             rx_only=m.rx_only, deprecated=m.deprecated,
             argument_list=tuple(_project_argument(a) for a in m.argument_list),
-            rx_args=tuple(_project_argument(a) for a in m.rx_args),
-            rx_count_from=m.rx_count_from, rx_index_field=m.rx_index_field,
             description=m.description,
             verifier_override=verifier_override,
         )
@@ -559,7 +557,7 @@ def _check_type_refs(parameter_types, bitfield_types, parameters, containers, me
                     )
     # Command argument refs
     for m in meta_commands.values():
-        for a in m.argument_list + m.rx_args:
+        for a in m.argument_list:
             if a.type_ref not in legal:
                 raise UnknownTypeRef(a.type_ref, source=f"meta_commands.{m.id}.argument_list[{a.name}].type")
     # Aggregate member refs
@@ -830,7 +828,7 @@ def _check_argument_bound_types(
     string_types = (StringParameterType,)
 
     for m in meta_commands.values():
-        for arg in m.argument_list + m.rx_args:
+        for arg in m.argument_list:
             t = parameter_types.get(arg.type_ref)
             if t is None:
                 continue  # unknown ref caught by _check_type_refs

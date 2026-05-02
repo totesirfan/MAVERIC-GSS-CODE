@@ -231,9 +231,6 @@ class _MetaCommand(_Strict):
     rx_only: bool = False
     deprecated: bool = False
     argument_list: list[_Argument] = Field(default_factory=list)
-    rx_args: list[_Argument] = Field(default_factory=list)
-    rx_count_from: str | None = None
-    rx_index_field: str | None = None
     description: str = ""
     verifier_override: dict[str, _VerifierOverrideValue] | None = None
 
