@@ -242,23 +242,42 @@ export interface MissionBuilderProps {
   disabled?: boolean
 }
 
-// Shape of one entry from GET /api/schema. Mission-specific fields live in
-// the command definition YAML; only the platform-relevant surface is typed
-// here. `deprecated: true` in the schema triggers UX demotion (hidden from
-// the builder, warning toast on CLI submit).
+// Single TX argument shape exposed by GET /api/schema.
+// Mirrors `TxArgSchema` from
+// mav_gss_lib/platform/contract/commands.py.
+//
+// `name` and `type` are required by the runtime; everything else is
+// type-driven metadata. Keep TS optionality (`?`) in sync with the
+// Python `NotRequired[...]` markers.
+export interface TxArgSchema {
+  name: string
+  type: string
+  important?: boolean
+  optional?: boolean
+  description?: string
+  valid_range?: [number, number] | null
+  valid_values?: Array<string | number> | null
+}
+
+// Mission-AGNOSTIC command-schema item. Mirrors the Python
+// `CommandSchemaItem` TypedDict — only platform fields. Mission
+// plugins extend this for their own routing surfaces (see
+// `plugins/maveric/types.ts::MavericCommandSchemaItem`, which adds
+// dest/echo/ptype/nodes).
+//
+// One source of truth: when this interface changes, the Python
+// CommandSchemaItem MUST update in the same change, and vice versa.
+// The Python contract test
+// (tests/test_command_schema_contract.py) catches drift on the
+// backend; tsc + the TxArgRow tests catch drift on the frontend.
 export interface CommandSchemaItem {
+  tx_args: TxArgSchema[]
   description?: string
   title?: string
   label?: string
-  tx_args?: Array<{ name: string; type: string; important?: boolean; optional?: boolean }>
-  rx_args?: Array<{ name: string; type: string }>
   variadic?: boolean
-  rx_only?: boolean
-  nodes?: string[]
-  dest?: string | number
-  echo?: string | number
-  ptype?: string | number
   guard?: boolean
+  rx_only?: boolean
   deprecated?: boolean
   verifiers?: Record<string, unknown>
 }

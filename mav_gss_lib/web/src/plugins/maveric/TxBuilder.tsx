@@ -7,6 +7,11 @@ import { Switch } from '@/components/ui/switch'
 import type { MissionBuilderProps } from '@/lib/types'
 import { GssInput } from '@/components/ui/gss-input'
 import { strictFilter } from '@/lib/cmdkFilter'
+import type {
+  MavericCommandSchemaItem,
+  MavericCommandSchema,
+} from './types'
+import TxArgRow from './TxArgRow'
 
 interface MavericIdentity {
   mission_name: string
@@ -16,25 +21,9 @@ interface MavericIdentity {
   gs_node: string | null
 }
 
-interface CommandArg {
-  name: string
-  type: string
-  important?: boolean
-  optional?: boolean
-}
-
-interface CommandDef {
-  dest?: string
-  echo?: string
-  ptype?: string
-  nodes?: string[]
-  tx_args?: CommandArg[]
-  rx_only?: boolean
-  guard?: boolean
-  deprecated?: boolean
-}
-
-type CommandSchema = Record<string, CommandDef>
+// MAVERIC-side type — includes dest/echo/ptype/nodes — because
+// TxBuilder is a MAVERIC plugin and reads the routing fields.
+type CommandSchema = MavericCommandSchema
 
 export default function MavericTxBuilder({ onQueue, onClose, disabled }: MissionBuilderProps) {
   const [schema, setSchema] = useState<CommandSchema | null>(null)
@@ -91,7 +80,7 @@ export default function MavericTxBuilder({ onQueue, onClose, disabled }: Mission
     return entries
   }, [schema, selectedDestNode])
 
-  const cmdDef: CommandDef | null = selectedCmd && schema ? schema[selectedCmd] ?? null : null
+  const cmdDef: MavericCommandSchemaItem | null = selectedCmd && schema ? schema[selectedCmd] ?? null : null
   const txArgs = cmdDef?.tx_args ?? []
 
   function pickNode(name: string) {
@@ -270,35 +259,25 @@ export default function MavericTxBuilder({ onQueue, onClose, disabled }: Mission
                     .every(a => (argValues[a.name] ?? '').trim() !== '')
                   const disabled = !!arg.optional && !earlierFilled
                   return (
-                    <div key={arg.name} className="space-y-1" style={{ opacity: disabled ? 0.35 : 1 }}>
-                      <div className="flex items-baseline gap-1">
-                        <span className="text-[11px] font-medium" style={{ color: colors.dim }}>{arg.name}</span>
-                        {arg.optional && (
-                          <span className="text-[10px]" style={{ color: colors.sep }}>optional</span>
-                        )}
-                      </div>
-                      <GssInput
-                        ref={i === 0 ? firstArgRef : undefined}
-                        className="w-full"
-                        style={arg.optional ? { borderStyle: 'dashed' } : undefined}
-                        value={argValues[arg.name] ?? ''}
-                        disabled={disabled}
-                        onChange={(e) => {
-                          const next = e.target.value
-                          setArgValues(prev => {
-                            const updated: Record<string, string> = { ...prev, [arg.name]: next }
-                            if (arg.optional && !next.trim()) {
-                              for (let j = i + 1; j < txArgs.length; j++) {
-                                if (txArgs[j].optional) updated[txArgs[j].name] = ''
-                              }
+                    <TxArgRow
+                      key={arg.name}
+                      ref={i === 0 ? firstArgRef : undefined}
+                      arg={arg}
+                      value={argValues[arg.name] ?? ''}
+                      disabled={disabled}
+                      onChange={(next) => {
+                        setArgValues(prev => {
+                          const updated: Record<string, string> = { ...prev, [arg.name]: next }
+                          if (arg.optional && !next.trim()) {
+                            for (let j = i + 1; j < txArgs.length; j++) {
+                              if (txArgs[j].optional) updated[txArgs[j].name] = ''
                             }
-                            return updated
-                          })
-                        }}
-                        onKeyDown={(e) => { if (e.key === 'Enter') handleQueue() }}
-                        placeholder={arg.type}
-                      />
-                    </div>
+                          }
+                          return updated
+                        })
+                      }}
+                      onEnter={handleQueue}
+                    />
                   )
                 })}
               </div>
