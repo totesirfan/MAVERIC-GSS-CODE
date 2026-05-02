@@ -68,15 +68,6 @@ class TestEmptyDomain(unittest.TestCase):
         self.assertIn("no_domain", str(ctx.exception))
 
 
-class TestArgBoundType(unittest.TestCase):
-    """Rule 7 — valid_range is only valid on numeric argument types."""
-
-    def test_valid_range_on_string_type_rejected(self):
-        with self.assertRaises(ParseError) as ctx:
-            parse_yaml(FIXTURES / "invalid_arg_bound_type.yml", plugins={})
-        self.assertIn("mode_str", str(ctx.exception))
-
-
 class TestRepeatEntryCountAtLeastOne(unittest.TestCase):
     """Rule 8 — RepeatEntry.count_fixed must be >= 1 (XTCE 1.3 / XTCE13-143)."""
 

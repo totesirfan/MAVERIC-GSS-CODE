@@ -138,7 +138,6 @@ def _parse(
     _check_dynamic_ref_ordering(sequence_containers, parameter_types)
     _check_container_domains(sequence_containers)
     _check_repeat_entry_count(sequence_containers)
-    _check_argument_bound_types(meta_commands, parameter_types)
     _check_verifier_refs(verifier_specs, verifier_rules, meta_commands)
     if validate_plugins:
         _check_plugins(parameter_types, plugins)
@@ -533,9 +532,6 @@ def _project_meta_commands(
 def _project_argument(a) -> Argument:
     return Argument(
         name=a.name, type_ref=a.type, description=a.description,
-        valid_range=a.valid_range,
-        valid_values=tuple(a.valid_values) if a.valid_values is not None else None,
-        invalid_values=tuple(a.invalid_values) if a.invalid_values is not None else None,
         important=a.important,
     )
 
@@ -919,51 +915,6 @@ def _check_repeat_entry_count(containers: Mapping[str, SequenceContainer]) -> No
                         f"container {c.name!r}: repeat_entry on {entry.entry.name!r} "
                         f"has count={entry.count_fixed}; XTCE 1.3 requires count >= 1"
                     )
-
-
-def _check_argument_bound_types(
-    meta_commands: Mapping[str, MetaCommand],
-    parameter_types: Mapping[str, ParameterType],
-) -> None:
-    """Rule 7 — valid_range only on numeric types; valid_values/invalid_values type-compatible."""
-    numeric_types = (IntegerParameterType, FloatParameterType)
-    string_types = (StringParameterType,)
-
-    for m in meta_commands.values():
-        for arg in m.argument_list:
-            t = parameter_types.get(arg.type_ref)
-            if t is None:
-                continue  # unknown ref caught by _check_type_refs
-            if arg.valid_range is not None:
-                if not isinstance(t, numeric_types):
-                    raise ParseError(
-                        f"meta_command {m.id!r} argument {arg.name!r} has valid_range "
-                        f"but type {arg.type_ref!r} is not numeric"
-                    )
-            if arg.valid_values is not None:
-                _check_value_list_compat(m.id, arg.name, arg.type_ref, t, arg.valid_values, "valid_values")
-            if arg.invalid_values is not None:
-                _check_value_list_compat(m.id, arg.name, arg.type_ref, t, arg.invalid_values, "invalid_values")
-
-
-def _check_value_list_compat(
-    cmd_id: str, arg_name: str, type_ref: str,
-    t: ParameterType, values: tuple, field_name: str,
-) -> None:
-    if isinstance(t, (IntegerParameterType, FloatParameterType)):
-        for v in values:
-            if not isinstance(v, (int, float)):
-                raise ParseError(
-                    f"meta_command {cmd_id!r} argument {arg_name!r} {field_name} "
-                    f"entry {v!r} is not numeric; type {type_ref!r} is numeric"
-                )
-    elif isinstance(t, StringParameterType):
-        for v in values:
-            if not isinstance(v, str):
-                raise ParseError(
-                    f"meta_command {cmd_id!r} argument {arg_name!r} {field_name} "
-                    f"entry {v!r} is not a string; type {type_ref!r} is a string type"
-                )
 
 
 def _check_plugins(parameter_types: Mapping[str, ParameterType], plugins: Mapping[str, Callable]) -> None:

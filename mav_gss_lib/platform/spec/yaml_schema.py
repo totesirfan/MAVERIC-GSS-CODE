@@ -224,9 +224,6 @@ class _Argument(_Strict):
     name: str
     type: str
     description: str = ""
-    valid_range: tuple[float, float] | None = None
-    valid_values: list[Any] | None = None
-    invalid_values: list[Any] | None = None
     important: bool = False
 
 

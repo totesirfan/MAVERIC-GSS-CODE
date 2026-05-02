@@ -10,7 +10,7 @@ against `meta_cmd.allowed_packet`, then the codec's
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Mapping
+from typing import Mapping
 
 from .verifier_decls import VerifierOverrideByKey, VerifierStage
 from .types import HeaderValue
@@ -24,9 +24,6 @@ class Argument:
     name: str
     type_ref: str
     description: str = ""
-    valid_range: tuple[int | float, int | float] | None = None
-    valid_values: tuple[Any, ...] | None = None
-    invalid_values: tuple[Any, ...] | None = None
     important: bool = False
 
 

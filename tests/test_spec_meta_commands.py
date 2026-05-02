@@ -7,14 +7,12 @@ class TestArgument(unittest.TestCase):
     def test_argument_default_optional_fields(self):
         a = Argument(name="axis", type_ref="i8")
         self.assertEqual(a.description, "")
-        self.assertIsNone(a.valid_range)
-        self.assertIsNone(a.valid_values)
-        self.assertIsNone(a.invalid_values)
         self.assertFalse(a.important)
 
-    def test_argument_carries_valid_range(self):
-        a = Argument(name="axis", type_ref="i8", valid_range=(0, 5))
-        self.assertEqual(a.valid_range, (0, 5))
+    def test_int_argument_type_carries_valid_range(self):
+        from mav_gss_lib.platform.spec.argument_types import IntegerArgumentType
+        t = IntegerArgumentType(name="axis_t", size_bits=8, signed=True, valid_range=(0, 5))
+        self.assertEqual(t.valid_range, (0, 5))
 
 
 class TestMetaCommand(unittest.TestCase):
