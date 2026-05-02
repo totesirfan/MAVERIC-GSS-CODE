@@ -141,5 +141,47 @@ class TestPublicFixtureSchemaInlining(unittest.TestCase):
         self.assertIn("trailing", msg_arg["description"].lower())
 
 
+class TestPlatformAdapterSchemaShape(unittest.TestCase):
+    """The platform DeclarativeCommandOpsAdapter.schema() must emit
+    {cmd_id: CommandSchemaItem} with `tx_args` (no legacy "commands"
+    wrapper, no MAVERIC-extension keys). This is the contract Task 8b
+    later codifies as a TypedDict.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mission = parse_yaml(_FIXTURE, plugins={})
+        cls.ops = _ops(cls.mission)
+        cls.schema = cls.ops.schema()
+
+    def test_schema_is_unwrapped(self):
+        # Old shape was {"commands": {...}}; new shape lifts cmd_ids to top.
+        self.assertNotIn("commands", self.schema)
+        self.assertIn("set_year", self.schema)
+
+    def test_every_command_has_tx_args(self):
+        for cmd_id, item in self.schema.items():
+            self.assertIn("tx_args", item, f"{cmd_id} missing tx_args")
+            self.assertIsInstance(item["tx_args"], list)
+
+    def test_year_arg_carries_inlined_valid_range(self):
+        year_arg = next(
+            a for a in self.schema["set_year"]["tx_args"] if a["name"] == "year"
+        )
+        self.assertEqual(year_arg["valid_range"], [0, 99])
+        self.assertIn("2-digit", year_arg["description"])
+
+    def test_no_routing_extension_fields_on_platform_adapter(self):
+        # Platform adapter is mission-agnostic — must NOT emit dest/echo/
+        # ptype/nodes (those live on MAVERIC's MavericCommandSchemaItem).
+        forbidden = {"dest", "echo", "ptype", "nodes"}
+        for cmd_id, item in self.schema.items():
+            extras = forbidden & set(item.keys())
+            self.assertFalse(
+                extras,
+                f"{cmd_id}: platform adapter must not emit {extras}",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

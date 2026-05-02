@@ -109,6 +109,7 @@ class _MaverCommandOpsWrapper:
         return self._parse_cli(value)
 
     def schema(self) -> dict[str, Any]:
+        from mav_gss_lib.platform.spec.schema_helpers import inline_argument_metadata
         out: dict[str, Any] = {}
         for cmd_id, meta in self.mission.meta_commands.items():
             allowed_dest = meta.allowed_packet.get("dest")
@@ -120,15 +121,7 @@ class _MaverCommandOpsWrapper:
             else:
                 nodes = []
             out[cmd_id] = {
-                "tx_args": [
-                    {
-                        "name": a.name,
-                        "type": a.type_ref,
-                        "description": a.description,
-                        "important": a.important,
-                    }
-                    for a in meta.argument_list
-                ],
+                "tx_args": inline_argument_metadata(self.mission, meta),
                 "dest":  fixed_dest,
                 "echo":  meta.packet.get("echo"),
                 "ptype": meta.packet.get("ptype"),

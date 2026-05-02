@@ -332,20 +332,21 @@ class DeclarativeCommandOpsAdapter:
         return (encoded.cmd_id, _hashable_json(header or {}))
 
     def schema(self) -> dict[str, Any]:
-        return {
-            "commands": {
-                cmd.id: {
-                    "argument_list": [
-                        {"name": a.name, "type": a.type_ref, "description": a.description}
-                        for a in cmd.argument_list
-                    ],
-                    "guard": cmd.guard,
-                    "no_response": cmd.no_response,
-                    "deprecated": cmd.deprecated,
-                }
-                for cmd in self._meta_by_id.values()
+        # Final shape: bare {cmd_id: CommandSchemaItem}. Same `tx_args`
+        # inlining as MAVERIC's wrapper (via inline_argument_metadata),
+        # minus the MAVERIC routing extension (dest/echo/ptype/nodes —
+        # those are mission-specific and live in
+        # missions/maveric/declarative.py::schema()).
+        from mav_gss_lib.platform.spec.schema_helpers import inline_argument_metadata
+        out: dict[str, Any] = {}
+        for cmd_id, meta in self._meta_by_id.items():
+            out[cmd_id] = {
+                "tx_args": inline_argument_metadata(self._mission, meta),
+                "guard": meta.guard,
+                "rx_only": meta.rx_only,
+                "deprecated": meta.deprecated,
             }
-        }
+        return out
 
 
 def _coerce_token(token: str) -> Any:
