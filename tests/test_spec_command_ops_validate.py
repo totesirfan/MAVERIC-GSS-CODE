@@ -394,5 +394,61 @@ class TestPlatformParseInputAsciiToken(unittest.TestCase):
         self.assertEqual(draft.payload["args"], {"cs": "MAV-GSS"})
 
 
+class TestCliParserConsumesToEndForStringArgs(unittest.TestCase):
+    """Regression: MAVERIC's CLI parser must (1) consume to end for the
+    last `to_end` StringArgumentType arg via lookup in argument_types,
+    AND (2) preserve original whitespace in that remainder (TLE format
+    has tab-aligned columns and double-spaces that matter to FSW).
+    """
+
+    def setUp(self):
+        from mav_gss_lib.missions.maveric.declarative import _MaverCommandOpsWrapper
+        from mav_gss_lib.platform.spec.argument_types import (
+            BUILT_IN_ARGUMENT_TYPES, StringArgumentType,
+        )
+        from mav_gss_lib.platform.spec.parameter_types import BUILT_IN_PARAMETER_TYPES
+        # Tle in argument_types ONLY (not parameter_types)
+        arg_types = dict(BUILT_IN_ARGUMENT_TYPES)
+        arg_types["Tle"] = StringArgumentType(name="Tle", encoding="to_end")
+        meta = MetaCommand(
+            id="cfg_set_tle",
+            packet={"echo": "NONE", "ptype": "CMD"},
+            argument_list=(Argument(name="tle", type_ref="Tle"),),
+        )
+        mission = Mission(
+            id="t", name="t",
+            header=MissionHeader(version="0", date="2026-01-01"),
+            parameter_types=dict(BUILT_IN_PARAMETER_TYPES),
+            argument_types=arg_types,
+            parameters={}, bitfield_types={}, sequence_containers={},
+            meta_commands={meta.id: meta},
+        )
+        from mav_gss_lib.platform.spec.runtime import DeclarativeWalker
+        from mav_gss_lib.platform.spec.command_codec import DeclarativeCommandOpsAdapter
+        walker = DeclarativeWalker(mission, plugins={})
+        inner = DeclarativeCommandOpsAdapter(
+            mission=mission, walker=walker,
+            packet_codec=_StubCodec(), framer=_StubFramer(),
+        )
+        self.wrapper = _MaverCommandOpsWrapper(inner=inner, mission=mission, codec=_StubCodec())
+
+    def test_cli_consumes_to_end_for_to_end_string_arg_in_argument_types(self):
+        # Single-token lookup test (lookup correctness, not whitespace).
+        line = "cfg_set_tle 1_25544U_98067A_24001.00"
+        draft = self.wrapper.parse_input(line)
+        self.assertEqual(draft.payload["args"]["tle"], "1_25544U_98067A_24001.00")
+
+    def test_cli_to_end_preserves_original_whitespace(self):
+        # TLE format has DOUBLE-SPACE alignment that operator may type;
+        # the parser must NOT collapse it via " ".join(split()).
+        # Original: 3 spaces between '98067A' and '24001.00';
+        # 2 spaces between '0' and '9999'.
+        line = "cfg_set_tle 1 25544U 98067A   24001.00 .00001234 +12345-3 +12345-3 0  9999"
+        draft = self.wrapper.parse_input(line)
+        # The substring after "cfg_set_tle " must be preserved verbatim.
+        expected = "1 25544U 98067A   24001.00 .00001234 +12345-3 +12345-3 0  9999"
+        self.assertEqual(draft.payload["args"]["tle"], expected)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -23,7 +23,6 @@ from mav_gss_lib.platform.framing import DeclarativeFramer
 from mav_gss_lib.platform.spec import (
     Mission,
     ParseWarning,
-    StringParameterType,
     build_declarative_command_ops,
     parse_yaml,
 )
@@ -135,23 +134,47 @@ class _MaverCommandOpsWrapper:
     # -- CLI grammar -----------------------------------------------------
 
     def _parse_cli(self, line: str) -> CommandDraft:
-        parts = line.strip().split()
-        if not parts:
+        stripped = line.strip()
+        # Cheap first-token grab so we can look up the meta and decide
+        # whether the LAST arg is a `to_end` string. If it is, switch to
+        # split(maxsplit=N) so the trailing remainder keeps its original
+        # whitespace. This matters for TLE / LcdArgs / LogText where
+        # operator-typed double-spaces are load-bearing.
+        head = stripped.split(maxsplit=1)
+        if not head:
             raise ValueError("empty command input")
-        first_lower = parts[0].lower()
+        first_lower = head[0].lower()
         if first_lower in self.mission.meta_commands:
             meta = self.mission.meta_commands[first_lower]
             if meta.rx_only:
                 raise ValueError(f"'{first_lower}' is receive-only")
+            parts = self._split_for_meta(stripped, meta.argument_list)
             payload: dict[str, Any] = {
                 "cmd_id": first_lower,
                 "args": self._parse_arg_tokens(meta.argument_list, parts[1:]),
                 "packet": {},
             }
             return self.inner.parse_input(self._canonicalize(payload))
-        return self._parse_full_form(parts)
+        # Fall through to full-form parser. Pass `stripped` as `original`
+        # so _parse_full_form can re-tokenize with maxsplit when the last
+        # arg of the resolved command is a to_end string.
+        return self._parse_full_form(stripped.split(), original=stripped)
 
-    def _parse_full_form(self, parts: list[str]) -> CommandDraft:
+    def _split_for_meta(self, stripped: str, argument_list: tuple) -> list[str]:
+        """split() that preserves original whitespace in the trailing
+        remainder when the last argument is a to_end string. Returns
+        [cmd_id, arg1, arg2, ..., last_arg_remainder] where the last
+        element keeps its inner whitespace verbatim if the last
+        argument has type encoding=to_end; otherwise a normal split().
+        """
+        n = len(argument_list)
+        if n > 0 and self._arg_consumes_to_end(argument_list[-1].type_ref):
+            # cmd_id + (n-1) tokenized args + 1 remainder = n+1 items.
+            # split(maxsplit=n) yields up to n+1 items.
+            return stripped.split(maxsplit=n)
+        return stripped.split()
+
+    def _parse_full_form(self, parts: list[str], original: str | None = None) -> CommandDraft:
         if len(parts) < 4:
             raise ValueError(
                 "need at least: <dest> <echo> <type> <cmd>  "
@@ -179,7 +202,23 @@ class _MaverCommandOpsWrapper:
             raise ValueError(f"Unknown command {cmd_id!r} — verify command name in schema")
         if meta.rx_only:
             raise ValueError(f"'{cmd_id}' is receive-only")
-        args_dict = self._parse_arg_tokens(meta.argument_list, parts[cmd_idx + 1:])
+        # When the last arg is a to_end string AND we have the original
+        # line, re-tokenize the ORIGINAL with maxsplit at exactly the
+        # position where the to_end arg starts. The boundary is:
+        #   <prefix tokens (cmd_idx + 1)> + <fixed args (n - 1)> + <to_end remainder>
+        # so split with maxsplit = cmd_idx + n. The last element of the
+        # resulting list IS the verbatim remainder.
+        if (original is not None and meta.argument_list
+                and self._arg_consumes_to_end(meta.argument_list[-1].type_ref)):
+            n = len(meta.argument_list)
+            split_pieces = original.split(maxsplit=cmd_idx + n)
+            # split_pieces[: cmd_idx + 1] = prefix (incl. cmd token)
+            # split_pieces[cmd_idx + 1 : cmd_idx + n] = (n-1) fixed args
+            # split_pieces[cmd_idx + n] = the to_end remainder (verbatim)
+            arg_tokens = split_pieces[cmd_idx + 1:]
+        else:
+            arg_tokens = parts[cmd_idx + 1:]
+        args_dict = self._parse_arg_tokens(meta.argument_list, arg_tokens)
         meta_packet = meta.packet
         allowed = meta.allowed_packet
         parsed_packet = {
@@ -198,20 +237,30 @@ class _MaverCommandOpsWrapper:
 
     def _parse_arg_tokens(self, argument_list: tuple[Any, ...], tokens: list[str]) -> dict[str, Any]:
         args: dict[str, Any] = {}
-        token_idx = 0
         for arg_idx, arg in enumerate(argument_list):
-            if token_idx >= len(tokens):
+            if arg_idx >= len(tokens):
                 break
             if arg_idx == len(argument_list) - 1 and self._arg_consumes_to_end(arg.type_ref):
-                args[arg.name] = " ".join(tokens[token_idx:])
+                # When _split_for_meta / _parse_full_form used
+                # maxsplit=N, tokens[arg_idx] IS the already-preserved
+                # remainder. Keep it verbatim — do NOT rejoin (that
+                # would collapse the whitespace we just preserved).
+                args[arg.name] = tokens[arg_idx]
                 break
-            args[arg.name] = _coerce_token(tokens[token_idx])
-            token_idx += 1
+            args[arg.name] = _coerce_token(tokens[arg_idx])
         return args
 
     def _arg_consumes_to_end(self, type_ref: str) -> bool:
-        param_type = self.mission.parameter_types.get(type_ref)
-        return isinstance(param_type, StringParameterType) and param_type.encoding == "to_end"
+        # Delegate to the public helper so parser layers stay in sync
+        # on `to_end` resolution. The helper takes the type registry
+        # directly (not the Mission aggregate) — keeps the type module
+        # at the bottom of the dep stack. We hold `self.mission` and
+        # pass through its `argument_types` mapping; no reach into
+        # `self.inner` (which is typed as the platform `CommandOps`
+        # Protocol — adapter internals are intentionally not part of
+        # that contract).
+        from mav_gss_lib.platform.spec.argument_types import is_to_end_argument
+        return is_to_end_argument(self.mission.argument_types, type_ref)
 
     def _resolve_node_name(self, token: str, field: str) -> str:
         s = token.strip()
