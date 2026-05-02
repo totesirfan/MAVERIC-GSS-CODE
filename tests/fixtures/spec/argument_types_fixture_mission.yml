@@ -1,0 +1,38 @@
+schema_version: 1
+id: argtypes_fixture
+name: "ArgumentTypes Fixture Mission"
+header:
+  version: "0"
+  date: "2026-05-01"
+extensions: {}
+parameter_types: {}
+parameters: {}
+bitfield_types: {}
+sequence_containers: {}
+
+argument_types:
+  year_2digit_t: { kind: int, size_bits: 8, valid_range: [0, 99],
+                   description: "2-digit year (e.g. 26 for 2026)" }
+  ops_stage_t:   { kind: int, size_bits: 8, valid_values: [0, 1, 2],
+                   description: "Operations stage enum (raw int)" }
+  duration_ms_t: { kind: int, size_bits: 32, description: "Duration in milliseconds" }
+  TextBlob:      { kind: string, encoding: to_end,
+                   description: "Free-form trailing payload" }
+
+meta_commands:
+  set_year:
+    packet: { echo: NONE, ptype: CMD }
+    argument_list:
+      - { name: year, type: year_2digit_t }
+  set_ops:
+    packet: { echo: NONE, ptype: CMD }
+    argument_list:
+      - { name: stage, type: ops_stage_t }
+  set_delay:
+    packet: { echo: NONE, ptype: CMD }
+    argument_list:
+      - { name: delay_ms, type: duration_ms_t }
+  log_text:
+    packet: { echo: NONE, ptype: CMD }
+    argument_list:
+      - { name: msg, type: TextBlob }
