@@ -3,9 +3,14 @@ import type { GssConfig, MissionConfig, PlatformConfig, PlatformTrackingConfig }
 export const DOPPLER_CONFIG_KEY = 'doppler'
 export const TRACKING_CONFIG_KEY = 'tracking'
 
-export const MAVERIC_TLE = [
-  '1 99999U 26001A   26182.53800926  .00000000  00000-0  15000-3 0  9999',
-  '2 99999  97.8250 154.7171 0058009 348.1000 351.9980 14.91466332000019',
+// Neutral sample TLE. Mirrors `SAMPLE_TLE_LINE1/2` in
+// `mav_gss_lib/platform/tracking/models.py` — only used as a fallback
+// when the server hasn't supplied a real TLE via /api/config. Mission
+// values (e.g. MAVERIC's actual orbital elements) flow through the
+// backend config; this constant is mission-agnostic.
+export const SAMPLE_TLE = [
+  '1 25544U 98067A   26001.50000000  .00000000  00000-0  00000-0 0  9990',
+  '2 25544  51.6400   0.0000 0000000   0.0000   0.0000 15.50000000000007',
 ].join('\n')
 
 export interface TrackingConfig {
@@ -32,12 +37,17 @@ export interface TrackingStation {
   minElevationDeg: string
 }
 
+// Neutral reference station — mission-agnostic UI fallback used only
+// before /api/config has loaded. Backend ships matching defaults
+// (`default_station()` in mav_gss_lib/platform/tracking/config.py);
+// MAVERIC's actual station (USC / Southern California) is seeded by
+// the mission's tracking_defaults.py and arrives via the config feed.
 export const DEFAULT_TRACKING_STATION: TrackingStation = {
-  id: 'usc',
-  name: 'USC / Southern California',
-  latDeg: '34.0205',
-  lonDeg: '-118.2856',
-  altM: '70',
+  id: 'ref',
+  name: 'Reference Station',
+  latDeg: '0',
+  lonDeg: '0',
+  altM: '0',
   minElevationDeg: '5',
 }
 
@@ -51,8 +61,8 @@ export const DEFAULT_TRACKING_CONFIG: TrackingConfig = {
   minElevationDeg: DEFAULT_TRACKING_STATION.minElevationDeg,
   downlinkHz: '437600000',
   uplinkHz: '437600000',
-  tleSource: 'MAVERIC local TLE',
-  tleText: MAVERIC_TLE,
+  tleSource: 'platform sample TLE',
+  tleText: SAMPLE_TLE,
   showDayNight: true,
 }
 
@@ -159,8 +169,8 @@ export function normalizePlatformTrackingConfig(value: unknown): TrackingConfig 
   const tle = isRecord(value.tle) ? value.tle : {}
   const frequencies = isRecord(value.frequencies) ? value.frequencies : {}
   const display = isRecord(value.display) ? value.display : {}
-  const line1 = typeof tle.line1 === 'string' ? tle.line1 : MAVERIC_TLE.split('\n')[0]
-  const line2 = typeof tle.line2 === 'string' ? tle.line2 : MAVERIC_TLE.split('\n')[1]
+  const line1 = typeof tle.line1 === 'string' ? tle.line1 : SAMPLE_TLE.split('\n')[0]
+  const line2 = typeof tle.line2 === 'string' ? tle.line2 : SAMPLE_TLE.split('\n')[1]
 
   return {
     selectedStationId,
@@ -251,9 +261,16 @@ export function trackingConfigToPlatformSection(config: TrackingConfig): Platfor
     })),
     tle: {
       source: config.tleSource,
-      name: 'MAVERIC',
-      line1: line1 || MAVERIC_TLE.split('\n')[0],
-      line2: line2 || MAVERIC_TLE.split('\n')[1],
+      // Spacecraft name is owned by the backend's tracking config —
+      // operator sets it via gss.yml `platform.tracking.tle.name`,
+      // and missions seed their own (e.g. MAVERIC's mission.py
+      // calls `seed_tracking_defaults`). The frontend doesn't yet
+      // surface a name editor, so the writeback uses a neutral
+      // placeholder that the backend's existing `tle.name` will
+      // override on the next round-trip.
+      name: 'Spacecraft',
+      line1: line1 || SAMPLE_TLE.split('\n')[0],
+      line2: line2 || SAMPLE_TLE.split('\n')[1],
     },
     frequencies: {
       rx_hz: numericString(config.downlinkHz, Number(DEFAULT_TRACKING_CONFIG.downlinkHz)),

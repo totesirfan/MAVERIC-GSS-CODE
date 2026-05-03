@@ -6,8 +6,8 @@ from collections.abc import Mapping
 from typing import Any
 
 from .models import (
-    MAVERIC_TLE_LINE1,
-    MAVERIC_TLE_LINE2,
+    SAMPLE_TLE_LINE1,
+    SAMPLE_TLE_LINE2,
     TrackingConfig,
     TrackingDisplay,
     TrackingFrequencies,
@@ -47,12 +47,15 @@ def _bool(value: Any, fallback: bool) -> bool:
 
 
 def default_station() -> TrackingStation:
+    # Reference station with sample coordinates. Operators override via
+    # gss.yml `platform.tracking.stations[]`; this default is a
+    # placeholder so a fresh checkout has a non-empty stations catalog.
     return TrackingStation(
-        id="usc",
-        name="USC / Southern California",
-        lat_deg=34.0205,
-        lon_deg=-118.2856,
-        alt_m=70.0,
+        id="ref",
+        name="Reference Station",
+        lat_deg=0.0,
+        lon_deg=0.0,
+        alt_m=0.0,
         min_elevation_deg=5.0,
     )
 
@@ -64,12 +67,12 @@ def default_tracking_config() -> TrackingConfig:
         selected_station_id=station.id,
         stations=(station,),
         tle=TrackingTle(
-            source="MAVERIC local TLE",
-            name="MAVERIC",
-            line1=MAVERIC_TLE_LINE1,
-            line2=MAVERIC_TLE_LINE2,
+            source="platform sample TLE",
+            name="Sample LEO",
+            line1=SAMPLE_TLE_LINE1,
+            line2=SAMPLE_TLE_LINE2,
         ),
-        frequencies=TrackingFrequencies(rx_hz=437_600_000.0, tx_hz=437_600_000.0),
+        frequencies=TrackingFrequencies(rx_hz=437_000_000.0, tx_hz=437_000_000.0),
         display=TrackingDisplay(day_night_map=True),
     )
 

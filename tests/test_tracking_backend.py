@@ -19,12 +19,17 @@ from mav_gss_lib.server.tracking._tick import DopplerBroadcaster
 
 
 class TestTrackingDomain(unittest.TestCase):
-    def test_default_config_normalizes_to_usc_station(self):
+    def test_default_config_normalizes_to_neutral_reference_station(self):
+        # Platform defaults are mission-agnostic — `default_station()`
+        # returns a neutral "Reference Station" placeholder, NOT
+        # "USC / Southern California" (the latter was MAVERIC-flavored
+        # convenience leak; mission-specific defaults now live in
+        # mav_gss_lib/missions/<mission>/tracking_defaults.py).
         cfg = normalize_tracking_config({})
 
-        self.assertEqual(cfg.selected_station_id, "usc")
-        self.assertEqual(cfg.selected_station.name, "USC / Southern California")
-        self.assertEqual(cfg.tle.name, "MAVERIC")
+        self.assertEqual(cfg.selected_station_id, "ref")
+        self.assertEqual(cfg.selected_station.name, "Reference Station")
+        self.assertEqual(cfg.tle.name, "Sample LEO")
         self.assertGreater(cfg.frequencies.rx_hz, 0)
         self.assertGreater(cfg.frequencies.tx_hz, 0)
 
@@ -35,7 +40,7 @@ class TestTrackingDomain(unittest.TestCase):
             pass_count=2,
         )
 
-        self.assertEqual(state.doppler.satellite, "MAVERIC")
+        self.assertEqual(state.doppler.satellite, "Sample LEO")
         self.assertEqual(state.doppler.rx_tune_hz, state.doppler.rx_hz + state.doppler.rx_shift_hz)
         self.assertEqual(state.doppler.tx_tune_hz, state.doppler.tx_hz + state.doppler.tx_shift_hz)
         self.assertGreater(state.footprint.radius_deg, 0)

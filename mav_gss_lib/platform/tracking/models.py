@@ -11,8 +11,14 @@ from dataclasses import asdict, dataclass, field
 from typing import Literal
 
 
-MAVERIC_TLE_LINE1 = "1 99999U 26001A   26182.53800926  .00000000  00000-0  15000-3 0  9999"
-MAVERIC_TLE_LINE2 = "2 99999  97.8250 154.7171 0058009 348.1000 351.9980 14.91466332000019"
+# Neutral sample TLE (ISS-like 51° inclination LEO, fictitious epoch).
+# Used only as a fallback when neither the operator's gss.yml nor the
+# active mission has seeded `platform.tracking.tle`. Mission-specific
+# TLEs (e.g. MAVERIC's actual orbital elements) live in the mission
+# package and are seeded into runtime config by the mission's `build`
+# hook — see mav_gss_lib/missions/maveric/tracking_defaults.py.
+SAMPLE_TLE_LINE1 = "1 25544U 98067A   26001.50000000  .00000000  00000-0  00000-0 0  9990"
+SAMPLE_TLE_LINE2 = "2 25544  51.6400   0.0000 0000000   0.0000   0.0000 15.50000000000007"
 SPEED_OF_LIGHT_MPS = 299_792_458.0
 EARTH_RADIUS_KM = 6378.137
 

@@ -21,6 +21,7 @@ from mav_gss_lib.missions.maveric.packets import DeclarativePacketsAdapter
 from mav_gss_lib.missions.maveric.alarm_predicates import PLUGINS as ALARM_PLUGINS
 from mav_gss_lib.missions.maveric.plugin_tx_builder import get_tx_builder_route
 from mav_gss_lib.missions.maveric.preflight import build_preflight
+from mav_gss_lib.missions.maveric.tracking_defaults import seed_tracking_defaults
 from mav_gss_lib.platform import EventOps, MissionConfigSpec, MissionContext, MissionSpec
 from mav_gss_lib.platform.contract.mission import HttpOps
 
@@ -58,6 +59,11 @@ def _seed(mission_cfg: dict[str, Any], platform_cfg: dict[str, Any]) -> None:
         if isinstance(tx_cfg, dict):
             for k, v in _TX_DEFAULTS.items():
                 tx_cfg.setdefault(k, v)
+        # MAVERIC TLE / station / frequency. Platform ships neutral
+        # Sample-LEO defaults; MAVERIC seeds its actual values here so a
+        # fresh checkout starts with the right satellite without the
+        # operator having to write a gss.yml. Operator overrides win.
+        seed_tracking_defaults(platform_cfg)
 
 
 def _files_root(ctx: MissionContext) -> str:
