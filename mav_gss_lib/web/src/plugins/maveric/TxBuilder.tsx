@@ -95,7 +95,7 @@ export default function MavericTxBuilder({ onQueue, onClose, disabled }: Mission
     setArgValues({})
     setShowEcho(false)
     const def = schema?.[name]
-    setEcho(def?.echo ?? 'NONE')
+    setEcho(def?.echo != null ? String(def.echo) : 'NONE')
     setSearch('')
     if (def?.tx_args && def.tx_args.length > 0) {
       setTimeout(() => firstArgRef.current?.focus(), 50)
