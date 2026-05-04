@@ -116,10 +116,14 @@ export default function ImagingPage() {
     [files, nodes, setDestNode, setSelectedId],
   );
 
-  // Stage re-request — auto-routes target per side
+  // Stage re-request — auto-routes target per side. Re-requests reuse the
+  // chunk_size already observed for this leaf (backend-tracked from the
+  // original cnt/get) so the wire layout matches the in-progress file.
+  // Falls back to 150 B when the leaf hasn't been counted yet.
   const stageRerequest = useCallback(
     (side: 'thumb' | 'full', leaf: FileLeaf, ranges: MissingRange[]) => {
       const forcedTarget = side === 'thumb' ? '2' : '1';
+      const chunkSize = String(leaf.chunk_size ?? 150);
       for (const r of ranges) {
         queueCommand({
           cmd_id: 'img_get_chunks',
@@ -128,6 +132,7 @@ export default function ImagingPage() {
             start_chunk: String(r.start),
             num_chunks: String(r.count),
             destination: forcedTarget,
+            chunk_size: chunkSize,
           },
           packet: { dest: leaf.source || effectiveDestNode },
         });

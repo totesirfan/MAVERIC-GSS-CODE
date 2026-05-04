@@ -18,8 +18,8 @@ interface PreviewPanelProps {
  * Preview with [Thumb] [Full] tabs. The active tab selects which
  * filename is fetched from /api/plugins/files/preview?kind=image. If the pair
  * has no thumb side, the tabs are hidden and only the full image is
- * shown. Chunk size and byte count live in the header next to the
- * filename — no separate metadata strip.
+ * shown. Chunk size now lives in the Progress panel (per-row); the
+ * header keeps only the cumulative downloaded byte count.
  */
 export function PreviewPanel({ selected, activeTab, onTabChange, version }: PreviewPanelProps) {
   const leaf = useMemo(() => {
@@ -99,7 +99,7 @@ export function PreviewPanel({ selected, activeTab, onTabChange, version }: Prev
         <div className="flex-1" />
         {leaf && leaf.total !== null && (
           <span className="text-[10px] font-mono" style={{ color: colors.dim }}>
-            {chunkSize} B/chunk · {(bytes / 1024).toFixed(1)} KB
+            {(bytes / 1024).toFixed(1)} KB
           </span>
         )}
       </div>

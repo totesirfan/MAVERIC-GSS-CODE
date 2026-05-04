@@ -259,6 +259,9 @@ function ProgressRow({
         <span className="text-[11px]" style={{ color: colors.dim }}>
           ({pct}%)
         </span>
+        <span className="text-[10px] font-mono" style={{ color: colors.dim }}>
+          · {leaf.chunk_size ?? '?'} B/chunk
+        </span>
         <div className="flex-1" />
         {complete ? (
           <span className="text-[11px]" style={{ color: colors.success }}>Complete</span>

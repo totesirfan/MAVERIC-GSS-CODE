@@ -72,6 +72,8 @@ export function TxControlsPanel({
   const [getFn, setGetFn] = useState('');
   const [getStart, setGetStart] = useState('');
   const [getCount, setGetCount] = useState('');
+  // Combined chunk size shared by Count Chunks + Get Chunks. Default 150 B.
+  const [chunkSize, setChunkSize] = useState('150');
   const autoRef = useRef({ cntFn: '', getFn: '', start: '', count: '' });
 
   // Source filename = whichever leaf matches the Preview's active tab.
@@ -225,6 +227,23 @@ export function TxControlsPanel({
         <TabsContent value="download" className="flex-1 overflow-y-auto p-3 space-y-4 mt-0">
           <div>
             <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: colors.dim }}>
+              Chunk Size <span className="font-mono normal-case ml-1" style={{ color: colors.sep }}>shared · bytes per chunk</span>
+            </div>
+            <div className="flex items-end gap-2">
+              <GssInput
+                className="w-[80px] font-mono"
+                placeholder="150"
+                value={chunkSize}
+                onChange={e => setChunkSize(e.target.value)}
+              />
+              <span className="text-[10px] font-mono" style={{ color: colors.dim }}>
+                applied to img_cnt_chunks & img_get_chunks
+              </span>
+            </div>
+          </div>
+
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: colors.dim }}>
               Count Chunks <span className="font-mono normal-case ml-1" style={{ color: colors.sep }}>img_cnt_chunks</span>
             </div>
             <div className="flex items-end gap-2">
@@ -241,6 +260,7 @@ export function TxControlsPanel({
                   stage('img_cnt_chunks', {
                     filename: fn,
                     destination: destFromFilename(fn, thumbPrefix),
+                    chunk_size: chunkSize.trim(),
                   });
                 }}
                 style={{ backgroundColor: colors.active, color: colors.bgApp }}
@@ -282,6 +302,7 @@ export function TxControlsPanel({
                     start_chunk: getStart.trim(),
                     num_chunks: getCount.trim(),
                     destination: destFromFilename(fn, thumbPrefix),
+                    chunk_size: chunkSize.trim(),
                   });
                 }}
                 style={{ backgroundColor: colors.active, color: colors.bgApp }}
