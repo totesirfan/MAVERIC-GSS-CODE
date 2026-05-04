@@ -116,22 +116,48 @@ class _MaverCommandOpsWrapper:
             allowed_dest = meta.allowed_packet.get("dest")
             fixed_dest = meta.packet.get("dest")
             if allowed_dest:
-                nodes = list(allowed_dest)
-            elif fixed_dest:
-                nodes = [fixed_dest]
+                nodes = [self._resolve_node_value(v) for v in allowed_dest]
+            elif fixed_dest is not None:
+                nodes = [self._resolve_node_value(fixed_dest)]
             else:
                 nodes = []
             out[cmd_id] = {
                 "tx_args": inline_argument_metadata(self.mission, meta),
-                "dest":  fixed_dest,
-                "echo":  meta.packet.get("echo"),
-                "ptype": meta.packet.get("ptype"),
+                "dest":  self._resolve_node_value(fixed_dest) if fixed_dest is not None else None,
+                "echo":  self._resolve_node_value(meta.packet.get("echo")) if meta.packet.get("echo") is not None else None,
+                "ptype": self._resolve_ptype_value(meta.packet.get("ptype")) if meta.packet.get("ptype") is not None else None,
                 "nodes": nodes,
                 "guard": meta.guard,
                 "rx_only": meta.rx_only,
                 "deprecated": meta.deprecated,
             }
         return out
+
+    def _resolve_node_value(self, value: Any) -> str:
+        # Schema invariant: routing fields exposed on /api/schema are
+        # always symbolic node NAMES, never wire bytes. YAML may declare
+        # a header as `dest: LPPM` (string) or `dest: 1` (numeric byte);
+        # both produce the same wire byte at encode time but would
+        # otherwise leak through to the schema as different shapes,
+        # breaking the TxBuilder filter (`def.nodes.some(n =>
+        # String(n) === selectedDestNode)` expects names like "LPPM").
+        # Normalize at the producer so the schema is one shape.
+        if isinstance(value, str):
+            return value
+        try:
+            return self._codec.node_name_for(int(value))
+        except Exception:
+            return str(value)
+
+    def _resolve_ptype_value(self, value: Any) -> str:
+        # Same invariant as `_resolve_node_value` but for ptype (CMD/RES/
+        # ACK/NACK/TLM/FILE — the inner-packet-type byte).
+        if isinstance(value, str):
+            return value
+        try:
+            return self._codec.ptype_name_for(int(value))
+        except Exception:
+            return str(value)
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.inner, name)

@@ -200,6 +200,124 @@ class TestMavericExtensionAgainstLocalMission(unittest.TestCase):
                 f"the platform contract OR MavericCommandSchemaItem first.",
             )
 
+    def test_routing_values_are_symbolic_names_not_wire_bytes(self):
+        # Schema invariant: dest/echo/ptype/nodes are always symbolic
+        # names, never numeric wire bytes — even if a future YAML
+        # declared `dest: 1` instead of `dest: LPPM`. Confirm against
+        # the live mission: every routing value across every command is
+        # a string (no leaked ints).
+        for cmd_id, item in self.schema.items():
+            for field in ("dest", "echo", "ptype"):
+                v = item.get(field)
+                if v is None:
+                    continue
+                self.assertIsInstance(
+                    v, str,
+                    f"{cmd_id}.{field} = {v!r} is not a symbolic name; the "
+                    f"MAVERIC schema producer must resolve numeric routing "
+                    f"values via _resolve_node_value/_resolve_ptype_value.",
+                )
+            for n in item.get("nodes", []) or []:
+                self.assertIsInstance(
+                    n, str,
+                    f"{cmd_id}.nodes contains non-string {n!r}; resolve "
+                    f"via _resolve_node_value before emitting.",
+                )
+
+
+class TestMavericSchemaResolvesNumericRoutingValues(unittest.TestCase):
+    """Future-proofing: if a mission YAML declares command headers in
+    numeric wire-byte form (`dest: 1`) instead of symbolic name form
+    (`dest: LPPM`), MAVERIC's schema producer must still emit the
+    symbolic name. The TxBuilder filter compares against the operator's
+    selected node name — leaving wire bytes in the schema would
+    silently hide commands.
+
+    This test bypasses the YAML parser by injecting a minimal
+    MetaCommand directly with numeric routing values, then runs the
+    wrapper's `schema()` and asserts the output is normalized.
+    """
+
+    def test_numeric_dest_resolves_to_symbolic_name(self):
+        from mav_gss_lib.missions.maveric.declarative import _MaverCommandOpsWrapper
+        from mav_gss_lib.platform.contract.commands import CommandDraft as _CD
+        from mav_gss_lib.platform.spec.argument_types import BUILT_IN_ARGUMENT_TYPES
+        from mav_gss_lib.platform.spec.commands import MetaCommand
+        from mav_gss_lib.platform.spec.mission import Mission, MissionHeader
+        from mav_gss_lib.platform.spec.parameter_types import BUILT_IN_PARAMETER_TYPES
+
+        class _StubCodec:
+            def node_name_for(self, byte: int) -> str:
+                return {0: "NONE", 1: "LPPM", 2: "EPS", 3: "UPPM"}[byte]
+            def ptype_name_for(self, byte: int) -> str:
+                return {1: "CMD", 2: "RES"}[byte]
+
+        # Numeric routing — would arrive this way if YAML used `dest: 1`.
+        meta_numeric = MetaCommand(
+            id="num_cmd",
+            packet={"dest": 1, "echo": 0, "ptype": 1},
+            allowed_packet={"dest": (1, 3)},
+        )
+        mission = Mission(
+            id="t", name="t",
+            header=MissionHeader(version="0", date="2026-05-03"),
+            parameter_types=dict(BUILT_IN_PARAMETER_TYPES),
+            argument_types=dict(BUILT_IN_ARGUMENT_TYPES),
+            parameters={}, bitfield_types={}, sequence_containers={},
+            meta_commands={meta_numeric.id: meta_numeric},
+        )
+
+        class _InnerStub:
+            def schema(self): return {}
+            def parse_input(self, v): return _CD(payload={"cmd_id": "", "args": {}, "packet": {}})
+
+        wrapper = _MaverCommandOpsWrapper(
+            inner=_InnerStub(), mission=mission, codec=_StubCodec(),
+        )
+        item = wrapper.schema()["num_cmd"]
+        self.assertEqual(item["dest"], "LPPM")
+        self.assertEqual(item["echo"], "NONE")
+        self.assertEqual(item["ptype"], "CMD")
+        self.assertEqual(sorted(item["nodes"]), ["LPPM", "UPPM"])
+
+    def test_string_dest_passes_through_unchanged(self):
+        # Today's YAML uses names — must be a no-op pass-through.
+        from mav_gss_lib.missions.maveric.declarative import _MaverCommandOpsWrapper
+        from mav_gss_lib.platform.contract.commands import CommandDraft as _CD
+        from mav_gss_lib.platform.spec.argument_types import BUILT_IN_ARGUMENT_TYPES
+        from mav_gss_lib.platform.spec.commands import MetaCommand
+        from mav_gss_lib.platform.spec.mission import Mission, MissionHeader
+        from mav_gss_lib.platform.spec.parameter_types import BUILT_IN_PARAMETER_TYPES
+
+        class _StubCodec:
+            def node_name_for(self, byte): raise AssertionError("must not call for string input")
+            def ptype_name_for(self, byte): raise AssertionError("must not call for string input")
+
+        meta = MetaCommand(
+            id="sym_cmd",
+            packet={"dest": "LPPM", "echo": "NONE", "ptype": "CMD"},
+            allowed_packet={"dest": ("LPPM", "UPPM")},
+        )
+        mission = Mission(
+            id="t", name="t",
+            header=MissionHeader(version="0", date="2026-05-03"),
+            parameter_types=dict(BUILT_IN_PARAMETER_TYPES),
+            argument_types=dict(BUILT_IN_ARGUMENT_TYPES),
+            parameters={}, bitfield_types={}, sequence_containers={},
+            meta_commands={meta.id: meta},
+        )
+
+        class _InnerStub:
+            def schema(self): return {}
+            def parse_input(self, v): return _CD(payload={"cmd_id": "", "args": {}, "packet": {}})
+
+        wrapper = _MaverCommandOpsWrapper(
+            inner=_InnerStub(), mission=mission, codec=_StubCodec(),
+        )
+        item = wrapper.schema()["sym_cmd"]
+        self.assertEqual(item["dest"], "LPPM")
+        self.assertEqual(item["nodes"], ["LPPM", "UPPM"])
+
 
 if __name__ == "__main__":
     unittest.main()
