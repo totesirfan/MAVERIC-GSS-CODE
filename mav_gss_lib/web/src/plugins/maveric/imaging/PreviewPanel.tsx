@@ -28,7 +28,14 @@ export function PreviewPanel({ selected, activeTab, onTabChange, version }: Prev
     // to whichever side exists.
     if (!selected.thumb) return selected.full;
     if (!selected.full) return selected.thumb;
-    return activeTab === 'thumb' ? selected.thumb : selected.full;
+    // Active tab points at a side with no bytes yet (e.g. cnt_chunks
+    // seeded both totals but the operator only downloaded one): fall
+    // through to the side that actually has data so the preview card
+    // renders something instead of a 404 / broken image.
+    const want = activeTab === 'thumb' ? selected.thumb : selected.full;
+    const other = activeTab === 'thumb' ? selected.full : selected.thumb;
+    if (want.received === 0 && other.received > 0) return other;
+    return want;
   }, [selected, activeTab]);
 
   const imgSrc = useMemo(() => {

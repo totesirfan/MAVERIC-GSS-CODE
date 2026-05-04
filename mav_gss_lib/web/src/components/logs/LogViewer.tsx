@@ -47,7 +47,41 @@ function hhmmss(ts_iso: string | undefined, ts_ms: number | undefined): string {
   return '--:--:--'
 }
 
+const SYSTEM_EVENT_KINDS = new Set(['tracking', 'radio'])
+
+function isSystemEvent(kind: string): boolean {
+  return SYSTEM_EVENT_KINDS.has(kind)
+}
+
+function systemEventBlock(e: LogEntry, kind: string): Record<string, unknown> | undefined {
+  const block = e[kind]
+  return block && typeof block === 'object' ? block as Record<string, unknown> : undefined
+}
+
+function systemEventAction(e: LogEntry, kind: string): string {
+  const block = systemEventBlock(e, kind)
+  const action = block?.action
+  return typeof action === 'string' ? action : ''
+}
+
+function systemEventState(e: LogEntry, kind: string): string {
+  const block = systemEventBlock(e, kind)
+  if (!block) return ''
+  // Tracking carries `mode`; radio carries `state`. Either way, surface the
+  // post-action condition in the frame column so the row is scannable.
+  const mode = block.mode
+  if (typeof mode === 'string' && mode) return mode
+  const state = block.state
+  if (typeof state === 'string' && state) return state
+  return ''
+}
+
 function entryLabel(e: LogEntry): string {
+  const kind = String(e.event_kind ?? '')
+  if (isSystemEvent(kind)) {
+    const action = systemEventAction(e, kind)
+    return action ? `${kind}.${action}` : kind
+  }
   const mission = e.mission
   if (mission && typeof mission === 'object') {
     const missionObj = mission as Record<string, unknown>
@@ -370,17 +404,20 @@ export function LogViewer({ open, onClose }: LogViewerProps) {
                   {entries.map((e, i) => {
                     const kind = String(e.event_kind ?? '?')
                     const isTx = kind === 'tx_command'
+                    const isSys = isSystemEvent(kind)
                     const seq = Number(e.seq ?? 0)
                     const timeStr = hhmmss(e.ts_iso as string | undefined, e.ts_ms as number | undefined)
                     const label = entryLabel(e)
-                    const frame = String(e.frame_type ?? e.frame_label ?? '')
+                    const frame = isSys
+                      ? systemEventState(e, kind)
+                      : String(e.frame_type ?? e.frame_label ?? '')
                     const rawLen = Number(e.size ?? e.wire_len ?? 0)
                     const wireLen = Number(e.wire_len ?? rawLen)
                     const innerLen = Number(e.inner_len ?? 0)
                     const rawHex = String(e.raw_hex ?? e.wire_hex ?? '')
                     const wireHex = String(e.wire_hex ?? (isTx ? rawHex : ''))
                     const innerHex = String(e.inner_hex ?? '')
-                    const displayLen = isTx ? wireLen : rawLen
+                    const displayLen = isSys ? '' : (isTx ? wireLen : rawLen)
                     const displayInnerLen = isTx && innerHex ? innerLen : ''
                     const warnings = (Array.isArray(e.warnings) ? e.warnings : []) as string[]
                     const eventId = String(e.event_id ?? '')
@@ -389,8 +426,10 @@ export function LogViewer({ open, onClose }: LogViewerProps) {
                     const isEcho = !!e.uplink_echo
                     const isUnknown = !!e.unknown
                     const isExpanded = expandedSet.has(i)
-                    const dirColor = isTx ? colors.label : colors.success
+                    const dirColor = isSys ? colors.info : (isTx ? colors.label : colors.success)
+                    const kindLabel = isSys ? 'SYS' : (isTx ? 'TX' : 'RX')
                     const mission = (e.mission && typeof e.mission === 'object') ? e.mission as Record<string, unknown> : undefined
+                    const sysBlock = isSys ? systemEventBlock(e, kind) : undefined
 
                     return (
                       <ContextMenuRoot key={i}>
@@ -405,8 +444,9 @@ export function LogViewer({ open, onClose }: LogViewerProps) {
                               {isExpanded ? <ChevronDown className="size-3 shrink-0" style={{ color: colors.label }} /> : <ChevronRight className="size-3 shrink-0" style={{ color: colors.dim }} />}
                               <span className="px-2 w-12 text-right tabular-nums" style={{ color: colors.value }}>{seq}</span>
                               <span className="px-2 w-28 tabular-nums" style={{ color: colors.value }}>{timeStr}</span>
-                              <span className="px-2 w-16 uppercase font-bold text-[10px]" style={{ color: dirColor }}>
-                                {isTx ? 'TX' : 'RX'}
+                              <span className="px-2 w-16 uppercase font-bold text-[10px] flex items-center gap-1" style={{ color: dirColor }}>
+                                {isSys && <Cpu className="size-3 shrink-0" />}
+                                {kindLabel}
                               </span>
                               <span className="px-2 flex-1 truncate" style={{ color: colors.label }}>{label || (isUnknown ? '(unknown)' : '')}</span>
                               <span className="px-2 w-24 truncate" style={{ color: colors.dim }}>{frame}</span>
@@ -431,7 +471,29 @@ export function LogViewer({ open, onClose }: LogViewerProps) {
                                   </div>
                                 )}
 
-                                {fragments.length > 0 && (
+                                {isSys && sysBlock && (
+                                  <details open>
+                                    <summary className="text-[11px] cursor-pointer select-none" style={{ color: colors.sep }}>
+                                      {kind}
+                                    </summary>
+                                    <div className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[11px] font-mono">
+                                      {Object.entries(sysBlock).map(([k, v]) => {
+                                        if (v === null || v === undefined || v === '') return null
+                                        const display = typeof v === 'object'
+                                          ? JSON.stringify(sanitizeForDisplay(v))
+                                          : String(v)
+                                        return (
+                                          <div key={k} className="contents">
+                                            <span style={{ color: colors.dim }}>{k}</span>
+                                            <span className="break-all" style={{ color: colors.value }}>{display}</span>
+                                          </div>
+                                        )
+                                      })}
+                                    </div>
+                                  </details>
+                                )}
+
+                                {!isSys && fragments.length > 0 && (
                                   <details open>
                                     <summary className="text-[11px] cursor-pointer select-none" style={{ color: colors.sep }}>
                                       telemetry ({fragments.length})
@@ -464,7 +526,7 @@ export function LogViewer({ open, onClose }: LogViewerProps) {
                                   </details>
                                 )}
 
-                                {mission && Object.keys(mission).length > 0 && (
+                                {!isSys && mission && Object.keys(mission).length > 0 && (
                                   <details open>
                                     <summary className="text-[11px] cursor-pointer select-none" style={{ color: colors.sep }}>
                                       mission
@@ -491,7 +553,7 @@ export function LogViewer({ open, onClose }: LogViewerProps) {
                                   </>
                                 )}
 
-                                {((isTx && wireHex && wireHex !== innerHex) || (!isTx && rawHex)) && (
+                                {!isSys && ((isTx && wireHex && wireHex !== innerHex) || (!isTx && rawHex)) && (
                                   <div className="flex items-start gap-1">
                                     <Binary className="size-3 mt-0.5 shrink-0" style={{ color: colors.sep }} />
                                     <div className="flex-1">
@@ -515,12 +577,22 @@ export function LogViewer({ open, onClose }: LogViewerProps) {
                           >
                             Copy Label
                           </ContextMenuItem>
-                          <ContextMenuItem
-                            icon={Braces}
-                            onSelect={() => mission && navigator.clipboard.writeText(prettyMissionJson(mission))}
-                          >
-                            Copy Mission JSON
-                          </ContextMenuItem>
+                          {!isSys && (
+                            <ContextMenuItem
+                              icon={Braces}
+                              onSelect={() => mission && navigator.clipboard.writeText(prettyMissionJson(mission))}
+                            >
+                              Copy Mission JSON
+                            </ContextMenuItem>
+                          )}
+                          {isSys && sysBlock && (
+                            <ContextMenuItem
+                              icon={Braces}
+                              onSelect={() => navigator.clipboard.writeText(prettyMissionJson(sysBlock))}
+                            >
+                              Copy {kind} JSON
+                            </ContextMenuItem>
+                          )}
                           {isTx && innerHex && (
                             <ContextMenuItem
                               icon={Binary}
