@@ -46,14 +46,17 @@ class ZmqDopplerSink:
             self._tx.send(tx_payload, flags=zmq.NOBLOCK)
 
     def close(self) -> None:
+        # 250 ms LINGER lets the final park-at-nominal publish flush before the
+        # PUB sockets shut down; live-tracking publishes already use NOBLOCK so
+        # they cannot stall here.
         with self._lock:
             if self._closed:
                 return
             self._closed = True
             try:
-                self._rx.close(linger=0)
+                self._rx.close(linger=250)
             finally:
-                self._tx.close(linger=0)
+                self._tx.close(linger=250)
 
 
 def _freq_message(freq_hz: float) -> bytes:

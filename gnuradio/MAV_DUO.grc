@@ -311,6 +311,100 @@ blocks:
     coordinate: [576, 360.0]
     rotation: 0
     state: enabled
+- name: import_1
+  id: import
+  parameters:
+    alias: ''
+    comment: Required by variable_function_probe template
+    imports: import functools
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [688, 360.0]
+    rotation: 0
+    state: enabled
+- name: layout_stretch_snippet
+  id: snippet
+  parameters:
+    section: main_after_init
+    priority: '0'
+    code: |-
+      self.top_grid_layout.setRowStretch(0, 0)
+      self.top_grid_layout.setRowStretch(1, 0)
+      self.top_grid_layout.setRowStretch(2, 1)
+      self.top_grid_layout.setRowStretch(3, 1)
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [800, 360.0]
+    rotation: 0
+    state: enabled
+- name: rx_actual_freq
+  id: variable_function_probe
+  parameters:
+    block_id: uhd_usrp_source_0
+    comment: USRP-reported RX center freq (Hz)
+    function_args: '0'
+    function_name: get_center_freq
+    poll_rate: '2'
+    value: '0'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [16, 240.0]
+    rotation: 0
+    state: enabled
+- name: tx_actual_freq
+  id: variable_function_probe
+  parameters:
+    block_id: uhd_usrp_sink_0
+    comment: USRP-reported TX center freq (Hz)
+    function_args: '0'
+    function_name: get_center_freq
+    poll_rate: '2'
+    value: '0'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [16, 320.0]
+    rotation: 0
+    state: enabled
+- name: rx_actual_freq_label
+  id: variable_qtgui_label
+  parameters:
+    comment: ''
+    formatter: 'lambda v: f"{float(v)/1e6:.6f} MHz"'
+    gui_hint: 1,0,1,1
+    label: USRP RX achieved
+    type: real
+    value: rx_actual_freq
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [232, 240.0]
+    rotation: 0
+    state: enabled
+- name: tx_actual_freq_label
+  id: variable_qtgui_label
+  parameters:
+    comment: ''
+    formatter: 'lambda v: f"{float(v)/1e6:.6f} MHz"'
+    gui_hint: 1,1,1,1
+    label: USRP TX achieved
+    type: real
+    value: tx_actual_freq
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [232, 320.0]
+    rotation: 0
+    state: enabled
 - name: pdu_pdu_to_tagged_stream_0
   id: pdu_pdu_to_tagged_stream
   parameters:
@@ -363,7 +457,7 @@ blocks:
     fftsize: '2048'
     freqhalf: 'True'
     grid: 'True'
-    gui_hint: 1,0,1,2
+    gui_hint: 2,1,1,1
     label: TX Spectrum
     label1: ''
     label10: ''''''
@@ -378,7 +472,7 @@ blocks:
     legend: 'False'
     maxoutbuf: '0'
     minoutbuf: '0'
-    name: '"MAVERIC TX (ASM+Golay Mode 5)"'
+    name: '""'
     nconnections: '1'
     norm_window: 'False'
     showports: 'False'
@@ -439,12 +533,12 @@ blocks:
     color8: '"dark red"'
     color9: '"dark green"'
     comment: ''
-    ctrlpanel: 'True'
+    ctrlpanel: 'False'
     fc: '0'
     fftsize: '1024'
     freqhalf: 'True'
     grid: 'False'
-    gui_hint: ''
+    gui_hint: 2,0,1,1
     label: Relative Gain
     label1: ''
     label10: ''''''
@@ -522,7 +616,7 @@ blocks:
     fftsize: '1024'
     freqhalf: 'True'
     grid: 'False'
-    gui_hint: ''
+    gui_hint: 3,0,1,2
     int_max: '10'
     int_min: '-140'
     label1: ''
@@ -1384,36 +1478,6 @@ blocks:
     coordinate: [16, 96.0]
     rotation: 0
     state: enabled
-- name: blocks_message_debug_rxcmd
-  id: blocks_message_debug
-  parameters:
-    affinity: ''
-    alias: ''
-    comment: Prints incoming RX doppler commands (verification only)
-    en_uvec: 'True'
-    log_level: info
-  states:
-    bus_sink: false
-    bus_source: false
-    bus_structure: null
-    coordinate: [232, 16.0]
-    rotation: 0
-    state: enabled
-- name: blocks_message_debug_txcmd
-  id: blocks_message_debug
-  parameters:
-    affinity: ''
-    alias: ''
-    comment: Prints incoming TX doppler commands (verification only)
-    en_uvec: 'True'
-    log_level: info
-  states:
-    bus_sink: false
-    bus_source: false
-    bus_structure: null
-    coordinate: [232, 96.0]
-    rotation: 0
-    state: enabled
 
 connections:
 - [blocks_float_to_complex_0, '0', blocks_throttle2_0, '0']
@@ -1433,9 +1497,7 @@ connections:
 - [zeromq_sub_msg_source_0, out, pdu_pdu_to_tagged_stream_0, pdus]
 - [zeromq_sub_msg_source_0, out, satellites_hexdump_sink_0_0, in]
 - [zeromq_sub_msg_source_rxcmd, out, uhd_usrp_source_0, command]
-- [zeromq_sub_msg_source_rxcmd, out, blocks_message_debug_rxcmd, print]
 - [zeromq_sub_msg_source_txcmd, out, uhd_usrp_sink_0, command]
-- [zeromq_sub_msg_source_txcmd, out, blocks_message_debug_txcmd, print]
 
 metadata:
   file_format: 1

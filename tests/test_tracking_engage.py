@@ -60,6 +60,25 @@ class TrackingEngageTests(unittest.TestCase):
         self.assertIsInstance(service._sink, NullDopplerSink)
         active_sink.close.assert_called_once()
 
+    def test_disengage_publishes_nominal_park_before_close(self) -> None:
+        runtime = _FakeRuntime()
+        active_sink = MagicMock()
+        order: list[str] = []
+        active_sink.publish.side_effect = lambda *_: order.append("publish")
+        active_sink.close.side_effect = lambda: order.append("close")
+        service = TrackingService(runtime, sink_factory=lambda **_: active_sink)
+        service.engage()
+
+        service.disengage()
+
+        active_sink.publish.assert_called_once()
+        self.assertEqual(order, ["publish", "close"])
+        published: DopplerCorrection = active_sink.publish.call_args.args[0]
+        self.assertEqual(published.mode, "disconnected")
+        self.assertEqual(published.rx_tune_hz, 437_600_000.0)
+        self.assertEqual(published.tx_tune_hz, 437_600_000.0)
+        self.assertEqual(published.range_rate_mps, 0.0)
+
     def test_engage_failure_keeps_null_sink(self) -> None:
         runtime = _FakeRuntime()
 

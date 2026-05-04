@@ -120,13 +120,36 @@ class TrackingService:
             self._sink = NullDopplerSink()
             self._doppler_mode = "disconnected"
         if previous is not None:
-            previous.close()
+            try:
+                previous.publish(self._nominal_park_correction())
+            finally:
+                previous.close()
         self._write_tracking_event(
             "disconnect",
             mode=self._doppler_mode,
             prev_mode=prev_mode,
         )
         return self._doppler_mode
+
+    def _nominal_park_correction(self) -> DopplerCorrection:
+        # Built from the live tracking config so disengage parks the USRP at
+        # the operator-configured nominal frequencies, not the last
+        # Doppler-shifted tune. Mode is "disconnected" so subscribers can tell
+        # this apart from a live correction.
+        config = self.config_model()
+        return DopplerCorrection(
+            ts_ms=_now_ms(),
+            station_id=config.selected_station.id,
+            satellite=config.tle.name,
+            mode="disconnected",
+            range_rate_mps=0.0,
+            rx_hz=config.frequencies.rx_hz,
+            rx_shift_hz=0.0,
+            rx_tune_hz=config.frequencies.rx_hz,
+            tx_hz=config.frequencies.tx_hz,
+            tx_shift_hz=0.0,
+            tx_tune_hz=config.frequencies.tx_hz,
+        )
 
     def _write_tracking_event(
         self,
