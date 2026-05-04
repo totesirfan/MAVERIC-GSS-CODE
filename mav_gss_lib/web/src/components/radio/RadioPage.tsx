@@ -101,7 +101,7 @@ export function RadioPage() {
   const tracking = useTrackingSocket()
   const [apiStatus, setApiStatus] = useState<{ zmq_rx?: string; zmq_tx?: string }>({})
   const [, setNowTick] = useState(0)
-  const [mountedAtMs] = useState(() => Date.now())
+  const [connectingWindow, setConnectingWindow] = useState(true)
   const logRef = useRef<HTMLDivElement>(null)
   const stickyRef = useRef(true)
 
@@ -126,8 +126,13 @@ export function RadioPage() {
     return () => window.clearInterval(id)
   }, [])
 
+  useEffect(() => {
+    const id = window.setTimeout(() => setConnectingWindow(false), 1500)
+    return () => window.clearTimeout(id)
+  }, [])
+
   const connState: 'connecting' | 'connected' | 'disconnected' =
-    !connected && Date.now() - mountedAtMs < 1500 ? 'connecting' : (connected ? 'connected' : 'disconnected')
+    !connected && connectingWindow ? 'connecting' : (connected ? 'connected' : 'disconnected')
 
   const connTone =
     connState === 'connected' ? colors.success

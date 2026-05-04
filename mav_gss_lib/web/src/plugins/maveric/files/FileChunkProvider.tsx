@@ -109,11 +109,11 @@ export function FileChunkProvider({ children }: PropsWithChildren) {
   // Initial fetch — paired image view requires REST so the broadcast
   // alone (per-leaf) doesn't have enough info to reconstruct pairs.
   useEffect(() => {
-    void refetchImage();
-    void refetchAii();
-    void refetchMag();
+    void (async () => { await refetchImage(); })();
+    void (async () => { await refetchAii(); })();
+    void (async () => { await refetchMag(); })();
+    const slot = debounceRef.current;
     return () => {
-      const slot = debounceRef.current;
       for (const k of ['image', 'aii', 'mag'] as const) {
         if (slot[k]) {
           window.clearTimeout(slot[k]);

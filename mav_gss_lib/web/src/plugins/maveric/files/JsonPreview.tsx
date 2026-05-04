@@ -15,7 +15,7 @@ export function JsonPreview({ file }: Props) {
   const [valid, setValid] = useState<boolean | null>(null);
 
   useEffect(() => {
-    if (!file) { setText(''); setValid(null); return; }
+    if (!file) return;
     let cancelled = false;
     void (async () => {
       try {
