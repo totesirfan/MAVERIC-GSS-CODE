@@ -89,7 +89,7 @@ docs/mission-platform-v2-plan.md
 tools/
 
 # === MAVERIC-local mission test suites (kept locally, not shipped) ===
-tests/test_maveric_*.py
+tests/*maveric*.py
 tests/test_eps_*.py
 tests/test_imaging_*.py
 tests/test_fake_flight_*.py
