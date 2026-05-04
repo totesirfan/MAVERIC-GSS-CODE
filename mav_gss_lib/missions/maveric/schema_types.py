@@ -12,7 +12,6 @@ from __future__ import annotations
 from typing import NotRequired
 
 from mav_gss_lib.platform.contract.commands import CommandSchemaItem
-from mav_gss_lib.platform.spec.types import HeaderValue
 
 
 class MavericCommandSchemaItem(CommandSchemaItem):
@@ -22,18 +21,23 @@ class MavericCommandSchemaItem(CommandSchemaItem):
     list of allowed dest names for the operator UI. None/absent means
     'operator chooses' (no fixed routing constraint).
 
-    Field value type mirrors `HeaderValue` (`str | int | bool`): the
-    YAML parser preserves whatever the operator wrote in the command
-    header (`dest: LPPM` parses to "LPPM"; `dest: 1` would parse to
-    int 1). Wire mapping happens later in the packet codec, not here —
-    the schema must reflect that polymorphism so consumers don't get a
-    silent type mismatch when an author switches a header from a
-    symbolic name to a numeric byte.
+    Schema invariant: routing values are ALWAYS symbolic node / ptype
+    NAMES (`"LPPM"`, `"CMD"` …), never wire bytes. The MAVERIC schema
+    producer (`_MaverCommandOpsWrapper.schema()` in `declarative.py`)
+    runs every routing value through `_resolve_node_value` /
+    `_resolve_ptype_value`, which look up the symbolic name in the
+    mission's node/ptype directory regardless of whether the YAML
+    declared `dest: LPPM` or `dest: 1`. Numeric polymorphism stays
+    inside the packet codec at encode time — it does NOT leak to
+    `/api/schema`. (See test_command_schema_contract.py::
+    TestMavericExtensionAgainstLocalMission for the runtime invariant
+    and TestMavericSchemaResolvesNumericRoutingValues for the
+    numeric-input case.)
     """
-    dest: NotRequired[HeaderValue | None]
-    echo: NotRequired[HeaderValue | None]
-    ptype: NotRequired[HeaderValue | None]
-    nodes: NotRequired[list[HeaderValue]]
+    dest: NotRequired[str | None]
+    echo: NotRequired[str | None]
+    ptype: NotRequired[str | None]
+    nodes: NotRequired[list[str]]
 
 
 __all__ = ["MavericCommandSchemaItem"]
