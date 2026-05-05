@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Send, Trash2, Lock } from 'lucide-react';
+import { Send, Trash2, Lock, ChevronDown } from 'lucide-react';
 import { GssInput } from '@/components/ui/gss-input';
 import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { showToast } from '@/components/shared/overlays/StatusToast';
 import { colors } from '@/lib/colors';
 import { StageRow } from '../shared/StageRow';
@@ -61,6 +62,7 @@ export function FilesTxControls({
   const [getStart, setGetStart] = useState('');
   const [getCount, setGetCount] = useState('');
   const [delFn, setDelFn] = useState<string>(caps.defaultFilename ?? '');
+  const [extrasOpen, setExtrasOpen] = useState(false);
   // Shared chunk-size for cnt/get. Default to selected file's chunk_size
   // when one is selected (so restage matches what was downloaded), else
   // '150' to mirror imaging's default.
@@ -121,9 +123,17 @@ export function FilesTxControls({
       >
         <Send className="size-3.5" style={{ color: colors.dim }} />
         <span className="font-bold uppercase" style={{ color: colors.value, fontSize: 14, letterSpacing: '0.02em' }}>
-          {caps.label} TX Controls
+          {caps.label} TX
         </span>
-        {caps.subtitle && (
+        {caps.defaultFilename ? (
+          <span
+            className="inline-flex items-center gap-1 text-[10px] font-mono"
+            style={{ color: colors.warning }}
+            title={`Spacecraft accepts only ${withExtension(caps.defaultFilename, kind)} for this kind. Use the main TX panel for ad-hoc filenames.`}
+          >
+            <Lock className="size-3" />{withExtension(caps.defaultFilename, kind)}
+          </span>
+        ) : caps.subtitle && (
           <span className="text-[11px] font-mono normal-case" style={{ color: colors.dim }}>
             {caps.subtitle}
           </span>
@@ -155,53 +165,36 @@ export function FilesTxControls({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-3 space-y-4">
-        {/* Shared chunk-size — required by mission.yml for *_cnt_chunks /
-            *_get_chunks. Default tracks the selected file when known,
-            else 150. Locks (input disabled, value forced) when the typed
-            cnt or get filename matches a known file in the chunk store. */}
-        <div>
-          <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: colors.dim }}>
-            Chunk Size <span className="font-mono normal-case ml-1" style={{ color: colors.sep }}>shared · bytes per chunk</span>
-          </div>
-          <div className="flex items-end gap-2 flex-wrap">
-            <GssInput
-              className="w-[80px] font-mono"
-              placeholder="150"
-              value={chunkSize}
-              onChange={e => setChunkSize(e.target.value)}
-              disabled={sharedLock != null}
-              title={
-                sharedLock != null
-                  ? `Locked to ${sharedLock} — delete the file to recount at a different size`
-                  : lockConflict
-                  ? `Count → ${lockFromCnt}, Get → ${lockFromGet} — staged sizes resolved per row`
-                  : undefined
-              }
-            />
-            {sharedLock != null && (
-              <span className="text-[10px] font-mono inline-flex items-center gap-1" style={{ color: colors.warning }}>
-                <Lock className="size-3" />locked to {sharedLock} · delete file to recount at a different size
-              </span>
-            )}
-            {lockConflict && (
-              <span className="text-[10px] font-mono inline-flex items-center gap-1" style={{ color: colors.danger }}>
-                <Lock className="size-3" />Count → {lockFromCnt}, Get → {lockFromGet} · staged per row
-              </span>
-            )}
-            {sharedLock == null && !lockConflict && (
-              <span className="text-[10px] font-mono" style={{ color: colors.dim }}>
-                applied to {caps.cntCmd} & {caps.getCmd}
-              </span>
-            )}
-          </div>
+      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: colors.dim }}>
+            Chunk
+          </span>
+          <GssInput
+            className="w-[72px] font-mono"
+            placeholder="150"
+            value={chunkSize}
+            onChange={e => setChunkSize(e.target.value)}
+            disabled={sharedLock != null}
+            title={
+              sharedLock != null
+                ? `Locked to ${sharedLock} — delete the file to recount at a different size`
+                : lockConflict
+                ? `Count → ${lockFromCnt}, Get → ${lockFromGet} — staged sizes resolved per row`
+                : 'bytes per chunk · applied to count + get'
+            }
+          />
+          {sharedLock != null && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-mono" style={{ color: colors.warning }} title={`Locked to ${sharedLock} — delete file to recount`}>
+              <Lock className="size-3" />{sharedLock}
+            </span>
+          )}
+          {lockConflict && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-mono" style={{ color: colors.danger }} title={`Count → ${lockFromCnt}, Get → ${lockFromGet}; each row stages with its own lock`}>
+              <Lock className="size-3" />conflict {lockFromCnt}/{lockFromGet}
+            </span>
+          )}
         </div>
-
-        {caps.defaultFilename && (
-          <div className="text-[10px] font-mono inline-flex items-center gap-1" style={{ color: colors.warning }}>
-            <Lock className="size-3" />Filename locked to <span className="font-bold">{withExtension(caps.defaultFilename, kind)}</span> — spacecraft accepts this name only. Use the main TX panel for ad-hoc filenames.
-          </div>
-        )}
 
         <StageRow
           label="Count Chunks"
@@ -254,11 +247,26 @@ export function FilesTxControls({
         />
 
         {caps.extraCmds.length > 0 && (
-          <div>
-            <div className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: colors.dim }}>
+          <Collapsible
+            open={extrasOpen}
+            onOpenChange={setExtrasOpen}
+            className="border-t pt-2 -mx-3 px-3"
+            style={{ borderColor: colors.borderSubtle }}
+          >
+            <CollapsibleTrigger
+              className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider w-full text-left hover:opacity-80 transition-opacity outline-none"
+              style={{ color: colors.dim }}
+            >
+              <ChevronDown
+                className="size-3 transition-transform duration-200"
+                style={{ transform: extrasOpen ? 'rotate(0deg)' : 'rotate(-90deg)' }}
+              />
               Extra commands
-            </div>
-            <div className="space-y-2">
+              <span className="font-mono normal-case ml-1" style={{ color: colors.sep }}>
+                {caps.extraCmds.length}
+              </span>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="pt-2 space-y-2">
               {caps.extraCmds.map(cmdId => (
                 <ExtraCmdRow
                   key={cmdId}
@@ -269,8 +277,8 @@ export function FilesTxControls({
                   onStage={(args) => stage(cmdId, args)}
                 />
               ))}
-            </div>
-          </div>
+            </CollapsibleContent>
+          </Collapsible>
         )}
       </div>
     </div>

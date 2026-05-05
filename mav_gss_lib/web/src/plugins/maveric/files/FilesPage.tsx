@@ -216,9 +216,46 @@ export default function FilesPage() {
 
       <div className="flex-1 flex overflow-hidden p-3">
         <ResizablePanelGroup className="flex-1 h-full">
+          {/* Left column mirrors ImagingPage: RxLog (fixed), TX (flex), Queue. */}
           <ResizablePanel defaultSize={42} minSize={25}>
             <div className="flex flex-col gap-3 h-full min-w-0">
-              {/* Files list panel */}
+              <div className="h-[200px] shrink-0 flex flex-col">
+                <FilesRxLogPanel filter={filter} packets={packets} columns={rxColumns} />
+              </div>
+
+              <FilesTxControls
+                kind={txKind}
+                selected={activeSelection?.kind === txKind ? activeSelection : null}
+                knownFiles={txKind === 'aii' ? aii.files : mag.files}
+                destNode={txKind === 'aii' ? aiiDestNode : magDestNode}
+                onDestNodeChange={txKind === 'aii' ? setAiiDestNode : setMagDestNode}
+                schema={schema}
+                txConnected={txConnected}
+                queueCommand={queueCommand}
+              />
+
+              <QueuePanel
+                title="Files Queue"
+                kindRegex={FILES_QUEUE_REGEX}
+                idPrefix="files"
+                pendingQueue={pendingQueue}
+                txColumns={txColumns}
+                sendProgress={sendProgress}
+                sendAll={sendAll}
+                abortSend={abortSend}
+                removeQueueItem={removeQueueItem}
+              />
+            </div>
+          </ResizablePanel>
+
+          <ResizableHandle
+            withHandle
+            className="mx-1 w-1 rounded-full bg-transparent hover:bg-[#222222] data-[resize-handle-active]:bg-[#30C8E0] transition-colors"
+          />
+
+          {/* Right column = data view: Files table (top), Progress, Preview. */}
+          <ResizablePanel defaultSize={58} minSize={25}>
+            <div className="flex flex-col gap-3 h-full min-w-0">
               <div
                 className="flex-1 min-h-0 flex flex-col rounded-md border overflow-hidden shadow-panel"
                 style={{ borderColor: colors.borderSubtle, backgroundColor: colors.bgPanel }}
@@ -235,7 +272,7 @@ export default function FilesPage() {
                     Files
                   </span>
                   <span className="text-[11px]" style={{ color: colors.dim }}>
-                    {allFiles.length} total · {aii.files.length} AII · {mag.files.length} MAG
+                    {filtered.length} of {allFiles.length} · {aii.files.length} AII · {mag.files.length} MAG
                   </span>
                 </div>
                 <div className="flex-1 min-h-0 overflow-auto">
@@ -254,36 +291,10 @@ export default function FilesPage() {
                 </div>
               </div>
 
-              {/* RX log */}
-              <div className="h-[200px] shrink-0 flex flex-col">
-                <FilesRxLogPanel filter={filter} packets={packets} columns={rxColumns} />
-              </div>
-            </div>
-          </ResizablePanel>
-
-          <ResizableHandle
-            withHandle
-            className="mx-1 w-1 rounded-full bg-transparent hover:bg-[#222222] data-[resize-handle-active]:bg-[#30C8E0] transition-colors"
-          />
-
-          <ResizablePanel defaultSize={58} minSize={25}>
-            <div className="flex flex-col gap-3 h-full min-w-0">
               <FilesProgressGrid selected={activeSelection} onRestageRange={handleRestageRange} />
 
-              <FilesTxControls
-                kind={txKind}
-                selected={activeSelection?.kind === txKind ? activeSelection : null}
-                knownFiles={txKind === 'aii' ? aii.files : mag.files}
-                destNode={txKind === 'aii' ? aiiDestNode : magDestNode}
-                onDestNodeChange={txKind === 'aii' ? setAiiDestNode : setMagDestNode}
-                schema={schema}
-                txConnected={txConnected}
-                queueCommand={queueCommand}
-              />
-
-              {/* Preview panel — JSON for AII, download anchor for MAG. */}
               <div
-                className="h-[220px] shrink-0 flex flex-col rounded-md border overflow-hidden shadow-panel"
+                className="h-[240px] shrink-0 flex flex-col rounded-md border overflow-hidden shadow-panel"
                 style={{ borderColor: colors.borderSubtle, backgroundColor: colors.bgPanel }}
               >
                 <div
@@ -309,18 +320,6 @@ export default function FilesPage() {
                     : <MagPreview file={activeSelection?.kind === 'mag' ? activeSelection : null} />}
                 </div>
               </div>
-
-              <QueuePanel
-                title="Files Queue"
-                kindRegex={FILES_QUEUE_REGEX}
-                idPrefix="files"
-                pendingQueue={pendingQueue}
-                txColumns={txColumns}
-                sendProgress={sendProgress}
-                sendAll={sendAll}
-                abortSend={abortSend}
-                removeQueueItem={removeQueueItem}
-              />
             </div>
           </ResizablePanel>
         </ResizablePanelGroup>
