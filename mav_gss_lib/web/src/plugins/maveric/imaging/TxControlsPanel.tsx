@@ -37,13 +37,68 @@ interface TxControlsPanelProps {
 }
 
 type TabName = 'download' | 'camera' | 'lcd';
+type DestId = 0 | 1 | 2;
+type DestOverride = DestId | null;
 
-/** Infer the Destination arg ('1' full / '2' thumb) from a filename.
- *  Empty prefix means "no thumbnail convention" — everything routes to
- *  the full-image destination. */
+/** Imaging folder destinations — match mission.yml description on the
+ *  destination arg ("0=prestored_images, 1=captured_images, 2=thumbnails"). */
+const DEST_OPTIONS: ReadonlyArray<{ id: DestId; label: string; title: string }> = [
+  { id: 0, label: 'STR', title: 'Destination 0 · prestored_images (factory-loaded)' },
+  { id: 1, label: 'FULL', title: 'Destination 1 · captured_images (full)' },
+  { id: 2, label: 'THMB', title: 'Destination 2 · thumbnails' },
+];
+
+/** Auto-derive destination from filename: thumb-prefix → 2, otherwise 1.
+ *  Prestored (0) is never inferred from the filename; it must be set
+ *  explicitly via the operator override. */
 function destFromFilename(fn: string, thumbPrefix: string): string {
   if (thumbPrefix && fn.startsWith(thumbPrefix)) return '2';
   return '1';
+}
+
+/** Resolve the destination string used on the wire: explicit override
+ *  wins, otherwise fall back to filename-derived. */
+function resolveDest(override: DestOverride, fn: string, thumbPrefix: string): string {
+  return override !== null ? String(override) : destFromFilename(fn, thumbPrefix);
+}
+
+/** Three-segment destination selector. Highlighted = current effective
+ *  destination. Click to override; click the matching pill to release
+ *  back to filename-auto-derive. */
+function DestSelect({
+  effective,
+  override,
+  onChange,
+}: {
+  effective: number;
+  override: DestOverride;
+  onChange: (d: DestOverride) => void;
+}) {
+  return (
+    <div className="flex items-center gap-px">
+      {DEST_OPTIONS.map(({ id, label, title }) => {
+        const active = effective === id;
+        const explicitlyOverridden = override === id;
+        return (
+          <button
+            key={id}
+            type="button"
+            onClick={() => onChange(explicitlyOverridden ? null : id)}
+            className="px-1.5 border font-mono text-[10px] color-transition btn-feedback"
+            style={{
+              height: 22,
+              color: active ? colors.label : colors.dim,
+              borderColor: active ? colors.label : colors.borderSubtle,
+              backgroundColor: active ? `${colors.label}18` : 'transparent',
+            }}
+            title={title + (explicitlyOverridden ? ' · click to clear override' : '')}
+          >
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 export function TxControlsPanel({
@@ -66,6 +121,12 @@ export function TxControlsPanel({
   const [getCount, setGetCount] = useState('');
   // Combined chunk size shared by Count Chunks + Get Chunks. Default 150 B.
   const [chunkSize, setChunkSize] = useState('150');
+  // Per-row destination override (0/1/2). null = use filename auto-derive.
+  // Operator clicks a pill to force a destination; clicking the matching
+  // pill again clears the override and falls back to auto.
+  const [cntDest, setCntDest] = useState<DestOverride>(null);
+  const [getDest, setGetDest] = useState<DestOverride>(null);
+  const [lcdDest, setLcdDest] = useState<DestOverride>(null);
 
   // Look up the locked chunk_size for a typed cnt/get filename.
   // Match key (filename, source, destination): destination is implicit
@@ -293,11 +354,18 @@ export function TxControlsPanel({
             filenameValue={cntFn}
             onFilenameChange={setCntFn}
             thumbPrefix={thumbPrefix}
+            extras={
+              <DestSelect
+                effective={Number(resolveDest(cntDest, withJpg(cntFn.trim()), thumbPrefix))}
+                override={cntDest}
+                onChange={setCntDest}
+              />
+            }
             onStage={() => {
               const fn = withJpg(cntFn.trim());
               stage(fileCaps('image').cntCmd, {
                 filename: fn,
-                destination: destFromFilename(fn, thumbPrefix),
+                destination: resolveDest(cntDest, fn, thumbPrefix),
                 chunk_size: lockFromCnt != null ? String(lockFromCnt) : chunkSize.trim(),
               });
             }}
@@ -324,6 +392,11 @@ export function TxControlsPanel({
                   value={getCount}
                   onChange={e => setGetCount(e.target.value)}
                 />
+                <DestSelect
+                  effective={Number(resolveDest(getDest, withJpg(getFn.trim()), thumbPrefix))}
+                  override={getDest}
+                  onChange={setGetDest}
+                />
               </>
             }
             onStage={() => {
@@ -332,7 +405,7 @@ export function TxControlsPanel({
                 filename: fn,
                 start_chunk: getStart.trim(),
                 num_chunks: getCount.trim(),
-                destination: destFromFilename(fn, thumbPrefix),
+                destination: resolveDest(getDest, fn, thumbPrefix),
                 chunk_size: lockFromGet != null ? String(lockFromGet) : chunkSize.trim(),
               });
             }}
@@ -488,6 +561,11 @@ export function TxControlsPanel({
                 onChange={setLcdFn}
                 thumbPrefix={thumbPrefix}
               />
+              <DestSelect
+                effective={Number(resolveDest(lcdDest, withJpg(lcdFn.trim()), thumbPrefix))}
+                override={lcdDest}
+                onChange={setLcdDest}
+              />
               <Button
                 size="sm"
                 onClick={() => {
@@ -499,7 +577,7 @@ export function TxControlsPanel({
                   const wrapped = withJpg(fn);
                   stage('lcd_display', {
                     filename: wrapped,
-                    destination: destFromFilename(wrapped, thumbPrefix),
+                    destination: resolveDest(lcdDest, wrapped, thumbPrefix),
                   });
                 }}
                 style={{ backgroundColor: colors.active, color: colors.bgApp }}
