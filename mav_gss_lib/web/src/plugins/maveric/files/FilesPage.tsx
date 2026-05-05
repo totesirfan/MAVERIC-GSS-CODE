@@ -1,11 +1,12 @@
 /**
  * Files page — combined AII + MAG dashboard. Built on the same
  * primitives as Imaging (ChunkGrid, MissingRangePill, StageRow,
- * RxLogPanel) plus the FILE_KIND_CAPS registry. AII and MAG do not
- * have thumb/full pairing or a destination arg; image files live on
- * the dedicated Imaging page.
+ * RxLogPanel, QueuePanel) plus the FILE_KIND_CAPS registry. AII and
+ * MAG do not have thumb/full pairing or a destination arg; image files
+ * live on the dedicated Imaging page.
  */
 import { useEffect, useMemo, useState } from 'react';
+import { Eye, FileText } from 'lucide-react';
 import { ConfirmDialog } from '@/components/shared/dialogs/ConfirmDialog';
 import { showToast } from '@/components/shared/overlays/StatusToast';
 import {
@@ -26,6 +27,7 @@ import { FilesRxLogPanel } from './FilesRxLogPanel';
 import { JsonPreview } from './JsonPreview';
 import { MagPreview } from './MagPreview';
 import { filesEndpoint } from './helpers';
+import { QueuePanel } from '../shared/QueuePanel';
 import { fileCaps, type FileKindId } from '../shared/fileKinds';
 import type { MissingRange } from '../shared/missingRanges';
 import type { FileLeaf } from './types';
@@ -38,28 +40,37 @@ const FILTER_OPTIONS: ReadonlyArray<{ id: FilterKind; label: string }> = [
   { id: 'mag', label: 'MAG' },
 ];
 
+const FILES_QUEUE_REGEX = /^(aii|mag)_/;
+
 export default function FilesPage() {
   const aii = useFlatFiles('aii');
   const mag = useFlatFiles('mag');
   const { lastTouchedFlatKind, setLastTouchedFlatKind } = useFileChunks();
-  const { packets, queueCommand, txConnected, fetchSchema } = usePluginServices();
+  const {
+    packets,
+    queueCommand,
+    txConnected,
+    fetchSchema,
+    pendingQueue,
+    sendAll,
+    abortSend,
+    sendProgress,
+    removeQueueItem,
+  } = usePluginServices();
 
   const [filter, setFilter] = useState<FilterKind>('all');
   const [search, setSearch] = useState('');
-  const [bulkSelected, setBulkSelected] = useState<Set<string>>(new Set());
   const [deleteOne, setDeleteOne] = useState<FileLeaf | null>(null);
-  const [deleteMany, setDeleteMany] = useState<FileLeaf[] | null>(null);
   const [aiiDestNode, setAiiDestNode] = useState('');
   const [magDestNode, setMagDestNode] = useState('');
   const [schema, setSchema] = useState<Record<string, Record<string, unknown>> | null>(null);
 
   useEffect(() => { fetchSchema().then(setSchema).catch(() => {}); }, [fetchSchema]);
 
-  // Column defs for the embedded RX log
   const { defs: ctxDefs } = useColumnDefs();
   const rxColumns = ctxDefs?.rx ?? composeRxColumns([]);
+  const txColumns = ctxDefs?.tx ?? [];
 
-  // Merged + filtered + searched view of all flat files
   const allFiles = useMemo<FileLeaf[]>(() => {
     const merged = [...aii.files, ...mag.files];
     merged.sort((a, b) => (b.last_activity_ms ?? 0) - (a.last_activity_ms ?? 0));
@@ -73,20 +84,6 @@ export default function FilesPage() {
     return rows;
   }, [allFiles, filter, search]);
 
-  // Prune bulk selection to currently-visible rows whenever the visible
-  // set changes. Without this, the "DELETE N" button can over-count
-  // (selections from a prior filter linger in state but won't be
-  // deleted because the action is scoped to `filtered`).
-  useEffect(() => {
-    setBulkSelected(prev => {
-      if (prev.size === 0) return prev;
-      const visible = new Set(filtered.map(f => f.id));
-      const next = new Set<string>();
-      for (const id of prev) if (visible.has(id)) next.add(id);
-      return next.size === prev.size ? prev : next;
-    });
-  }, [filtered]);
-
   // Selection: provider holds per-kind selection AND lastTouchedFlatKind.
   // For filter='all' we prefer the kind that was most recently touched
   // (by click in this page or by auto-select on arrival in the provider)
@@ -97,7 +94,6 @@ export default function FilesPage() {
   const candidateSelection = useMemo<FileLeaf | null>(() => {
     if (filter === 'aii') return aii.files.find(f => f.id === aii.selectedId) ?? null;
     if (filter === 'mag') return mag.files.find(f => f.id === mag.selectedId) ?? null;
-    // 'all'
     const aHit = aii.files.find(f => f.id === aii.selectedId) ?? null;
     const mHit = mag.files.find(f => f.id === mag.selectedId) ?? null;
     if (lastTouchedFlatKind === 'aii') return aHit ?? mHit;
@@ -105,14 +101,22 @@ export default function FilesPage() {
     return aHit ?? mHit;
   }, [filter, aii, mag, lastTouchedFlatKind]);
 
-  // Right-pane only renders a selection that is currently visible in the
-  // table. Matches the original FilesPage behavior (selected derived from
-  // filtered) so a search that hides the selected row also blanks the
-  // preview rather than leaving a "ghost" selection visible.
+  // Right-pane only renders a selection currently visible in the table —
+  // a search that hides the row also blanks the preview rather than
+  // leaving a "ghost" selection.
   const activeSelection = useMemo<FileLeaf | null>(() => {
     if (!candidateSelection) return null;
     return filtered.some(f => f.id === candidateSelection.id) ? candidateSelection : null;
   }, [candidateSelection, filtered]);
+
+  // TX controls bind to one kind: the active selection's kind, else the
+  // current filter, else AII as the default starting point.
+  const txKind: FileKindId =
+    activeSelection?.kind === 'aii' || activeSelection?.kind === 'mag'
+      ? activeSelection.kind
+      : filter === 'aii' || filter === 'mag'
+      ? filter
+      : 'aii';
 
   const handleSelectRow = (id: string) => {
     const row = filtered.find(f => f.id === id);
@@ -126,39 +130,16 @@ export default function FilesPage() {
     }
   };
 
-  const toggleBulk = (id: string) => {
-    setBulkSelected(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  };
-  const toggleBulkAll = () => {
-    if (bulkSelected.size === filtered.length && filtered.length > 0) setBulkSelected(new Set());
-    else setBulkSelected(new Set(filtered.map(f => f.id)));
-  };
-
-  const performDelete = async (rows: FileLeaf[]) => {
-    const results = await Promise.allSettled(
-      rows.map(async f => {
-        const r = await fetch(filesEndpoint('file', f.kind, f.filename, f.source), { method: 'DELETE' });
-        if (!r.ok) throw new Error(`HTTP ${r.status}: ${f.filename}`);
-        return f;
-      }),
-    );
-    // Always refetch — partial successes need the table to reflect what was actually deleted.
-    await Promise.all([aii.refetch(), mag.refetch()]);
-    setBulkSelected(new Set());
-    setDeleteOne(null);
-    setDeleteMany(null);
-    const okCount = results.filter(r => r.status === 'fulfilled').length;
-    const failed = results.filter(r => r.status === 'rejected') as PromiseRejectedResult[];
-    if (failed.length === 0) {
-      showToast(`Deleted ${okCount} file${okCount === 1 ? '' : 's'}`, 'success', 'tx');
-    } else if (okCount === 0) {
-      showToast(`Failed to delete ${failed.length} file${failed.length === 1 ? '' : 's'}: ${(failed[0].reason as Error).message}`, 'error', 'tx');
-    } else {
-      showToast(`Deleted ${okCount}, failed ${failed.length}: ${(failed[0].reason as Error).message}`, 'error', 'tx');
+  const performDelete = async (file: FileLeaf) => {
+    try {
+      const r = await fetch(filesEndpoint('file', file.kind, file.filename, file.source), { method: 'DELETE' });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      await Promise.all([aii.refetch(), mag.refetch()]);
+      showToast(`Deleted ${file.filename}`, 'success', 'tx');
+    } catch (err) {
+      showToast(`Failed to delete: ${(err as Error).message}`, 'error', 'tx');
+    } finally {
+      setDeleteOne(null);
     }
   };
 
@@ -168,9 +149,6 @@ export default function FilesPage() {
       showToast('No source on file — cannot route', 'error', 'tx');
       return;
     }
-    // mission.yml requires chunk_size on *_get_chunks. Use the file's
-    // own chunk_size so restage matches the original transfer; fall back
-    // to '150' (matches imaging default) if the store didn't record one.
     const chunkSizeArg = file.chunk_size != null ? String(file.chunk_size) : '150';
     queueCommand({
       cmd_id: caps.getCmd,
@@ -185,10 +163,6 @@ export default function FilesPage() {
     showToast(`Staged ${range.count} chunk${range.count === 1 ? '' : 's'}`, 'success', 'tx');
   };
 
-  const visibleKinds: FileKindId[] = filter === 'all' ? ['aii', 'mag']
-                                    : [filter as FileKindId];
-
-  // Empty-state copy
   const hiddenCount = allFiles.length - filtered.length;
   const emptyMessage = filtered.length > 0
     ? null
@@ -199,99 +173,158 @@ export default function FilesPage() {
         : 'no files yet';
 
   return (
-    <div className="flex flex-col h-full" style={{ background: colors.bgApp, color: colors.textPrimary }}>
-      <div className="flex items-center gap-2 px-3 py-2 border-b" style={{ borderColor: colors.borderSubtle }}>
-        <span className="text-[10px]" style={{ color: colors.textMuted }}>FILTER:</span>
-        {FILTER_OPTIONS.map(({ id, label }) => (
-          <button
-            key={id}
-            onClick={() => setFilter(id)}
-            className="text-[10px] px-2 py-[2px] border"
-            style={{
-              borderColor: filter === id ? colors.active : colors.borderStrong,
-              color: filter === id ? colors.active : colors.textMuted,
-            }}
-          >
-            {label}
-          </button>
-        ))}
+    <div className="flex-1 flex flex-col overflow-hidden">
+      {/* Filter toolbar */}
+      <div
+        className="flex items-center gap-2 px-3 border-b shrink-0"
+        style={{ borderColor: colors.borderSubtle, minHeight: 34, paddingTop: 6, paddingBottom: 6 }}
+      >
+        <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: colors.dim }}>
+          Filter
+        </span>
+        <div className="flex items-center gap-1">
+          {FILTER_OPTIONS.map(({ id, label }) => {
+            const active = filter === id;
+            return (
+              <button
+                key={id}
+                onClick={() => setFilter(id)}
+                className="px-2 rounded-sm border font-mono text-[11px] color-transition btn-feedback"
+                style={{
+                  height: 20,
+                  color: active ? colors.label : colors.dim,
+                  borderColor: active ? colors.label : colors.borderSubtle,
+                  backgroundColor: active ? `${colors.label}18` : 'transparent',
+                }}
+                title={`Filter · ${label}`}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
         <GssInput
-          className="ml-2 w-[220px] text-[11px] font-mono"
+          className="ml-2 w-[260px] font-mono"
           placeholder="search filename..."
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
-        {bulkSelected.size > 0 && (
-          <button
-            className="ml-2 text-[10px] px-2 py-[2px] border"
-            style={{ borderColor: colors.danger, color: colors.danger }}
-            onClick={() => setDeleteMany(filtered.filter(f => bulkSelected.has(f.id)))}
-          >
-            DELETE {bulkSelected.size}
-          </button>
-        )}
-        <span className="text-[10px] ml-auto" style={{ color: colors.textMuted }}>
-          {filtered.length} file(s)
+        <span className="text-[11px] ml-auto" style={{ color: colors.dim }}>
+          {filtered.length} file{filtered.length === 1 ? '' : 's'}
         </span>
       </div>
 
-      <ResizablePanelGroup orientation="horizontal" className="flex-1">
-        <ResizablePanel defaultSize={42} minSize={25}>
-          <div className="flex flex-col gap-3 h-full min-w-0 p-3">
-            <div className="flex-1 min-h-0 overflow-auto">
-              {filtered.length > 0 ? (
-                <FilesTable
-                  files={filtered}
-                  selectedId={activeSelection?.id ?? null}
-                  onSelect={handleSelectRow}
-                  onDelete={(f) => setDeleteOne(f)}
-                  selectedIds={bulkSelected}
-                  onToggleSelected={toggleBulk}
-                  onToggleSelectAll={toggleBulkAll}
-                />
-              ) : (
-                <div className="px-2 py-4 italic text-[11px]" style={{ color: colors.textMuted }}>
-                  {emptyMessage}
+      <div className="flex-1 flex overflow-hidden p-3">
+        <ResizablePanelGroup className="flex-1 h-full">
+          <ResizablePanel defaultSize={42} minSize={25}>
+            <div className="flex flex-col gap-3 h-full min-w-0">
+              {/* Files list panel */}
+              <div
+                className="flex-1 min-h-0 flex flex-col rounded-md border overflow-hidden shadow-panel"
+                style={{ borderColor: colors.borderSubtle, backgroundColor: colors.bgPanel }}
+              >
+                <div
+                  className="flex items-center gap-2 px-3 border-b shrink-0"
+                  style={{ borderColor: colors.borderSubtle, minHeight: 34, paddingTop: 6, paddingBottom: 6 }}
+                >
+                  <FileText className="size-3.5" style={{ color: colors.dim }} />
+                  <span
+                    className="font-bold uppercase"
+                    style={{ color: colors.value, fontSize: 14, letterSpacing: '0.02em' }}
+                  >
+                    Files
+                  </span>
+                  <span className="text-[11px]" style={{ color: colors.dim }}>
+                    {allFiles.length} total · {aii.files.length} AII · {mag.files.length} MAG
+                  </span>
                 </div>
-              )}
-            </div>
-            <div className="h-[180px] shrink-0">
-              <FilesRxLogPanel filter={filter} packets={packets} columns={rxColumns} />
-            </div>
-          </div>
-        </ResizablePanel>
-        <ResizableHandle
-          withHandle
-          className="mx-1 w-1 rounded-full bg-transparent hover:bg-[#222222] data-[resize-handle-active]:bg-[#30C8E0] transition-colors"
-        />
-        <ResizablePanel defaultSize={58} minSize={25}>
-          <div className="flex flex-col gap-3 h-full min-w-0 p-3">
-            <FilesProgressGrid selected={activeSelection} onRestageRange={handleRestageRange} />
-            <div className="flex-1 min-h-0 flex gap-3">
-              <div className="flex-1 min-w-0 flex flex-col gap-3">
-                {visibleKinds.map(k => (
-                  <FilesTxControls
-                    key={k}
-                    kind={k}
-                    selected={activeSelection?.kind === k ? activeSelection : null}
-                    knownFiles={k === 'aii' ? aii.files : mag.files}
-                    destNode={k === 'aii' ? aiiDestNode : magDestNode}
-                    onDestNodeChange={k === 'aii' ? setAiiDestNode : setMagDestNode}
-                    schema={schema}
-                    txConnected={txConnected}
-                    queueCommand={queueCommand}
-                  />
-                ))}
+                <div className="flex-1 min-h-0 overflow-auto">
+                  {filtered.length > 0 ? (
+                    <FilesTable
+                      files={filtered}
+                      selectedId={activeSelection?.id ?? null}
+                      onSelect={handleSelectRow}
+                      onDelete={(f) => setDeleteOne(f)}
+                    />
+                  ) : (
+                    <div className="px-3 py-4 italic text-[11px]" style={{ color: colors.textMuted }}>
+                      {emptyMessage}
+                    </div>
+                  )}
+                </div>
               </div>
-              <div className="flex-1 min-w-0 border rounded-md overflow-hidden" style={{ borderColor: colors.borderSubtle }}>
-                {activeSelection?.kind === 'aii'
-                  ? <JsonPreview file={activeSelection} />
-                  : <MagPreview file={activeSelection} />}
+
+              {/* RX log */}
+              <div className="h-[200px] shrink-0 flex flex-col">
+                <FilesRxLogPanel filter={filter} packets={packets} columns={rxColumns} />
               </div>
             </div>
-          </div>
-        </ResizablePanel>
-      </ResizablePanelGroup>
+          </ResizablePanel>
+
+          <ResizableHandle
+            withHandle
+            className="mx-1 w-1 rounded-full bg-transparent hover:bg-[#222222] data-[resize-handle-active]:bg-[#30C8E0] transition-colors"
+          />
+
+          <ResizablePanel defaultSize={58} minSize={25}>
+            <div className="flex flex-col gap-3 h-full min-w-0">
+              <FilesProgressGrid selected={activeSelection} onRestageRange={handleRestageRange} />
+
+              <FilesTxControls
+                kind={txKind}
+                selected={activeSelection?.kind === txKind ? activeSelection : null}
+                knownFiles={txKind === 'aii' ? aii.files : mag.files}
+                destNode={txKind === 'aii' ? aiiDestNode : magDestNode}
+                onDestNodeChange={txKind === 'aii' ? setAiiDestNode : setMagDestNode}
+                schema={schema}
+                txConnected={txConnected}
+                queueCommand={queueCommand}
+              />
+
+              {/* Preview panel — JSON for AII, download anchor for MAG. */}
+              <div
+                className="h-[220px] shrink-0 flex flex-col rounded-md border overflow-hidden shadow-panel"
+                style={{ borderColor: colors.borderSubtle, backgroundColor: colors.bgPanel }}
+              >
+                <div
+                  className="flex items-center gap-2 px-3 border-b shrink-0"
+                  style={{ borderColor: colors.borderSubtle, minHeight: 34, paddingTop: 6, paddingBottom: 6 }}
+                >
+                  <Eye className="size-3.5" style={{ color: colors.dim }} />
+                  <span
+                    className="font-bold uppercase"
+                    style={{ color: colors.value, fontSize: 14, letterSpacing: '0.02em' }}
+                  >
+                    Preview
+                  </span>
+                  {activeSelection && (
+                    <span className="text-[11px] font-mono truncate" style={{ color: colors.dim }}>
+                      {activeSelection.kind.toUpperCase()} · {activeSelection.filename}
+                    </span>
+                  )}
+                </div>
+                <div className="flex-1 min-h-0 overflow-hidden">
+                  {activeSelection?.kind === 'aii'
+                    ? <JsonPreview file={activeSelection} />
+                    : <MagPreview file={activeSelection?.kind === 'mag' ? activeSelection : null} />}
+                </div>
+              </div>
+
+              <QueuePanel
+                title="Files Queue"
+                kindRegex={FILES_QUEUE_REGEX}
+                idPrefix="files"
+                pendingQueue={pendingQueue}
+                txColumns={txColumns}
+                sendProgress={sendProgress}
+                sendAll={sendAll}
+                abortSend={abortSend}
+                removeQueueItem={removeQueueItem}
+              />
+            </div>
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      </div>
 
       {deleteOne && (
         <ConfirmDialog
@@ -299,18 +332,8 @@ export default function FilesPage() {
           title="Delete file?"
           detail={`Remove ${deleteOne.filename}? This cannot be undone.`}
           variant="destructive"
-          onConfirm={() => performDelete([deleteOne])}
+          onConfirm={() => performDelete(deleteOne)}
           onCancel={() => setDeleteOne(null)}
-        />
-      )}
-      {deleteMany && (
-        <ConfirmDialog
-          open
-          title={`Delete ${deleteMany.length} files?`}
-          detail={`${deleteMany.map(f => f.filename).join(', ')} will be removed from disk. This cannot be undone.`}
-          variant="destructive"
-          onConfirm={() => performDelete(deleteMany)}
-          onCancel={() => setDeleteMany(null)}
         />
       )}
     </div>
