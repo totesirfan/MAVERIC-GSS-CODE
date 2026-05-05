@@ -1,5 +1,5 @@
-import { useMemo, useState, useEffect } from 'react';
-import { Grid3x3, ChevronDown, Trash2, RefreshCcw, Download } from 'lucide-react';
+import { useState } from 'react';
+import { Grid3x3, ChevronDown, Trash2 } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   Command,
@@ -11,13 +11,11 @@ import {
 } from '@/components/ui/command';
 import { colors } from '@/lib/colors';
 import { SourcePill } from '../shared/SourcePill';
-import {
-  computeMissingRanges,
-  imagingFileEndpoint,
-  type PairedFile,
-  type FileLeaf,
-  type MissingRange,
-} from './helpers';
+import { ChunkGrid } from '../shared/ChunkGrid';
+import { MissingRangePill } from '../shared/MissingRangePill';
+import { useFileChunkSet } from '../shared/useFileChunkSet';
+import { computeMissingRanges, type MissingRange } from '../shared/missingRanges';
+import { type PairedFile, type FileLeaf } from './helpers';
 
 type Side = 'thumb' | 'full';
 
@@ -30,10 +28,6 @@ interface ProgressPanelProps {
   onDelete: (leaves: FileLeaf[]) => void;
   /** Stage contiguous re-request commands for a specific side. */
   onStageRerequest: (side: Side, leaf: FileLeaf, ranges: MissingRange[]) => void;
-}
-
-interface ChunkSetByLeafId {
-  [leafId: string]: Set<number>;
 }
 
 /**
@@ -50,31 +44,6 @@ export function ProgressPanel({
   onStageRerequest,
 }: ProgressPanelProps) {
   const [pickerOpen, setPickerOpen] = useState(false);
-  // Fetch per-chunk state for whichever leaves are present in the selected pair.
-  const [chunkSets, setChunkSets] = useState<ChunkSetByLeafId>({});
-
-  useEffect(() => {
-    if (!selected) return;
-    const toFetch = [selected.full, selected.thumb].filter(
-      (l): l is FileLeaf => l !== null && l.total !== null,
-    );
-    const ctrl = new AbortController();
-    Promise.all(
-      toFetch.map(leaf =>
-        fetch(imagingFileEndpoint('chunks', leaf), {
-          signal: ctrl.signal,
-        })
-          .then(r => r.json())
-          .then(data => [leaf.id, new Set<number>(data.chunks ?? [])] as const)
-          .catch(() => [leaf.id, new Set<number>()] as const),
-      ),
-    ).then(pairs => {
-      const next: ChunkSetByLeafId = {};
-      for (const [id, s] of pairs) next[id] = s;
-      setChunkSets(next);
-    });
-    return () => ctrl.abort();
-  }, [selected]);
 
   return (
     <div
@@ -169,20 +138,10 @@ export function ProgressPanel({
       {selected ? (
         <div className="px-4 py-3 space-y-4">
           {selected.thumb && (
-            <ProgressRow
-              side="thumb"
-              leaf={selected.thumb}
-              chunkSet={chunkSets[selected.thumb.id] ?? new Set()}
-              onStageRerequest={onStageRerequest}
-            />
+            <ProgressRow side="thumb" leaf={selected.thumb} onStageRerequest={onStageRerequest} />
           )}
           {selected.full && (
-            <ProgressRow
-              side="full"
-              leaf={selected.full}
-              chunkSet={chunkSets[selected.full.id] ?? new Set()}
-              onStageRerequest={onStageRerequest}
-            />
+            <ProgressRow side="full" leaf={selected.full} onStageRerequest={onStageRerequest} />
           )}
         </div>
       ) : (
@@ -216,18 +175,20 @@ function LeafState({ leaf, label }: { leaf: FileLeaf | null; label: string }) {
 function ProgressRow({
   side,
   leaf,
-  chunkSet,
   onStageRerequest,
 }: {
   side: Side;
   leaf: FileLeaf;
-  chunkSet: Set<number>;
   onStageRerequest: ProgressPanelProps['onStageRerequest'];
 }) {
-  const ranges = useMemo(() => computeMissingRanges(leaf.total, chunkSet), [leaf.total, chunkSet]);
+  const chunkSet = useFileChunkSet(
+    leaf.total !== null
+      ? { kind: 'image', filename: leaf.filename, source: leaf.source, total: leaf.total, received: leaf.received }
+      : null,
+  );
+  const ranges = computeMissingRanges(leaf.total, chunkSet);
   const total = leaf.total ?? 0;
   const pct = total > 0 ? Math.round((leaf.received / total) * 100) : 0;
-  const complete = total > 0 && leaf.received === total;
 
   if (leaf.total === null) {
     return (
@@ -242,15 +203,13 @@ function ProgressRow({
     );
   }
 
-  const missing = total - leaf.received;
+  const handleRestage = (range: MissingRange) => onStageRerequest(side, leaf, [range]);
+  const handleStageAll = () => onStageRerequest(side, leaf, ranges);
 
   return (
     <div>
       <div className="flex items-center gap-2 mb-1.5">
-        <span
-          className="text-[10px] uppercase tracking-wider font-bold"
-          style={{ color: colors.dim }}
-        >
+        <span className="text-[10px] uppercase tracking-wider font-bold" style={{ color: colors.dim }}>
           {side}
         </span>
         <span className="text-[11px] font-semibold font-mono" style={{ color: colors.value }}>
@@ -263,60 +222,9 @@ function ProgressRow({
           · {leaf.chunk_size ?? '?'} B/chunk
         </span>
         <div className="flex-1" />
-        {complete ? (
-          <span className="text-[11px]" style={{ color: colors.success }}>Complete</span>
-        ) : (() => {
-          const initial = leaf.received === 0;
-          const tone = initial ? colors.active : colors.warning;
-          const Icon = initial ? Download : RefreshCcw;
-          const label = initial ? `get ${total}` : `${missing} missing`;
-          const title = initial
-            ? `Download all ${total} chunks`
-            : `Re-request ${missing} missing chunk${missing === 1 ? '' : 's'} (${ranges.length} range${ranges.length === 1 ? '' : 's'})`;
-          return (
-            <button
-              onClick={() => onStageRerequest(side, leaf, ranges)}
-              className="inline-flex items-center gap-1 px-1.5 rounded-sm border font-mono text-[11px] color-transition btn-feedback"
-              style={{
-                height: 20,
-                color: tone,
-                borderColor: `${tone}66`,
-                backgroundColor: `${tone}0A`,
-              }}
-              title={title}
-            >
-              <Icon className="size-2.5" />
-              {label}
-            </button>
-          );
-        })()}
+        <MissingRangePill received={leaf.received} total={total} ranges={ranges} onClick={handleStageAll} />
       </div>
-
-      <div className="flex flex-wrap gap-[3px]">
-        {Array.from({ length: total }, (_, i) => {
-          const received = chunkSet.has(i);
-          return (
-            <button
-              key={i}
-              disabled={received}
-              onClick={() =>
-                onStageRerequest(side, leaf, [{ start: i, end: i, count: 1 }])
-              }
-              title={received ? `Chunk ${i}` : `Chunk ${i} (click to re-request)`}
-              className="rounded-full"
-              style={{
-                width: 8,
-                height: 8,
-                backgroundColor: received ? colors.success : 'transparent',
-                border: received ? 'none' : `1px solid ${colors.danger}`,
-                cursor: received ? 'default' : 'pointer',
-                boxSizing: 'border-box',
-                padding: 0,
-              }}
-            />
-          );
-        })}
-      </div>
+      <ChunkGrid total={total} chunkSet={chunkSet} onRestageRange={handleRestage} />
     </div>
   );
 }
