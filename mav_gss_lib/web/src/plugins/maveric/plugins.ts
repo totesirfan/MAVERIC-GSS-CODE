@@ -1,5 +1,5 @@
 import { lazy } from 'react'
-import { Camera, Compass, BatteryCharging, FileDown } from 'lucide-react'
+import { Camera, Compass, BatteryCharging, FileDown, FlaskConical } from 'lucide-react'
 import type { PluginPageDef } from '@/plugins/registry'
 
 const plugins: PluginPageDef[] = [
@@ -20,6 +20,15 @@ const plugins: PluginPageDef[] = [
     category: 'mission',
     order: 11,
     component: lazy(() => import('./files/FilesPage')),
+  },
+  {
+    id: 'downlink-preview',
+    name: 'Preview',
+    description: 'Static mock of unified Downlink page (image+aii+mag)',
+    icon: FlaskConical,
+    category: 'mission',
+    order: 12,
+    component: lazy(() => import('./preview/DownlinkPreview')),
   },
   {
     id: 'gnc',
