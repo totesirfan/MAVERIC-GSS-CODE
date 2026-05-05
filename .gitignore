@@ -98,7 +98,10 @@ tests/test_fake_flight_*.py
 tests/test_e2e_packet_render_and_log.py
 tests/test_ops_eps_hk_telemetry.py
 tests/test_telemetry_integration.py
-mav_gss_lib/web/src/plugins/maveric/**/*.test.ts
+# EPS port regression tests are local-only (operator iterates on them
+# against gitignored docs/eps-port/fixtures/*). Other *.test.ts files
+# under maveric/ stay tracked.
+mav_gss_lib/web/src/plugins/maveric/eps/derive*.test.ts
 
 # === Legacy / Retired ===
 legacy/
