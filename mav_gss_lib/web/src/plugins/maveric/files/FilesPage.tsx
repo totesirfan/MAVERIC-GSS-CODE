@@ -29,7 +29,9 @@ const FILTER_OPTIONS: ReadonlyArray<{ id: FilterKind; label: string }> = [
 ];
 
 export default function FilesPage() {
-  const { aiiFiles, magFiles, refetchAii, refetchMag } = useFileChunks();
+  const { aii, mag } = useFileChunks();
+  const aiiFiles = aii.files; const magFiles = mag.files;
+  const refetchAii = aii.refetch; const refetchMag = mag.refetch;
   const [filter, setFilter] = useState<FilterKind>('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<FileLeaf | null>(null);

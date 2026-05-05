@@ -18,7 +18,7 @@ import {
   type PropsWithChildren,
 } from 'react';
 import { useRxStatus } from '@/state/rxHooks';
-import { FileChunkCtx, type FileChunkState } from './FileChunkContext';
+import { FileChunkCtx, type FileChunkState, type FlatKind } from './FileChunkContext';
 import { filesEndpoint } from './helpers';
 import type {
   FileLeaf,
@@ -48,6 +48,13 @@ function matchingSide(
   return null;
 }
 
+function shouldAutoSelect(currentId: string, currentList: FileLeaf[]): boolean {
+  if (!currentId) return true;
+  const current = currentList.find(f => f.id === currentId);
+  if (!current) return true; // currently-selected file vanished
+  return current.complete;   // skip-when-mid-read
+}
+
 const REFETCH_DEBOUNCE_MS = 200;
 
 export function FileChunkProvider({ children }: PropsWithChildren) {
@@ -62,6 +69,23 @@ export function FileChunkProvider({ children }: PropsWithChildren) {
   // Files slice
   const [aiiFiles, setAiiFiles] = useState<FileLeaf[]>([]);
   const [magFiles, setMagFiles] = useState<FileLeaf[]>([]);
+
+  // Per-kind selection (AII / MAG). Lives in the provider so auto-select
+  // continues to work when the Files page is unmounted.
+  const [aiiSelectedId, setAiiSelectedId] = useState('');
+  const [magSelectedId, setMagSelectedId] = useState('');
+  const [lastTouchedFlatKind, setLastTouchedFlatKind] = useState<FlatKind | null>(null);
+
+  // Refs for auto-select decisions inside the WS handler. Refs avoid
+  // re-subscribing the WS handler every time selection or files change.
+  const aiiSelectedRef = useRef('');
+  const magSelectedRef = useRef('');
+  const aiiFilesRef = useRef<FileLeaf[]>([]);
+  const magFilesRef = useRef<FileLeaf[]>([]);
+  useEffect(() => { aiiSelectedRef.current = aiiSelectedId; }, [aiiSelectedId]);
+  useEffect(() => { magSelectedRef.current = magSelectedId; }, [magSelectedId]);
+  useEffect(() => { aiiFilesRef.current = aiiFiles; }, [aiiFiles]);
+  useEffect(() => { magFilesRef.current = magFiles; }, [magFiles]);
 
   // Ref mirror so the broadcast handler reads current pairs without
   // becoming a dependency and resubscribing on every change.
@@ -182,9 +206,61 @@ export function FileChunkProvider({ children }: PropsWithChildren) {
           });
         }
       } else if (progress.kind === 'aii') {
-        scheduleRefetch('aii');
+        const src = progress.source ?? null;
+        const known = aiiFilesRef.current.some(f => f.filename === fn && f.source === src);
+        if (known) {
+          // Routine progress on a known file — debounce status refetch so
+          // high-cadence chunks don't spam the endpoint. Also evaluate
+          // auto-select against the current ref so an empty selection
+          // (e.g. initial mount that loaded files via /status, then
+          // progress arrives) gets a selection on the first packet,
+          // matching imaging behavior.
+          scheduleRefetch('aii');
+          if (shouldAutoSelect(aiiSelectedRef.current, aiiFilesRef.current)) {
+            const match = aiiFilesRef.current.find(f => f.filename === fn && f.source === src);
+            if (match) {
+              setAiiSelectedId(match.id);
+              setLastTouchedFlatKind('aii');
+            }
+          }
+        } else {
+          // First arrival: refetch immediately so we can auto-select.
+          // Pass `fresh` (post-refetch state) to shouldAutoSelect, NOT
+          // aiiFilesRef.current — the ref still holds the pre-refetch
+          // state inside this .then callback, which would mis-classify
+          // a vanished file as still present and incorrectly skip
+          // auto-select.
+          void refetchAii().then((fresh) => {
+            if (!shouldAutoSelect(aiiSelectedRef.current, fresh)) return;
+            const match = fresh.find(f => f.filename === fn && f.source === src) ?? fresh[0];
+            if (match) {
+              setAiiSelectedId(match.id);
+              setLastTouchedFlatKind('aii');
+            }
+          });
+        }
       } else if (progress.kind === 'mag') {
-        scheduleRefetch('mag');
+        const src = progress.source ?? null;
+        const known = magFilesRef.current.some(f => f.filename === fn && f.source === src);
+        if (known) {
+          scheduleRefetch('mag');
+          if (shouldAutoSelect(magSelectedRef.current, magFilesRef.current)) {
+            const match = magFilesRef.current.find(f => f.filename === fn && f.source === src);
+            if (match) {
+              setMagSelectedId(match.id);
+              setLastTouchedFlatKind('mag');
+            }
+          }
+        } else {
+          void refetchMag().then((fresh) => {
+            if (!shouldAutoSelect(magSelectedRef.current, fresh)) return;
+            const match = fresh.find(f => f.filename === fn && f.source === src) ?? fresh[0];
+            if (match) {
+              setMagSelectedId(match.id);
+              setLastTouchedFlatKind('mag');
+            }
+          });
+        }
       }
     });
   }, [subscribeRxCustom, scheduleRefetch, refetchImage]);
@@ -210,14 +286,26 @@ export function FileChunkProvider({ children }: PropsWithChildren) {
       setPreviewTab: setImagePreviewTab,
       setDestNode: setImageDestNode,
       refetch: refetchImage,
-      aiiFiles,
-      magFiles,
-      refetchAii,
-      refetchMag,
+      aii: {
+        files: aiiFiles,
+        selectedId: aiiSelectedId,
+        setSelectedId: setAiiSelectedId,
+        refetch: refetchAii,
+      },
+      mag: {
+        files: magFiles,
+        selectedId: magSelectedId,
+        setSelectedId: setMagSelectedId,
+        refetch: refetchMag,
+      },
+      lastTouchedFlatKind,
+      setLastTouchedFlatKind,
     }),
     [
-      imagePairs, imageSelectedId, imagePreviewTab, imagePreviewVersion, imageDestNode,
-      refetchImage, aiiFiles, magFiles, refetchAii, refetchMag,
+      imagePairs, imageSelectedId, imagePreviewTab, imagePreviewVersion, imageDestNode, refetchImage,
+      aiiFiles, aiiSelectedId, refetchAii,
+      magFiles, magSelectedId, refetchMag,
+      lastTouchedFlatKind,
     ],
   );
 
