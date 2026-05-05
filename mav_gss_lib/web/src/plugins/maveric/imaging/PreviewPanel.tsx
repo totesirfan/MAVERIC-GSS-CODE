@@ -4,7 +4,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { colors } from '@/lib/colors';
 import type { PairedFile, ImagingTab } from './types';
 import { imagingFileEndpoint } from './helpers';
-import { SourcePill } from './SourcePill';
+import { SourcePill } from '../shared/SourcePill';
 
 interface PreviewPanelProps {
   selected: PairedFile | null;

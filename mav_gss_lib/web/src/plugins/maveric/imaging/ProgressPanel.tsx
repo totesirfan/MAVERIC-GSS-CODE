@@ -10,7 +10,7 @@ import {
   CommandList,
 } from '@/components/ui/command';
 import { colors } from '@/lib/colors';
-import { SourcePill } from './SourcePill';
+import { SourcePill } from '../shared/SourcePill';
 import {
   computeMissingRanges,
   imagingFileEndpoint,
