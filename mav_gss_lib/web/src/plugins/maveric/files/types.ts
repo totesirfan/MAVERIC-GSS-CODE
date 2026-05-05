@@ -6,6 +6,8 @@
 
 export type FileKind = 'image' | 'aii' | 'mag';
 
+export type { MissingRange } from '../shared/missingRanges';
+
 export interface FileLeaf {
   id: string;
   kind: FileKind;
@@ -47,12 +49,6 @@ export interface FileProgressMessage {
   total: number | null;
   complete: boolean;
   valid?: boolean | null;
-}
-
-export interface MissingRange {
-  start: number;
-  end: number;
-  count: number;
 }
 
 export type ImagingTab = 'thumb' | 'full';
