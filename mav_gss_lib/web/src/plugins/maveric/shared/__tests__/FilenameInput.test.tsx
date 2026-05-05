@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { FilenameInput } from './FilenameInput';
+import { FilenameInput } from '../FilenameInput';
 
 describe('FilenameInput ghost suffix per kind', () => {
   it('shows .jpg when kind=image and value has no jpg/jpeg suffix', () => {
