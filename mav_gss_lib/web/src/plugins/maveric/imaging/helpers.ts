@@ -13,9 +13,7 @@ import type { FileLeaf, MissingRange, PairedFile } from './types';
 
 export type { PairedFile, FileLeaf, MissingRange };
 
-/** Append `.jpg` if the filename doesn't already end in `.jpg` or `.jpeg`. */
-export const withJpg = (s: string): string =>
-  /\.jpe?g$/i.test(s) ? s : `${s}.jpg`;
+export { withJpg } from '../shared/extensions';
 
 /** Fetch status (paired image view) and return the paired files array. */
 export async function fetchImagingStatus(): Promise<PairedFile[]> {
