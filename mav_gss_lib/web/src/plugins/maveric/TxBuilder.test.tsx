@@ -1,11 +1,32 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import MavericTxBuilder from './TxBuilder'
+import { setLastDestNode } from './txBuilderState'
 
 const schema = {
   com_ping: {
     tx_args: [],
     nodes: ['LPPM'],
+  },
+  eps_get_temp: {
+    tx_args: [],
+    description: 'Read EPS temperature sensor',
+    nodes: ['UPPM'],
+  },
+  eps_set_mode: {
+    tx_args: [],
+    description: 'Set EPS subsystem mode',
+    nodes: ['UPPM'],
+  },
+  toggle_hex_display: {
+    tx_args: [],
+    description: 'Toggle hex display',
+    nodes: ['UPPM'],
+  },
+  ax_keep_alive: {
+    tx_args: [],
+    description: 'Keep AX100 link alive between passes',
+    nodes: ['UPPM'],
   },
 }
 
@@ -14,6 +35,7 @@ const identity = {
   nodes: {
     GS: '0',
     LPPM: '1',
+    UPPM: '2',
   },
   ptypes: {},
   node_descriptions: {},
@@ -44,6 +66,7 @@ beforeEach(() => {
     disconnect() {}
   })
   Element.prototype.scrollIntoView = vi.fn()
+  setLastDestNode(null)
 })
 
 describe('MavericTxBuilder', () => {
@@ -66,6 +89,47 @@ describe('MavericTxBuilder', () => {
       args: {},
       packet: { dest: 'LPPM' },
       guard: false,
+    })
+  })
+
+  it('restores the last picked destination node after unmount', async () => {
+    mockBuilderFetch()
+
+    const first = render(<MavericTxBuilder onQueue={() => {}} onClose={() => {}} />)
+    await screen.findByText('com_ping')
+
+    fireEvent.click(screen.getByRole('radio', { name: 'UPPM' }))
+    // UPPM-scoped commands become visible only after the dest filter switches.
+    await screen.findByText('eps_get_temp')
+    expect(screen.queryByText('com_ping')).toBeNull()
+    first.unmount()
+
+    render(<MavericTxBuilder onQueue={() => {}} onClose={() => {}} />)
+    await screen.findByText('eps_get_temp')
+    expect(screen.queryByText('com_ping')).toBeNull()
+  })
+
+  it('ranks fuzzy matches with name above description-only hits', async () => {
+    mockBuilderFetch()
+
+    render(<MavericTxBuilder onQueue={() => {}} onClose={() => {}} />)
+    await screen.findByText('com_ping')
+
+    fireEvent.click(screen.getByRole('radio', { name: 'UPPM' }))
+    await waitFor(() => screen.getByText('eps_get_temp'))
+
+    const searchBox = screen.getByPlaceholderText('Search commands...')
+    fireEvent.change(searchBox, { target: { value: 'eps' } })
+
+    await waitFor(() => {
+      const items = screen.getAllByRole('option').map((el) => el.textContent ?? '')
+      // Both eps_* commands rank ahead of the description-only "ax_keep_alive"
+      // (its description mentions "passes" — fuzzy hit on "eps" via subsequence
+      // is allowed but must lose to real name matches).
+      const epsIdx = items.findIndex((t) => t.includes('eps_get_temp'))
+      const axIdx = items.findIndex((t) => t.includes('ax_keep_alive'))
+      expect(epsIdx).toBeGreaterThanOrEqual(0)
+      if (axIdx >= 0) expect(epsIdx).toBeLessThan(axIdx)
     })
   })
 })

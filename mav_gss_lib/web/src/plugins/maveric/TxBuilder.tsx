@@ -6,12 +6,13 @@ import { Command as CommandPrimitive } from 'cmdk'
 import { Switch } from '@/components/ui/switch'
 import type { MissionBuilderProps } from '@/lib/types'
 import { GssInput } from '@/components/ui/gss-input'
-import { strictFilter } from '@/lib/cmdkFilter'
 import type {
   MavericCommandSchemaItem,
   MavericCommandSchema,
 } from './types'
 import TxArgRow from './TxArgRow'
+import { fuzzyScore } from './fuzzyScore'
+import { getLastDestNode, setLastDestNode } from './txBuilderState'
 
 interface MavericIdentity {
   mission_name: string
@@ -28,7 +29,7 @@ type CommandSchema = MavericCommandSchema
 export default function MavericTxBuilder({ onQueue, onClose, disabled }: MissionBuilderProps) {
   const [schema, setSchema] = useState<CommandSchema | null>(null)
   const [identity, setIdentity] = useState<MavericIdentity | null>(null)
-  const [destNode, setDestNode] = useState<string | null>(null)
+  const [destNode, setDestNode] = useState<string | null>(getLastDestNode)
   const [selectedCmd, setSelectedCmd] = useState<string | null>(null)
   const [argValues, setArgValues] = useState<Record<string, string>>({})
   const [echo, setEcho] = useState('NONE')
@@ -71,20 +72,37 @@ export default function MavericTxBuilder({ onQueue, onClose, disabled }: Mission
     }
   }, [selectedDestNode])
 
-  const dataFilteredCmds = useMemo(() => {
-    if (!schema) return []
-    let entries = Object.entries(schema).filter(([, def]) => !def.rx_only && !def.deprecated)
-    if (selectedDestNode) {
-      entries = entries.filter(([, def]) => !def.nodes || def.nodes.length === 0 || def.nodes.includes(selectedDestNode))
+  const rankedCmds = useMemo(() => {
+    if (!schema) return [] as Array<[string, MavericCommandSchemaItem]>
+    const entries = Object.entries(schema)
+      .filter(([, def]) => !def.rx_only && !def.deprecated)
+      .filter(([, def]) =>
+        !selectedDestNode || !def.nodes || def.nodes.length === 0 || def.nodes.includes(selectedDestNode),
+      )
+
+    const needle = search.trim()
+    if (!needle) {
+      return entries.sort(([a], [b]) => a.localeCompare(b))
     }
-    return entries
-  }, [schema, selectedDestNode])
+
+    const scored = entries
+      .map(([name, def]) => {
+        const nameScore = fuzzyScore(name, needle)
+        const descScore = def.description ? fuzzyScore(def.description, needle) * 0.5 : 0
+        return { name, def, score: Math.max(nameScore, descScore) }
+      })
+      .filter((row) => row.score > 0)
+      .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
+
+    return scored.map((row) => [row.name, row.def] as [string, MavericCommandSchemaItem])
+  }, [schema, selectedDestNode, search])
 
   const cmdDef: MavericCommandSchemaItem | null = selectedCmd && schema ? schema[selectedCmd] ?? null : null
   const txArgs = cmdDef?.tx_args ?? []
 
   function pickNode(name: string) {
     setDestNode(name)
+    setLastDestNode(name)
     setSelectedCmd(null)
     setArgValues({})
     setSearch('')
@@ -184,8 +202,7 @@ export default function MavericTxBuilder({ onQueue, onClose, disabled }: Mission
         {selectedDestNode && (
           <Command
             className="!bg-transparent !p-0 !rounded-md !overflow-visible !h-auto !size-auto [&_*]:!ring-0 [&_*]:!outline-none"
-            shouldFilter={true}
-            filter={strictFilter}
+            shouldFilter={false}
           >
             {/* Search input */}
             <div
@@ -214,16 +231,12 @@ export default function MavericTxBuilder({ onQueue, onClose, disabled }: Mission
               <CommandEmpty>
                 <span className="text-[11px]" style={{ color: colors.dim }}>No commands</span>
               </CommandEmpty>
-              {dataFilteredCmds.map(([name, def]) => {
+              {rankedCmds.map(([name, def]) => {
                 const picked = selectedCmd === name
-                // Split on '_' / '-' so typing "get mode" matches "gnc_get_mode"
-                // (cmdk treats spaces and hyphens as word boundaries but not underscores).
-                const parts = name.split(/[_-]/).filter(Boolean)
                 return (
                   <CommandItem
                     key={name}
                     value={name}
-                    keywords={parts.length > 1 ? parts : undefined}
                     onSelect={() => pickCmd(name)}
                     className="!px-2.5 !py-1.5 !rounded-none !text-xs !gap-1.5 !bg-transparent data-[selected=true]:!bg-white/[0.03]"
                     style={{
