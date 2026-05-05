@@ -1,5 +1,5 @@
 import type { MissionFacts, RxPacket } from '@/lib/types'
-import { fileCaps, type FileKindCaps } from './shared/fileKinds'
+import type { FileKindCaps } from './shared/fileKinds'
 
 export interface MavericMissionFacts extends MissionFacts {
   id: 'maveric'
@@ -54,7 +54,3 @@ export function isFileKindRxPacket(p: RxPacket, caps: FileKindCaps): boolean {
   return caps.errorNodes.includes(node)
 }
 
-/** @deprecated use isFileKindRxPacket(p, fileCaps('image')) */
-export function isImagingRxPacket(p: RxPacket, _imagingNodeSet: Set<string>): boolean {
-  return isFileKindRxPacket(p, fileCaps('image'))
-}

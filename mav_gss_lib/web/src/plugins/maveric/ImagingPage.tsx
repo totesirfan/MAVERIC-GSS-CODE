@@ -10,7 +10,8 @@ import { usePluginServices } from '@/hooks/usePluginServices';
 import { useNowMs } from '@/hooks/useNowMs';
 import { useColumnDefs } from '@/state/sessionHooks';
 import { composeRxColumns } from '@/lib/columns';
-import { isImagingRxPacket } from './missionFacts';
+import { isFileKindRxPacket } from './missionFacts';
+import { fileCaps } from './shared/fileKinds';
 import type { RxPacket } from '@/lib/types';
 
 import { RxLogPanel } from './imaging/RxLogPanel';
@@ -21,8 +22,6 @@ import { QueuePanel } from './imaging/QueuePanel';
 import { useImageFiles } from './files/FileChunkContext';
 import type { FileLeaf, MissingRange } from './imaging/types';
 import { imagingFileEndpoint } from './imaging/helpers';
-
-const FALLBACK_IMAGING_NODES = new Set(['HLNV', 'ASTR']);
 
 export default function ImagingPage() {
   const {
@@ -51,6 +50,7 @@ export default function ImagingPage() {
   } = useImageFiles();
 
   const nowMs = useNowMs();
+  const imagingCaps = fileCaps('image');
 
   // ── TX routing + schema ─────────────────────────────────────────
   const [schema, setSchema] = useState<Record<string, Record<string, unknown>> | null>(null);
@@ -69,16 +69,11 @@ export default function ImagingPage() {
     fetchSchema().then(setSchema).catch(() => {});
   }, [fetchSchema]);
 
-  const imagingNodeSet = useMemo<Set<string>>(() => {
-    const fromSchema = (schema?.img_get_chunks as { nodes?: string[] } | undefined)?.nodes;
-    if (fromSchema && fromSchema.length > 0) return new Set(fromSchema);
-    return FALLBACK_IMAGING_NODES;
-  }, [schema]);
   const nodes = useMemo(() => {
     const imgCmd = schema?.img_get_chunks ?? schema?.img_cnt_chunks;
     const allowedNodes = ((imgCmd as { nodes?: string[] } | undefined)?.nodes) ?? [];
-    return allowedNodes.length > 0 ? allowedNodes : Array.from(FALLBACK_IMAGING_NODES);
-  }, [schema]);
+    return allowedNodes.length > 0 ? allowedNodes : [...imagingCaps.fallbackNodes];
+  }, [schema, imagingCaps]);
   const selected = useMemo(
     () => files.find((f) => f.id === selectedId) ?? null,
     [files, selectedId],
@@ -96,11 +91,11 @@ export default function ImagingPage() {
   const imagingPackets = useMemo<RxPacket[]>(() => {
     const rows: RxPacket[] = [];
     for (const p of rxPackets) {
-      if (!isImagingRxPacket(p, imagingNodeSet)) continue;
+      if (!isFileKindRxPacket(p, imagingCaps)) continue;
       rows.push(p);
     }
     return rows;
-  }, [rxPackets, imagingNodeSet]);
+  }, [rxPackets, imagingCaps]);
 
   const lastImagingPacketMs = imagingPackets[imagingPackets.length - 1]?.received_at_ms ?? null;
   const receiving = lastImagingPacketMs !== null && nowMs - lastImagingPacketMs < 1500;
