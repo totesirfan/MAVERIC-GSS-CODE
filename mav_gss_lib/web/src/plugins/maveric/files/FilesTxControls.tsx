@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Send, Trash2, Lock, ChevronDown } from 'lucide-react';
+import { Send, Trash2, Lock } from 'lucide-react';
 import { GssInput } from '@/components/ui/gss-input';
 import { Button } from '@/components/ui/button';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { showToast } from '@/components/shared/overlays/StatusToast';
 import { colors } from '@/lib/colors';
 import { StageRow } from '../shared/StageRow';
@@ -25,6 +24,13 @@ interface FilesTxControlsProps {
   schema: Record<string, Record<string, unknown>> | null;
   txConnected: boolean;
   queueCommand: (cmd: { cmd_id: string; args: Record<string, string>; packet: { dest: string } }) => void;
+  /** When provided, render a kind-switcher tab strip in the panel header
+   *  (e.g. "AII | MAG"). Used by the Files page when filter='all' so the
+   *  operator can flip which kind they're staging commands for without
+   *  having to click a row first. Omit when only one kind is meaningful
+   *  (e.g. filter constrains to a single kind). */
+  availableKinds?: readonly FileKindId[];
+  onKindChange?: (kind: FileKindId) => void;
 }
 
 /**
@@ -36,7 +42,9 @@ interface FilesTxControlsProps {
 export function FilesTxControls({
   kind, selected, knownFiles, destNode, onDestNodeChange,
   schema, txConnected, queueCommand,
+  availableKinds, onKindChange,
 }: FilesTxControlsProps) {
+  const showKindSwitcher = !!availableKinds && availableKinds.length > 1 && !!onKindChange;
   const caps = fileCaps(kind);
   const nodes = (() => {
     const cmd = schema?.[caps.getCmd];
@@ -62,7 +70,6 @@ export function FilesTxControls({
   const [getStart, setGetStart] = useState('');
   const [getCount, setGetCount] = useState('');
   const [delFn, setDelFn] = useState<string>(caps.defaultFilename ?? '');
-  const [extrasOpen, setExtrasOpen] = useState(false);
   // Shared chunk-size for cnt/get. Default to selected file's chunk_size
   // when one is selected (so restage matches what was downloaded), else
   // '150' to mirror imaging's default.
@@ -106,6 +113,16 @@ export function FilesTxControls({
     if (sharedLock != null) setChunkSize(String(sharedLock));
   }, [sharedLock]);
 
+  // Reset filename inputs when the operator flips kind via the
+  // header switcher — otherwise an AII-typed `transmit_dir` would
+  // persist into MAG (which has no defaultFilename) as a stale value.
+  useEffect(() => {
+    const fresh = caps.defaultFilename ?? '';
+    setCntFn(fresh);
+    setGetFn(fresh);
+    setDelFn(fresh);
+  }, [kind]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const stage = (cmdId: string, args: Record<string, string>) => {
     if (!txConnected) { showToast('TX not connected', 'error', 'tx'); return; }
     if (!effectiveDest) { showToast('No destination node selected', 'error', 'tx'); return; }
@@ -122,9 +139,38 @@ export function FilesTxControls({
         style={{ borderColor: colors.borderSubtle, minHeight: 34, paddingTop: 6, paddingBottom: 6 }}
       >
         <Send className="size-3.5" style={{ color: colors.dim }} />
-        <span className="font-bold uppercase" style={{ color: colors.value, fontSize: 14, letterSpacing: '0.02em' }}>
-          {caps.label} TX
-        </span>
+        {showKindSwitcher ? (
+          <div className="flex items-center gap-1">
+            {availableKinds!.map(k => {
+              const active = k === kind;
+              const label = fileCaps(k).label;
+              return (
+                <button
+                  key={k}
+                  onClick={() => onKindChange!(k)}
+                  className="px-1.5 rounded-sm border font-bold uppercase text-[12px] color-transition btn-feedback"
+                  style={{
+                    height: 22,
+                    letterSpacing: '0.02em',
+                    color: active ? colors.value : colors.dim,
+                    borderColor: active ? colors.label : colors.borderSubtle,
+                    backgroundColor: active ? `${colors.label}18` : 'transparent',
+                  }}
+                  title={`Stage commands for ${label}`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+            <span className="font-bold uppercase ml-1" style={{ color: colors.value, fontSize: 14, letterSpacing: '0.02em' }}>
+              TX
+            </span>
+          </div>
+        ) : (
+          <span className="font-bold uppercase" style={{ color: colors.value, fontSize: 14, letterSpacing: '0.02em' }}>
+            {caps.label} TX
+          </span>
+        )}
         {caps.defaultFilename ? (
           <span
             className="inline-flex items-center gap-1 text-[10px] font-mono"
@@ -247,38 +293,21 @@ export function FilesTxControls({
         />
 
         {caps.extraCmds.length > 0 && (
-          <Collapsible
-            open={extrasOpen}
-            onOpenChange={setExtrasOpen}
-            className="border-t pt-2 -mx-3 px-3"
+          <div
+            className="border-t pt-3 -mx-3 px-3 space-y-2"
             style={{ borderColor: colors.borderSubtle }}
           >
-            <CollapsibleTrigger
-              className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider w-full text-left hover:opacity-80 transition-opacity outline-none"
-              style={{ color: colors.dim }}
-            >
-              <ChevronDown
-                className="size-3 transition-transform duration-200"
-                style={{ transform: extrasOpen ? 'rotate(0deg)' : 'rotate(-90deg)' }}
+            {caps.extraCmds.map(cmdId => (
+              <ExtraCmdRow
+                key={cmdId}
+                cmdId={cmdId}
+                /* Per-cmd override: aii_img.filename is image, not aii. */
+                filenameKind={caps.extraCmdFilenameKind[cmdId] ?? kind}
+                schema={schema?.[cmdId] ?? null}
+                onStage={(args) => stage(cmdId, args)}
               />
-              Extra commands
-              <span className="font-mono normal-case ml-1" style={{ color: colors.sep }}>
-                {caps.extraCmds.length}
-              </span>
-            </CollapsibleTrigger>
-            <CollapsibleContent className="pt-2 space-y-2">
-              {caps.extraCmds.map(cmdId => (
-                <ExtraCmdRow
-                  key={cmdId}
-                  cmdId={cmdId}
-                  /* Per-cmd override: aii_img.filename is image, not aii. */
-                  filenameKind={caps.extraCmdFilenameKind[cmdId] ?? kind}
-                  schema={schema?.[cmdId] ?? null}
-                  onStage={(args) => stage(cmdId, args)}
-                />
-              ))}
-            </CollapsibleContent>
-          </Collapsible>
+            ))}
+          </div>
         )}
       </div>
     </div>

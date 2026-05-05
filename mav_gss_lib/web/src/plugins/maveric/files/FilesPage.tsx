@@ -109,14 +109,23 @@ export default function FilesPage() {
     return filtered.some(f => f.id === candidateSelection.id) ? candidateSelection : null;
   }, [candidateSelection, filtered]);
 
-  // TX controls bind to one kind: the active selection's kind, else the
-  // current filter, else AII as the default starting point.
+  // TX controls bind to one kind:
+  //   1. selection's kind (operator clicked a row)
+  //   2. filter, when constrained to a single kind
+  //   3. the last kind the operator interacted with (sticky, so the
+  //      panel doesn't silently default to AII when the operator was
+  //      last working with MAG)
+  //   4. AII as the final fallback for a fresh session
+  // When filter='all' AND no selection, the TX panel header also surfaces
+  // an explicit AII|MAG toggle so the operator can flip without picking
+  // a row first.
   const txKind: FileKindId =
     activeSelection?.kind === 'aii' || activeSelection?.kind === 'mag'
       ? activeSelection.kind
       : filter === 'aii' || filter === 'mag'
       ? filter
-      : 'aii';
+      : (lastTouchedFlatKind ?? 'aii');
+  const showTxKindSwitcher = filter === 'all' && !activeSelection;
 
   const handleSelectRow = (id: string) => {
     const row = filtered.find(f => f.id === id);
@@ -232,6 +241,10 @@ export default function FilesPage() {
                 schema={schema}
                 txConnected={txConnected}
                 queueCommand={queueCommand}
+                availableKinds={showTxKindSwitcher ? ['aii', 'mag'] : undefined}
+                onKindChange={showTxKindSwitcher
+                  ? (k) => { if (k === 'aii' || k === 'mag') setLastTouchedFlatKind(k); }
+                  : undefined}
               />
 
               <QueuePanel
