@@ -177,6 +177,7 @@ export default function ImagingPage() {
               destNode={effectiveDestNode}
               onDestNodeChange={setDestNode}
               selected={selected}
+              files={files}
               previewTab={previewTab}
               thumbPrefix={thumbPrefix}
               queueCommand={queueCommand}

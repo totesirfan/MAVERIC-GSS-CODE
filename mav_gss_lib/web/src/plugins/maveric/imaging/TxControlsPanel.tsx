@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Send,
   Camera,
@@ -8,6 +8,7 @@ import {
   Monitor,
   Eraser,
   Trash2,
+  Lock,
 } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
@@ -16,31 +17,21 @@ import { showToast } from '@/components/shared/overlays/StatusToast';
 import { colors } from '@/lib/colors';
 import { withJpg } from './helpers';
 import { FilenameInput } from '../shared/FilenameInput';
-import type { PairedFile, ImagingTab } from './types';
+import { fileCaps } from '../shared/fileKinds';
+import { StageRow } from '../shared/StageRow';
+import type { PairedFile, ImagingTab, FileLeaf } from './types';
 
 interface TxControlsPanelProps {
   nodes: string[];
   destNode: string;
   onDestNodeChange: (n: string) => void;
-  /** Currently-selected paired file (drives auto-fill per active preview tab) */
   selected: PairedFile | null;
-  /** Which side the Preview is currently showing — auto-fill source */
+  /** Full paired-file list — used to look up the locked chunk_size when
+   *  the operator's typed Count/Get filename matches a known leaf. */
+  files: PairedFile[];
   previewTab: ImagingTab;
-  /** Thumbnail-filename prefix from mission config (`imaging.thumb_prefix`).
-   *  A typed/resolved filename starting with this prefix stages with
-   *  Destination=2 (thumb); otherwise Destination=1 (full). Presented
-   *  inline inside each FilenameInput so the derived destination is
-   *  visible — no silent thumb/full mismatch. */
   thumbPrefix: string;
-  /** Stage a command into the main TX queue */
-  queueCommand: (cmd: {
-    cmd_id: string;
-    args: Record<string, string>;
-    packet: {
-      dest: string;
-    };
-  }) => void;
-  /** Schema for looking up echo/ptype per command */
+  queueCommand: (cmd: { cmd_id: string; args: Record<string, string>; packet: { dest: string } }) => void;
   schema: Record<string, Record<string, unknown>> | null;
   txConnected: boolean;
 }
@@ -60,6 +51,7 @@ export function TxControlsPanel({
   destNode,
   onDestNodeChange,
   selected,
+  files,
   previewTab,
   thumbPrefix,
   queueCommand,
@@ -74,6 +66,38 @@ export function TxControlsPanel({
   const [getCount, setGetCount] = useState('');
   // Combined chunk size shared by Count Chunks + Get Chunks. Default 150 B.
   const [chunkSize, setChunkSize] = useState('150');
+
+  // Look up the locked chunk_size for a typed cnt/get filename.
+  // Match key (filename, source, destination): destination is implicit
+  // in the filename via the thumb prefix, but we re-check it here so a
+  // typo never silently desyncs. Source preference: current route, fall
+  // back to any leaf. Returns the locked size, or null if no match.
+  const allLeaves = useMemo<FileLeaf[]>(
+    () => files.flatMap(p => [p.full, p.thumb].filter((l): l is FileLeaf => !!l)),
+    [files],
+  );
+  const lockedSizeForTyped = (typedFn: string): number | null => {
+    const trimmed = typedFn.trim();
+    if (!trimmed) return null;
+    const fn = withJpg(trimmed);
+    const expectedDest = destFromFilename(fn, thumbPrefix);
+    const matchSource = allLeaves.find(l => l.filename === fn && l.source === destNode);
+    const match = matchSource ?? allLeaves.find(l => l.filename === fn);
+    if (!match) return null;
+    if (destFromFilename(match.filename, thumbPrefix) !== expectedDest) return null;
+    return match.chunk_size ?? null;
+  };
+  const lockFromCnt = lockedSizeForTyped(cntFn);
+  const lockFromGet = lockedSizeForTyped(getFn);
+  // Conflict = both rows lock to different sizes. Each row stages with
+  // its own lock regardless; the shared input shows neither value.
+  const lockConflict =
+    lockFromCnt != null && lockFromGet != null && lockFromCnt !== lockFromGet;
+  const sharedLock = lockConflict ? null : (lockFromCnt ?? lockFromGet);
+  useEffect(() => {
+    if (sharedLock != null) setChunkSize(String(sharedLock));
+  }, [sharedLock]);
+
   const autoRef = useRef({ cntFn: '', getFn: '', start: '', count: '' });
 
   // Source filename = whichever leaf matches the Preview's active tab.
@@ -229,119 +253,107 @@ export function TxControlsPanel({
             <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: colors.dim }}>
               Chunk Size <span className="font-mono normal-case ml-1" style={{ color: colors.sep }}>shared · bytes per chunk</span>
             </div>
-            <div className="flex items-end gap-2">
+            <div className="flex items-end gap-2 flex-wrap">
               <GssInput
                 className="w-[80px] font-mono"
                 placeholder="150"
                 value={chunkSize}
                 onChange={e => setChunkSize(e.target.value)}
+                disabled={sharedLock != null}
+                title={
+                  sharedLock != null
+                    ? `Locked to ${sharedLock} — delete the file to recount at a different size`
+                    : lockConflict
+                    ? `Count → ${lockFromCnt}, Get → ${lockFromGet} — staged sizes resolved per row`
+                    : undefined
+                }
               />
-              <span className="text-[10px] font-mono" style={{ color: colors.dim }}>
-                applied to img_cnt_chunks & img_get_chunks
-              </span>
+              {sharedLock != null && (
+                <span className="text-[10px] font-mono inline-flex items-center gap-1" style={{ color: colors.warning }}>
+                  <Lock className="size-3" />locked to {sharedLock} · delete file to recount at a different size
+                </span>
+              )}
+              {lockConflict && (
+                <span className="text-[10px] font-mono inline-flex items-center gap-1" style={{ color: colors.danger }}>
+                  <Lock className="size-3" />Count → {lockFromCnt}, Get → {lockFromGet} · staged per row
+                </span>
+              )}
+              {sharedLock == null && !lockConflict && (
+                <span className="text-[10px] font-mono" style={{ color: colors.dim }}>
+                  applied to {fileCaps('image').cntCmd} & {fileCaps('image').getCmd}
+                </span>
+              )}
             </div>
           </div>
 
-          <div>
-            <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: colors.dim }}>
-              Count Chunks <span className="font-mono normal-case ml-1" style={{ color: colors.sep }}>img_cnt_chunks</span>
-            </div>
-            <div className="flex items-end gap-2">
-              <FilenameInput
-                kind="image"
-                className="flex-1"
-                value={cntFn}
-                onChange={setCntFn}
-                thumbPrefix={thumbPrefix}
-              />
-              <Button
-                size="sm"
-                onClick={() => {
-                  const fn = withJpg(cntFn.trim());
-                  stage('img_cnt_chunks', {
-                    filename: fn,
-                    destination: destFromFilename(fn, thumbPrefix),
-                    chunk_size: chunkSize.trim(),
-                  });
-                }}
-                style={{ backgroundColor: colors.active, color: colors.bgApp }}
-              >
-                Stage
-              </Button>
-            </div>
-          </div>
+          <StageRow
+            label="Count Chunks"
+            sublabel={fileCaps('image').cntCmd}
+            kind="image"
+            filenameValue={cntFn}
+            onFilenameChange={setCntFn}
+            thumbPrefix={thumbPrefix}
+            onStage={() => {
+              const fn = withJpg(cntFn.trim());
+              stage(fileCaps('image').cntCmd, {
+                filename: fn,
+                destination: destFromFilename(fn, thumbPrefix),
+                chunk_size: lockFromCnt != null ? String(lockFromCnt) : chunkSize.trim(),
+              });
+            }}
+          />
 
-          <div>
-            <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: colors.dim }}>
-              Get Chunks <span className="font-mono normal-case ml-1" style={{ color: colors.sep }}>img_get_chunks · contiguous range</span>
-            </div>
-            <div className="flex items-end gap-2">
-              <FilenameInput
-                kind="image"
-                className="flex-1"
-                value={getFn}
-                onChange={setGetFn}
-                thumbPrefix={thumbPrefix}
-              />
-              <GssInput
-                className="w-[52px] font-mono"
-                placeholder="start"
-                value={getStart}
-                onChange={e => setGetStart(e.target.value)}
-              />
-              <GssInput
-                className="w-[52px] font-mono"
-                placeholder="count"
-                value={getCount}
-                onChange={e => setGetCount(e.target.value)}
-              />
-              <Button
-                size="sm"
-                onClick={() => {
-                  const fn = withJpg(getFn.trim());
-                  stage('img_get_chunks', {
-                    filename: fn,
-                    start_chunk: getStart.trim(),
-                    num_chunks: getCount.trim(),
-                    destination: destFromFilename(fn, thumbPrefix),
-                    chunk_size: chunkSize.trim(),
-                  });
-                }}
-                style={{ backgroundColor: colors.active, color: colors.bgApp }}
-              >
-                Stage
-              </Button>
-            </div>
-          </div>
+          <StageRow
+            label="Get Chunks"
+            sublabel={`${fileCaps('image').getCmd} · contiguous range`}
+            kind="image"
+            filenameValue={getFn}
+            onFilenameChange={setGetFn}
+            thumbPrefix={thumbPrefix}
+            extras={
+              <>
+                <GssInput
+                  className="w-[52px] font-mono"
+                  placeholder="start"
+                  value={getStart}
+                  onChange={e => setGetStart(e.target.value)}
+                />
+                <GssInput
+                  className="w-[52px] font-mono"
+                  placeholder="count"
+                  value={getCount}
+                  onChange={e => setGetCount(e.target.value)}
+                />
+              </>
+            }
+            onStage={() => {
+              const fn = withJpg(getFn.trim());
+              stage(fileCaps('image').getCmd, {
+                filename: fn,
+                start_chunk: getStart.trim(),
+                num_chunks: getCount.trim(),
+                destination: destFromFilename(fn, thumbPrefix),
+                chunk_size: lockFromGet != null ? String(lockFromGet) : chunkSize.trim(),
+              });
+            }}
+          />
 
-          <div>
-            <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: colors.danger }}>
-              <Trash2 className="size-3 inline mr-1" />img_delete
-            </div>
-            <div className="flex items-end gap-2">
-              <FilenameInput
-                kind="image"
-                className="flex-1"
-                value={delFn}
-                onChange={setDelFn}
-                thumbPrefix={thumbPrefix}
-              />
-              <Button
-                size="sm"
-                onClick={() => {
-                  const fn = delFn.trim();
-                  if (!fn) {
-                    showToast('Filename required', 'error', 'tx');
-                    return;
-                  }
-                  stage('img_delete', { filename: withJpg(fn) });
-                }}
-                style={{ backgroundColor: colors.danger, color: colors.bgApp }}
-              >
-                Stage
-              </Button>
-            </div>
-          </div>
+          <StageRow
+            label={<><Trash2 className="size-3 inline mr-1" />{fileCaps('image').deleteCmd}</>}
+            kind="image"
+            filenameValue={delFn}
+            onFilenameChange={setDelFn}
+            thumbPrefix={thumbPrefix}
+            tone="destructive"
+            onStage={() => {
+              const fn = delFn.trim();
+              if (!fn) {
+                showToast('Filename required', 'error', 'tx');
+                return;
+              }
+              stage(fileCaps('image').deleteCmd, { filename: withJpg(fn) });
+            }}
+          />
         </TabsContent>
 
         {/* Camera */}
