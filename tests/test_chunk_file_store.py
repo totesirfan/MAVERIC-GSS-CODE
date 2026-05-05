@@ -128,7 +128,7 @@ class ChunkFileStoreTests(unittest.TestCase):
         store = ChunkFileStore(self.root)
         store.set_total(self._ref(kind="image", filename="a.jpg"), 1)
         store.set_total(self._ref(kind="aii", filename="b.json"), 1)
-        store.set_total(self._ref(kind="mag", filename="c.nvg"), 1)
+        store.set_total(self._ref(kind="mag", filename="c.npz"), 1)
         self.assertEqual(len(store.known_files()), 3)
         self.assertEqual(len(store.known_files(kind="image")), 1)
         self.assertEqual(store.known_files(kind="image")[0].filename, "a.jpg")

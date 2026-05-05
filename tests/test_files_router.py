@@ -83,10 +83,10 @@ class FilesRouterTests(unittest.TestCase):
         self.assertTrue(r.headers["content-type"].startswith("application/json"))
 
     def test_preview_mag_octet_stream_mime(self):
-        ref = FileRef(kind="mag", source="HLNV", filename="m.nvg")
+        ref = FileRef(kind="mag", source="HLNV", filename="m.npz")
         self.store.set_total(ref, 1)
         self.store.feed_chunk(ref, 0, b"\xde\xad\xbe\xef")
-        r = self.client.get("/api/plugins/files/preview/m.nvg?kind=mag&source=HLNV")
+        r = self.client.get("/api/plugins/files/preview/m.npz?kind=mag&source=HLNV")
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.headers["content-type"], "application/octet-stream")
 

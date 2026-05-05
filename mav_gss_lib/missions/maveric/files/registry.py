@@ -53,7 +53,7 @@ FILE_TRANSPORTS: tuple[FileTransportConfig, ...] = (
     ),
     FileTransportConfig(
         kind="mag", cnt_cmd="mag_cnt_chunks", get_cmd="mag_get_chunks",
-        capture_cmd=None, output_subdir="mag", extension=".nvg",
+        capture_cmd=None, output_subdir="mag", extension=".npz",
         media_type="application/octet-stream",
     ),
 )

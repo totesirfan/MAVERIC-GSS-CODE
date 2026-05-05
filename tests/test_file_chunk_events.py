@@ -90,11 +90,11 @@ class MavericFileChunkEventsTests(unittest.TestCase):
         self.assertEqual(msgs[0]["filename"], "inventory.json")
 
     def test_mag_get_chunks_feeds_chunk(self):
-        ref = FileRef(kind="mag", source="HLNV", filename="mag_001.nvg")
+        ref = FileRef(kind="mag", source="HLNV", filename="mag_001.npz")
         self.store.set_total(ref, 1)
-        args_raw = b"mag_001.nvg 0 4 \xde\xad\xbe\xef"
+        args_raw = b"mag_001.npz 0 4 \xde\xad\xbe\xef"
         pkt = _packet("mag_get_chunks", "FILE", params=[
-            _ParamUpdate("hk.filename", "mag_001.nvg"),
+            _ParamUpdate("hk.filename", "mag_001.npz"),
             _ParamUpdate("hk.chunk_idx", "0"),
             _ParamUpdate("hk.chunk_len", "4"),
         ], args_raw=args_raw)
