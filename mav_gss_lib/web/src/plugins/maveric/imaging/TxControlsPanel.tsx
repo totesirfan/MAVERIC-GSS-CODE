@@ -15,7 +15,7 @@ import { GssInput } from '@/components/ui/gss-input';
 import { showToast } from '@/components/shared/overlays/StatusToast';
 import { colors } from '@/lib/colors';
 import { withJpg } from './helpers';
-import { FilenameInput } from './FilenameInput';
+import { FilenameInput } from '../shared/FilenameInput';
 import type { PairedFile, ImagingTab } from './types';
 
 interface TxControlsPanelProps {
@@ -248,6 +248,7 @@ export function TxControlsPanel({
             </div>
             <div className="flex items-end gap-2">
               <FilenameInput
+                kind="image"
                 className="flex-1"
                 value={cntFn}
                 onChange={setCntFn}
@@ -276,6 +277,7 @@ export function TxControlsPanel({
             </div>
             <div className="flex items-end gap-2">
               <FilenameInput
+                kind="image"
                 className="flex-1"
                 value={getFn}
                 onChange={setGetFn}
@@ -318,6 +320,7 @@ export function TxControlsPanel({
             </div>
             <div className="flex items-end gap-2">
               <FilenameInput
+                kind="image"
                 className="flex-1"
                 value={delFn}
                 onChange={setDelFn}
@@ -351,7 +354,7 @@ export function TxControlsPanel({
             {/* Row 1 — target file + capture timing */}
             <div className="flex items-end gap-2 mb-2">
               <LabeledField label="Filename" className="flex-1 min-w-[140px]">
-                <FilenameInput value={capFn} onChange={setCapFn} thumbPrefix={thumbPrefix} />
+                <FilenameInput kind="image" value={capFn} onChange={setCapFn} thumbPrefix={thumbPrefix} />
               </LabeledField>
               <LabeledField label="Qty" width={56}>
                 <GssInput
@@ -467,6 +470,7 @@ export function TxControlsPanel({
             </div>
             <div className="flex items-end gap-2">
               <FilenameInput
+                kind="image"
                 className="flex-1"
                 value={lcdFn}
                 onChange={setLcdFn}

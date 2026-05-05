@@ -1,49 +1,58 @@
 import { GssInput } from '@/components/ui/gss-input';
 import { colors } from '@/lib/colors';
+import { fileCaps, type FileKindId } from './fileKinds';
 
 interface FilenameInputProps {
+  /** File kind drives the ghost suffix and the suffix-detection regex. */
+  kind: FileKindId;
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
   className?: string;
-  /** Mission's `imaging.thumb_prefix`. When set, the input shows a
-   *  small "thumb" / "full" tag so the operator sees which
-   *  Destination the filename will resolve to before staging — no
-   *  silent thumb/full mismatch. */
+  /** Image-only: when set, renders a small "thumb"/"full" tag derived
+   *  from whether `value` starts with the prefix. AII/MAG callers omit. */
   thumbPrefix?: string;
+  /** When true, the underlying input is disabled. Used by FilesTxControls
+   *  to lock the filename for kinds with a singleton canonical name
+   *  (`caps.defaultFilename` set — currently AII/`transmit_dir`). */
+  disabled?: boolean;
 }
 
 /**
- * Filename text input with a ghost `.jpg` suffix shown when the typed
- * value doesn't already end in `.jpg` / `.jpeg`. The suffix indicates
- * the filename will be auto-appended on send (see `withJpg` in
- * helpers.ts).
+ * Filename text input with a ghost suffix shown when the typed value
+ * doesn't already end in the kind's extension. The suffix is appended
+ * on send by `withExtension(filename, kind)` from `./extensions`.
  *
- * When `thumbPrefix` is provided and the value is non-empty, also
- * renders a destination tag ("thumb" if value starts with the prefix,
- * "full" otherwise). The tag is derived from the filename so the
- * operator can't accidentally stage a thumb command against a full
- * filename (or vice versa).
+ * For image kind, an optional `thumbPrefix` prop renders a destination
+ * tag — `thumb` when `value` starts with the prefix, otherwise `full`.
+ * Derived from the filename so the operator can't stage a thumb command
+ * against a full filename or vice versa.
  */
 export function FilenameInput({
+  kind,
   value,
   onChange,
   placeholder = 'filename',
   className = '',
   thumbPrefix,
+  disabled,
 }: FilenameInputProps) {
+  const ext = fileCaps(kind).extension;
   const trimmed = value.trim();
-  const needsSuffix = trimmed !== '' && !/\.jpe?g$/i.test(trimmed);
+  // Suffix-detection: image accepts both .jpg and .jpeg; other kinds
+  // accept only their declared extension. Case-insensitive.
+  const suffixRegex =
+    kind === 'image' ? /\.jpe?g$/i : new RegExp(`\\${ext}$`, 'i');
+  const needsSuffix = trimmed !== '' && !suffixRegex.test(trimmed);
   const showTag = !!thumbPrefix && trimmed !== '';
   const isThumb = showTag && trimmed.startsWith(thumbPrefix!);
   const tagColor = isThumb ? colors.warning : colors.active;
   const tagLabel = isThumb ? 'thumb' : 'full';
 
-  // Reserve left-side space whenever a thumb_prefix convention is in
-  // effect — keeps the input's text anchor stable whether the tag is
-  // visible or not (no jump when the operator types the first char).
   const leftPad = thumbPrefix ? 'pl-[52px]' : '';
-  const rightPad = needsSuffix ? 'pr-9' : '';
+  // Right padding scales with extension length so longer suffixes (`.json`)
+  // don't overlap the input text.
+  const rightPad = needsSuffix ? (ext.length >= 5 ? 'pr-12' : 'pr-9') : '';
 
   return (
     <div className={`relative ${className}`}>
@@ -52,6 +61,7 @@ export function FilenameInput({
         placeholder={placeholder}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
       />
       {showTag && (
         <span
@@ -73,7 +83,7 @@ export function FilenameInput({
           style={{ color: colors.dim }}
           title="auto-appended on send"
         >
-          .jpg
+          {ext}
         </span>
       )}
     </div>
