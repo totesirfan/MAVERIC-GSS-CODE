@@ -1,10 +1,5 @@
-/**
- * Magnetometer NVG file: no in-browser preview. .nvg is binary sensor
- * data; operator processes it offline from the ground-station storage
- * location.
- */
-
 import { colors } from '@/lib/colors';
+import { filesEndpoint } from './helpers';
 import type { FileLeaf } from './types';
 
 interface Props { file: FileLeaf | null }
@@ -19,7 +14,22 @@ export function MagPreview({ file }: Props) {
   }
   return (
     <div className="flex flex-col h-full p-4 gap-2">
-      <div className="text-[11px]" style={{ color: colors.textPrimary }}>{file.filename}</div>
+      <div className="flex items-center">
+        <span className="flex-1 text-[11px]" style={{ color: colors.textPrimary }}>{file.filename}</span>
+        <a
+          href={filesEndpoint('preview', file.kind, file.filename, file.source)}
+          download={file.filename}
+          className="text-[10px] hover:underline"
+          style={{
+            color: file.complete ? colors.active : colors.textMuted,
+            pointerEvents: file.complete ? 'auto' : 'none',
+            opacity: file.complete ? 1 : 0.5,
+          }}
+          title={file.complete ? 'Download MAG (.npz)' : 'Download enabled when complete'}
+        >
+          DOWNLOAD
+        </a>
+      </div>
       <div className="text-[10px]" style={{ color: colors.textMuted }}>
         {file.source ?? '—'} · {file.complete ? 'complete' : `${file.received}/${file.total ?? '—'}`}
         {file.chunk_size != null && ` · chunk ${file.chunk_size} B`}

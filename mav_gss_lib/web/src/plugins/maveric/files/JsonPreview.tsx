@@ -47,11 +47,24 @@ export function JsonPreview({ file }: Props) {
   }
   return (
     <div className="flex flex-col h-full">
-      <div className="text-[10px] px-2 py-1 border-b" style={{ color: colors.textMuted, borderColor: colors.borderSubtle }}>
-        {file.filename} · {file.complete ? 'complete' : `${file.received}/${file.total ?? '—'}`}
-        {valid === false && (
-          <span className="ml-2" style={{ color: colors.danger }}>(invalid JSON)</span>
-        )}
+      <div className="flex items-center text-[10px] px-2 py-1 border-b" style={{ color: colors.textMuted, borderColor: colors.borderSubtle }}>
+        <span className="flex-1 truncate">
+          {file.filename} · {file.complete ? 'complete' : `${file.received}/${file.total ?? '—'}`}
+          {valid === false && (<span className="ml-2" style={{ color: colors.danger }}>(invalid JSON)</span>)}
+        </span>
+        <a
+          href={filesEndpoint('preview', file.kind, file.filename, file.source)}
+          download={file.filename}
+          className="ml-2 text-[10px] hover:underline"
+          style={{
+            color: file.complete ? colors.active : colors.textMuted,
+            pointerEvents: file.complete ? 'auto' : 'none',
+            opacity: file.complete ? 1 : 0.5,
+          }}
+          title={file.complete ? 'Download JSON' : 'Download enabled when complete'}
+        >
+          DOWNLOAD
+        </a>
       </div>
       <pre
         className="flex-1 overflow-auto text-[11px] font-mono p-2"
