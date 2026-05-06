@@ -65,9 +65,9 @@ export function FilenameInput({
       />
       {showTag && (
         <span
-          className="absolute left-1.5 top-1/2 -translate-y-1/2 inline-flex items-center px-1.5 rounded-sm border font-mono text-[9px] uppercase tracking-wider pointer-events-none"
+          className="absolute left-1.5 top-1/2 -translate-y-1/2 inline-flex items-center px-1.5 rounded-sm border font-mono text-[11px] uppercase tracking-wider pointer-events-none"
           style={{
-            height: 15,
+            height: 17,
             color: tagColor,
             borderColor: `${tagColor}66`,
             backgroundColor: `${tagColor}14`,

@@ -32,6 +32,11 @@ from mav_gss_lib.missions.maveric.files.store import ChunkFileStore, FileRef
 # concurrency and the kind of state stored here (sort/filter/focus
 # selections).
 UI_STATE_FILENAME = ".ui_state.json"
+# Sane upper bound on serialised UI state. Picker/filter/focus
+# selections are kilobytes at worst — anything beyond this is a runaway
+# client. Cap reads + writes so a buggy frontend can't fill disk or
+# blow up server memory on subsequent GETs.
+UI_STATE_MAX_BYTES = 256 * 1024
 
 
 def get_files_router(store: ChunkFileStore, adapters: list[FileKindAdapter]) -> APIRouter:
@@ -115,8 +120,16 @@ def get_files_router(store: ChunkFileStore, adapters: list[FileKindAdapter]) -> 
         if not path.is_file():
             return JSONResponse({})
         try:
-            data = json.loads(path.read_text())
-        except (OSError, json.JSONDecodeError):
+            # Cap the read so a runaway file (a buggy client wrote
+            # megabytes) can't OOM the server on every GET. Files at
+            # the cap are returned best-effort — JSON parse will fail
+            # on truncated input and we fall through to {}.
+            with open(path, "rb") as fh:
+                raw = fh.read(UI_STATE_MAX_BYTES + 1)
+            if len(raw) > UI_STATE_MAX_BYTES:
+                return JSONResponse({})
+            data = json.loads(raw.decode("utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             return JSONResponse({})
         if not isinstance(data, dict):
             return JSONResponse({})
@@ -126,6 +139,19 @@ def get_files_router(store: ChunkFileStore, adapters: list[FileKindAdapter]) -> 
     async def files_ui_state_put(payload: dict[str, Any] = Body(default_factory=dict)) -> JSONResponse:
         path = _ui_state_path()
         os.makedirs(path.parent, exist_ok=True)
+        # Serialise first so the size cap is on the on-disk
+        # representation, not the in-memory dict (which may be
+        # smaller). Reject before opening the temp file so a too-large
+        # payload never touches disk.
+        try:
+            serialised = json.dumps(payload, indent=2, sort_keys=True)
+        except (TypeError, ValueError) as exc:
+            return JSONResponse({"error": f"invalid payload: {exc}"}, status_code=400)
+        if len(serialised.encode("utf-8")) > UI_STATE_MAX_BYTES:
+            return JSONResponse(
+                {"error": f"payload exceeds {UI_STATE_MAX_BYTES} bytes"},
+                status_code=413,
+            )
         # Atomic-ish write: write to a per-request unique temp file,
         # then `os.replace` (atomic on POSIX). Per-request suffix
         # prevents two concurrent PUTs (multi-tab operator) from
@@ -135,7 +161,7 @@ def get_files_router(store: ChunkFileStore, adapters: list[FileKindAdapter]) -> 
         # if you need cross-tab coordination, that's a separate layer.
         tmp_path = path.with_suffix(f"{path.suffix}.tmp.{os.urandom(4).hex()}")
         try:
-            tmp_path.write_text(json.dumps(payload, indent=2, sort_keys=True))
+            tmp_path.write_text(serialised)
             os.replace(tmp_path, path)
         except OSError as exc:
             # Best-effort cleanup of the temp file on any failure so

@@ -10,6 +10,7 @@ Author:  Irfan Annuar - USC ISI SERC
 from __future__ import annotations
 
 import json
+import math
 from typing import Any, Iterable
 
 
@@ -25,6 +26,20 @@ def _value_str(value: Any) -> str:
     return json.dumps(value, separators=(",", ":"), default=str)
 
 
+def _is_renderable(value: Any) -> bool:
+    """Skip values that would surface as 'nan'/'inf' in the queue row.
+
+    Non-finite floats render through ``str()`` as ``nan`` / ``inf`` /
+    ``-inf``, which is operator-confusing and conflicts with the
+    JSON-safe contract for downstream payloads. Treat them like None
+    and drop them from the summary."""
+    if value is None:
+        return False
+    if isinstance(value, float) and not math.isfinite(value):
+        return False
+    return True
+
+
 def format_args_summary(
     items: Iterable[tuple[str, Any]],
     *,
@@ -34,13 +49,13 @@ def format_args_summary(
 ) -> str:
     """Render ``(name, value)`` pairs as ``name=value`` joined by ``sep``.
 
-    None-valued entries are skipped. Dicts and lists are JSON-encoded
-    compactly. After ``max_items`` entries the helper appends
-    ``…+N more`` (where N is the count of remaining items, ignoring the
-    None-skipped ones). The final string is hard-clipped to ``max_chars``
-    with a trailing ``…`` when truncation occurs.
+    None-valued and non-finite-float entries are skipped. Dicts and
+    lists are JSON-encoded compactly. After ``max_items`` entries the
+    helper appends ``…+N more`` (where N is the count of remaining
+    items, ignoring the skipped ones). The final string is hard-clipped
+    to ``max_chars`` with a trailing ``…`` when truncation occurs.
     """
-    materialized = [(k, v) for k, v in items if v is not None]
+    materialized = [(k, v) for k, v in items if _is_renderable(v)]
     if not materialized:
         return ""
 

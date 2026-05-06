@@ -700,15 +700,34 @@ export default function DownlinkPreview() {
     const cntMatch = cmd_id.match(/^(img|aii|mag)_cnt_chunks$/);
     if (cntMatch && args.filename && args.chunk_size) {
       const kind: Kind = cntMatch[1] === 'img' ? 'image' : (cntMatch[1] as Kind);
-      const fn = args.filename;
+      // Normalise to the same identity the read site uses: image keys
+      // by `stem` (`tn_<stem>` for thumb), aii/mag by full filename.
+      // Without this, image cnt-tracked locks never engage because the
+      // command's `args.filename` carries the `.jpg` extension but
+      // `lockedChunkSize` looks up by `resolvedFile.stem`.
+      const ext = fileCaps(kind).extension;
+      const lookupName = (kind === 'image' && ext && args.filename.endsWith(ext))
+        ? args.filename.slice(0, -ext.length)
+        : args.filename;
+      // Key the lock by the *file's* source, not the operator's TX
+      // dest selector. The read site (`lockedChunkSize`) uses
+      // `resolvedFile.source`, so write/read must agree on which
+      // source they record. When `txNode` and the focused file's
+      // source diverge (operator changed dest after focusing a file),
+      // keying by `target` would silently drop the lock. Falls back
+      // to `target` when no matching file is in `liveFiles` yet —
+      // novel filename case where operator has just typed a name.
+      const fileSource = liveFiles.find(
+        f => f.kind === kind && fileName(f) === lookupName,
+      )?.source ?? target;
       setCntChunkSizes(prev => {
-        const next = { ...prev, [cntKey(kind, target, fn)]: args.chunk_size };
+        const next = { ...prev, [cntKey(kind, fileSource, lookupName)]: args.chunk_size };
         // Image pair: cnt for one leaf returns counts for both, so the
         // operator's intended chunk_size applies to both. Mirror the
         // entry to the sibling so toggling leaves keeps the lock.
         if (kind === 'image') {
-          const sibling = fn.startsWith('tn_') ? fn.slice(3) : `tn_${fn}`;
-          next[cntKey('image', target, sibling)] = args.chunk_size;
+          const sibling = lookupName.startsWith('tn_') ? lookupName.slice(3) : `tn_${lookupName}`;
+          next[cntKey('image', fileSource, sibling)] = args.chunk_size;
         }
         return next;
       });
@@ -2674,7 +2693,7 @@ function StandaloneOpRow({
             return (
               <div key={arg.name} style={isFile ? { flex: '1 1 140px', minWidth: 120 } : undefined}>
                 <div
-                  className="text-[10px] uppercase tracking-wider mb-0.5 font-semibold"
+                  className="text-[11px] uppercase tracking-wider mb-0.5 font-semibold"
                   style={{ color: colors.dim }}
                   title={arg.description ?? arg.type}
                 >

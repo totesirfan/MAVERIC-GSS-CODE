@@ -23,6 +23,24 @@ class FormatArgsSummaryTests(unittest.TestCase):
     def test_only_none_yields_empty(self):
         self.assertEqual(format_args_summary([("a", None)]), "")
 
+    def test_skips_non_finite_floats(self):
+        self.assertEqual(
+            format_args_summary([
+                ("good", 1.5),
+                ("nan", float("nan")),
+                ("inf", float("inf")),
+                ("ninf", float("-inf")),
+                ("also", 2.0),
+            ]),
+            "good=1.5 | also=2.0",
+        )
+
+    def test_only_non_finite_yields_empty(self):
+        self.assertEqual(
+            format_args_summary([("a", float("nan")), ("b", float("inf"))]),
+            "",
+        )
+
     def test_bool_lowercase(self):
         self.assertEqual(
             format_args_summary([("flag", True), ("off", False)]),
