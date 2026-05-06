@@ -448,7 +448,7 @@ export function TxControlsPanel({
                   onChange={e => setCapQty(e.target.value)}
                 />
               </LabeledField>
-              <LabeledField label="Delay (s)" width={72}>
+              <LabeledField label="Delay (ms)" width={72}>
                 <GssInput
                   className="w-[72px] font-mono"
                   value={capDelay}
