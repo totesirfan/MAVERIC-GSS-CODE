@@ -8,7 +8,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { colors } from '@/lib/colors'
-import { col, buildTxRow } from '@/lib/columns'
+import { col, buildTxRow, columnWidthClass, columnAlignClass } from '@/lib/columns'
 import {
   ContextMenuRoot, ContextMenuTrigger, ContextMenuContent,
   ContextMenuItem, ContextMenuSeparator,
@@ -111,6 +111,24 @@ export function QueueItem({
   const argBlocks = txParameterBlocks(item)
   const cmdLabel = item.cmd_id || 'unknown'
 
+  // Split columns at the first right-aligned one so badges can sit in
+  // the leftover gap (before ml-auto absorbs it) without pushing
+  // verify+actions sideways. Keeps trailing controls at consistent
+  // x-positions across rows.
+  const splitIdx = visibleColumns.findIndex(c => c.align === 'right')
+  const preCols = splitIdx < 0 ? visibleColumns : visibleColumns.slice(0, splitIdx)
+  const rightCols = splitIdx < 0 ? [] : visibleColumns.slice(splitIdx)
+  const renderColumn = (c: ColumnDef) => {
+    if (c.kind === 'verifiers') {
+      return (
+        <span key={c.id} className={`py-1 px-1 ${columnWidthClass(c)} ${columnAlignClass(c)}`}>
+          <VerifierTickStrip instance={instance} now_ms={nowMs} />
+        </span>
+      )
+    }
+    return <CellValue key={c.id} col={c} row={row} showFrame showEcho />
+  }
+
   return (
     <ContextMenuRoot>
       <ContextMenuTrigger>
@@ -123,7 +141,7 @@ export function QueueItem({
           }}
           className={`color-transition rounded-md text-xs ${compact ? '' : 'border-l-2'} mb-0.5 hover:bg-white/[0.03] ${pulseClass} ${flash ? 'animate-slide-in' : ''}`}
         >
-          <div className="flex items-center gap-1.5 px-1.5 py-0.5 cursor-pointer" onClick={onSelect}>
+          <div className="flex items-center gap-1 px-1.5 py-0.5 cursor-pointer" onClick={onSelect}>
             {!compact && (
               pending ? (
                 <span {...attributes} {...listeners}
@@ -137,27 +155,23 @@ export function QueueItem({
               )
             )}
             <span className={`${col.num} text-right shrink-0 tabular-nums`} style={{ color: colors.dim }}>{num}</span>
-            {visibleColumns.map(c => {
-              if (c.kind === 'verifiers') {
-                return (
-                  <span key={c.id} className={`${c.width ?? ''} ${c.flex ? 'flex-1 min-w-0 truncate' : 'shrink-0'} text-right`}>
-                    <VerifierTickStrip instance={instance} now_ms={nowMs} />
-                  </span>
-                )
-              }
-              return (
-                <CellValue key={c.id} col={c} row={row} showFrame showEcho />
-              )
-            })}
-            {!compact && isGuarding && (
-              <Badge className="text-[11px] px-1.5 py-0 h-5 shrink-0 animate-pulse-warning" style={{ backgroundColor: `${colors.warning}22`, color: colors.warning }}>GUARD</Badge>
-            )}
-            {!compact && index === 0 && !liveInstance && status !== 'complete' && !isGuarding && (
-              <Badge className="text-[11px] px-1.5 py-0 h-5 shrink-0" style={{ backgroundColor: `${colors.label}22`, color: colors.label }}>NEXT</Badge>
-            )}
-            {!compact && status === 'pending' && guard && index !== 0 && (
-              <Badge className="text-[11px] px-1.5 py-0 h-5 shrink-0" style={{ backgroundColor: `${colors.warning}22`, color: colors.warning }}>GUARD</Badge>
-            )}
+            {preCols.map(renderColumn)}
+            {/* Right-anchored group: row badges sit immediately left of verify
+                so they share the right edge with the verifier and actions.
+                Wrapper carries ml-auto so verify+actions x-positions stay
+                constant regardless of which badges show. */}
+            <div className="ml-auto flex items-center gap-1 shrink-0">
+              {!compact && isGuarding && (
+                <Badge className="text-[11px] px-1.5 py-0 h-5 shrink-0 animate-pulse-warning" style={{ backgroundColor: `${colors.warning}22`, color: colors.warning }}>GUARDING</Badge>
+              )}
+              {!compact && index === 0 && !liveInstance && status !== 'complete' && !isGuarding && (
+                <Badge className="text-[11px] px-1.5 py-0 h-5 shrink-0" style={{ backgroundColor: `${colors.label}22`, color: colors.label }}>NEXT</Badge>
+              )}
+              {!compact && status === 'pending' && guard && index !== 0 && (
+                <Badge className="text-[11px] px-1.5 py-0 h-5 shrink-0" style={{ backgroundColor: `${colors.warning}22`, color: colors.warning }}>GUARD</Badge>
+              )}
+              {rightCols.map(renderColumn)}
+            </div>
             {!compact && (
               pending ? (
                 <div className={`${col.actions} flex items-center gap-0.5 shrink-0 ml-1 justify-end`}>
@@ -181,12 +195,12 @@ export function QueueItem({
           </div>
 
           {expanded && (
-            <div className="px-3 pb-1.5 pt-1 ml-6 space-y-1.5 animate-slide-in" style={{ borderTop: `1px solid ${colors.borderSubtle}` }}>
+            <div className="px-2 pb-1 pt-0.5 ml-[54px] space-y-1 animate-slide-in" style={{ borderTop: `1px solid ${colors.borderSubtle}` }}>
               {[...argBlocks, ...protocolBlocks].map((block, i) => (
                 <div key={i} className="space-y-0.5">
                   <div className="text-[11px] font-bold uppercase tracking-wide" style={{ color: colors.dim }}>{block.label}</div>
                   {block.fields.map((f, j) => (
-                    <div key={j} className="flex items-center gap-2 text-xs">
+                    <div key={j} className="flex items-center gap-1.5 text-xs">
                       <span style={{ color: colors.label }}>{f.name}</span>
                       <span style={{ color: colors.sep }}>=</span>
                       <span style={{ color: colors.value }}>{f.value}</span>

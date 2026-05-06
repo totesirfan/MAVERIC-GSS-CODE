@@ -36,7 +36,7 @@ export function NoteItem({ text, index, sortId, status, flash, onDelete }: NoteI
       style={{ ...style, borderLeftColor: colors.dim }}
       className={`rounded-md text-xs border-l-2 mb-0.5 ${flash ? 'animate-slide-in' : ''}`}
     >
-      <div className="flex items-center gap-1.5 px-1.5 py-0.5">
+      <div className="flex items-center gap-1 px-1.5 py-0.5">
         {pending ? (
           <span {...attributes} {...listeners}
             className={`${col.grip} cursor-grab shrink-0 p-0.5 rounded hover:bg-white/[0.06] flex items-center justify-center`}>
@@ -45,15 +45,18 @@ export function NoteItem({ text, index, sortId, status, flash, onDelete }: NoteI
         ) : (
           <span className={`${col.grip} shrink-0`} aria-hidden="true" />
         )}
+        <span className={`${col.num} shrink-0`} aria-hidden="true" />
         <MessageSquareText className="size-3.5 shrink-0" style={{ color: colors.dim }} />
-        <span className="flex-1 min-w-0 truncate italic" style={{ color: colors.dim }}>{text}</span>
+        <span className="min-w-0 truncate italic" style={{ color: colors.dim }}>{text}</span>
         {pending ? (
-          <Button variant="ghost" size="icon" className="size-5 rounded shrink-0"
-            onClick={() => onDelete(index)} title="Remove note">
-            <Trash2 className="size-3" style={{ color: colors.dim }} />
-          </Button>
+          <div className={`${col.actions} flex items-center gap-0.5 shrink-0 ml-auto justify-end`}>
+            <Button variant="ghost" size="icon" className="size-5 rounded-md btn-feedback"
+              onClick={() => onDelete(index)} title="Remove note">
+              <Trash2 className="size-3.5" style={{ color: colors.dim }} />
+            </Button>
+          </div>
         ) : (
-          <span className="size-5 shrink-0" aria-hidden="true" />
+          <span className={`${col.actions} shrink-0 ml-auto`} aria-hidden="true" />
         )}
       </div>
     </div>

@@ -76,11 +76,11 @@ export function TxPanel({
   const sending = sendProgress !== null
 
   return (
-    <div className="flex flex-col h-full gap-3">
+    <div className="flex flex-col h-full gap-2">
       {/* Main card — queue + optional builder split */}
       <div className="flex flex-col flex-1 min-h-0 rounded-lg border overflow-hidden shadow-panel" style={{ borderColor: colors.borderSubtle, backgroundColor: colors.bgPanel }}>
         {/* Panel header */}
-        <div className="flex items-center justify-between px-3 py-1.5 border-b shrink-0" style={{ borderColor: colors.borderSubtle }}>
+        <div className="flex items-center justify-between px-2 py-1 border-b shrink-0" style={{ borderColor: colors.borderSubtle }}>
           <div className="flex items-center gap-2">
             <span className="text-xs font-bold tracking-wide uppercase" style={{ color: colors.value }}>{config?.mission.config.tx_title ?? 'TX Uplink'}</span>
             <StatusDot status={connected ? 'LIVE' : 'DOWN'} />
@@ -133,8 +133,8 @@ export function TxPanel({
           />
         </div>
       ) : sending ? (
-        <div className="shrink-0 flex gap-2 h-[52px]">
-          <div className="flex-1 rounded-lg border overflow-hidden flex items-center gap-2 px-3 relative" style={{ borderColor: `${colors.info}44`, backgroundColor: `${colors.info}08` }}>
+        <div className="shrink-0 flex gap-2 h-[62px]">
+          <div className="flex-1 rounded-lg border overflow-hidden flex items-center gap-1.5 px-2 relative" style={{ borderColor: `${colors.info}44`, backgroundColor: `${colors.info}08` }}>
             <motion.div
               className="absolute inset-y-0 left-0"
               style={{ backgroundColor: `${colors.info}15` }}
@@ -142,7 +142,7 @@ export function TxPanel({
               animate={{ width: `${(sendProgress.sent / sendProgress.total) * 100}%` }}
               transition={{ type: 'spring', stiffness: 300, damping: 30 }}
             />
-            <div className="flex items-center gap-2 text-xs font-mono relative z-10">
+            <div className="flex items-center gap-1.5 text-xs font-mono relative z-10">
               <SendIcon className="size-4 animate-pulse-text" style={{ color: colors.info }} />
               <span className="font-bold" style={{ color: colors.info }}>
                 Sent {sendProgress.sent}/{sendProgress.total}
@@ -156,7 +156,7 @@ export function TxPanel({
           </div>
           <button
             onClick={abortSend}
-            className="flex flex-col items-center justify-center gap-0.5 w-16 rounded-lg border text-xs font-bold shrink-0 transition-colors hover:brightness-110 btn-feedback"
+            className="flex flex-col items-center justify-center gap-0.5 px-5 rounded-lg border text-xs font-bold shrink-0 transition-colors hover:brightness-110 btn-feedback"
             style={{ borderColor: colors.error, color: colors.bgApp, backgroundColor: colors.error }}
           >
             <StopCircle className="size-4" />
@@ -207,7 +207,7 @@ export function TxPanel({
                   onClick={() => setShowBuilder(true)}
                   className="shrink-0 flex flex-col items-center justify-center gap-1 border-l transition-colors"
                   style={{
-                    width: 110,
+                    width: 80,
                     borderColor: colors.borderSubtle,
                     backgroundColor: 'transparent',
                     color: colors.dim,
@@ -249,7 +249,7 @@ function CollapsedCli({ onSubmit, history, onHistoryPush, onClose }: {
 
   return (
     <div
-      className="shrink-0 flex items-center gap-2 px-3"
+      className="shrink-0 flex items-center gap-1.5 px-2"
       style={{ height: 34, borderTop: `1px solid ${colors.borderSubtle}` }}
     >
       <span className="font-mono text-xs select-none" style={{ color: colors.active, opacity: 0.4 }} aria-hidden="true">❯</span>
@@ -316,7 +316,7 @@ function GuardConfirmBlock({ guardConfirm, onApprove, onReject }: {
       style={{ borderColor: `${colors.warning}44` }}
     >
       {/* Info */}
-      <div className="flex-1 flex items-center gap-3 px-3">
+      <div className="flex-1 flex items-center gap-2 px-2">
         <ShieldCheck className="size-5 shrink-0 animate-pulse-text" style={{ color: colors.warning }} />
         <div className="min-w-0">
           <div className="text-xs font-bold" style={{ color: colors.warning }}>{title}</div>

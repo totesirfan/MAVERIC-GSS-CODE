@@ -67,7 +67,7 @@ export function DelayItem({
         />
       )}
 
-      <div className="flex items-center gap-1.5 px-1.5 py-0.5 relative z-10">
+      <div className="flex items-center gap-1 px-1.5 py-0.5 relative z-10">
         {pending ? (
           <span {...attributes} {...listeners}
             className={`${col.grip} cursor-grab shrink-0 p-0.5 rounded hover:bg-white/[0.06] flex items-center justify-center`}>
@@ -76,6 +76,7 @@ export function DelayItem({
         ) : (
           <span className={`${col.grip} shrink-0`} aria-hidden="true" />
         )}
+        <span className={`${col.num} shrink-0`} aria-hidden="true" />
 
         <Timer className="size-3.5 shrink-0 color-transition" style={{ color: isActive ? colors.warning : colors.dim }} />
 
@@ -115,15 +116,15 @@ export function DelayItem({
 
         <span style={{ color: colors.dim }}>{terminal ? 'elapsed' : 'delay'}</span>
 
-        <div className="flex-1" />
-
         {pending && !isActive ? (
-          <Button variant="ghost" size="icon" className="size-5 rounded shrink-0"
-            onClick={() => onDelete(index)} title="Remove delay">
-            <Trash2 className="size-3" style={{ color: colors.dim }} />
-          </Button>
+          <div className={`${col.actions} flex items-center gap-0.5 shrink-0 ml-auto justify-end`}>
+            <Button variant="ghost" size="icon" className="size-5 rounded-md btn-feedback"
+              onClick={() => onDelete(index)} title="Remove delay">
+              <Trash2 className="size-3.5" style={{ color: colors.dim }} />
+            </Button>
+          </div>
         ) : (
-          <span className="size-5 shrink-0" aria-hidden="true" />
+          <span className={`${col.actions} shrink-0 ml-auto`} aria-hidden="true" />
         )}
       </div>
     </div>

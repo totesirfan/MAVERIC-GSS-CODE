@@ -24,7 +24,7 @@ import { DelayItem } from './DelayItem'
 import { NoteItem } from './NoteItem'
 import { CheckpointItem } from './CheckpointItem'
 import { colors } from '@/lib/colors'
-import { col, buildTxRow } from '@/lib/columns'
+import { col, buildTxRow, columnWidthClass, columnAlignClass } from '@/lib/columns'
 import { useTx } from '@/state/txHooks'
 import type {
   TxQueueSummary, SendProgress, ColumnDef, TxHistoryItem, TxQueueCmd,
@@ -212,22 +212,22 @@ export function TxQueue({
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
       {items.length > 0 && (
-        <div className="flex items-center gap-1.5 px-3.5 py-0.5 text-[11px] font-light shrink-0" style={{ color: colors.dim }}>
-          <span className={col.grip} />
-          <span className={`${col.num} text-right`}>#</span>
+        <div className="flex items-center gap-1 px-1.5 py-0.5 text-[11px] font-light shrink-0" style={{ color: colors.dim }}>
+          <span className={`${col.grip} shrink-0`} />
+          <span className={`${col.num} shrink-0 text-right tabular-nums`}>#</span>
           {visibleColumns.length > 0
             ? visibleColumns.map(c => (
-                <span key={c.id} className={`${c.width ?? ''} ${c.flex ? 'flex-1 min-w-0' : 'shrink-0'} ${c.align === 'right' ? 'text-right' : ''}`}>{c.label}</span>
+                <span key={c.id} className={`py-1 px-1 ${columnWidthClass(c)} ${columnAlignClass(c)} whitespace-nowrap`}>{c.label}</span>
               ))
             : <span className="flex-1">command</span>
           }
-          <span className={col.actions} />
+          <span className={`${col.actions} shrink-0 ml-1`} />
         </div>
       )}
       <ContextMenuRoot>
       <ContextMenuTrigger>
       <div ref={outerRef} className="relative flex-1 min-h-0 flex flex-col">
-        <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-1">
+        <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden py-0.5">
           {items.length === 0 ? (
             <div className="flex items-center justify-center h-full text-xs" style={{ color: colors.dim }}>
               Queue empty — type a command below
@@ -373,14 +373,14 @@ export function TxQueue({
           onCancel={closeConfirmSend}
         />
       ) : (
-        <div className="flex items-center justify-between px-3 py-1 border-t shrink-0" style={{ borderColor: colors.borderSubtle }}>
+        <div className="flex items-center justify-between px-2 py-0.5 border-t shrink-0" style={{ borderColor: colors.borderSubtle }}>
           <span className="text-[11px]" style={{ color: colors.dim }}>
             {summary.cmds} pending
             {summary.guards > 0 ? ` · ${summary.guards} guarded` : ''}
             {summary.checkpoints ? ` · ${summary.checkpoints} checkpoint${summary.checkpoints !== 1 ? 's' : ''}` : ''}
             {estStr ? ` · ${estStr}` : ''}
           </span>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1">
             <Button variant="ghost" size="sm" onClick={() => onAddDelay(2000)} className="h-6 px-2 text-xs gap-1" style={{ color: colors.dim }} disabled={!hasPending}>
               <Timer className="size-3" /> Delay
             </Button>
