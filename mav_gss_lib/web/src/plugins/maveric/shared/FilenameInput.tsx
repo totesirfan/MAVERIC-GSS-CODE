@@ -12,8 +12,8 @@ interface FilenameInputProps {
   /** Image-only: when set, renders a small "thumb"/"full" tag derived
    *  from whether `value` starts with the prefix. AII/MAG callers omit. */
   thumbPrefix?: string;
-  /** When true, the underlying input is disabled. Used by FilesTxControls
-   *  to lock the filename for kinds with a singleton canonical name
+  /** When true, the underlying input is disabled — used to lock the
+   *  filename for kinds with a singleton canonical name
    *  (`caps.defaultFilename` set — currently AII/`transmit_dir`). */
   disabled?: boolean;
 }

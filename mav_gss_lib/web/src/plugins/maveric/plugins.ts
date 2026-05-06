@@ -1,24 +1,15 @@
 import { lazy } from 'react'
-import { Camera, Compass, BatteryCharging, FileDown } from 'lucide-react'
+import { Compass, BatteryCharging, FileDown } from 'lucide-react'
 import type { PluginPageDef } from '@/plugins/registry'
 
 const plugins: PluginPageDef[] = [
   {
-    id: 'imaging',
-    name: 'Imaging',
-    description: 'Image downlink viewer',
-    icon: Camera,
-    category: 'mission',
-    order: 10,
-    component: lazy(() => import('./ImagingPage')),
-  },
-  {
     id: 'files',
     name: 'Files',
-    description: 'Unified Downlink page (image + AII + MAG)',
+    description: 'Downlink workbench (image + AII + MAG)',
     icon: FileDown,
     category: 'mission',
-    order: 11,
+    order: 10,
     component: lazy(() => import('./preview/DownlinkPreview')),
   },
   {

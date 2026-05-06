@@ -51,15 +51,15 @@ export interface FileKindCaps {
    *  AII output. Without the override, ExtraCmdRow would auto-append
    *  the wrong extension. */
   extraCmdFilenameKind: { readonly [cmdId: string]: FileKindId };
-  /** Pre-fill value for the cnt/get/delete filename inputs in
-   *  FilesTxControls. Set when this kind has a canonical singleton
-   *  filename (AII = `transmit_dir`, the top-N AI-ranked candidate
-   *  list). Operator can still type over it. Image / MAG don't have a
-   *  canonical default — operator names every file. */
+  /** Pre-fill value for the cnt/get/delete filename inputs. Set when
+   *  this kind has a canonical singleton filename (AII = `transmit_dir`,
+   *  the top-N AI-ranked candidate list). Operator can still type over
+   *  it. Image / MAG don't have a canonical default — operator names
+   *  every file. */
   defaultFilename?: string;
-  /** Operator-facing subtitle rendered next to the section label in
-   *  FilesTxControls. Use to clarify the kind's purpose when "AII" or
-   *  "MAG" alone isn't self-explanatory. */
+  /** Operator-facing subtitle rendered next to the section label. Use
+   *  to clarify the kind's purpose when "AII" or "MAG" alone isn't
+   *  self-explanatory. */
   subtitle?: string;
 }
 
@@ -122,7 +122,7 @@ export const FILE_KIND_CAPS: { readonly [K in FileKindId]: FileKindCaps } = {
     deleteCmd: 'mag_delete',
     // Backend FILE_TRANSPORTS.mag has capture_cmd=None — mag_capture exists
     // as a stage-able command but isn't an "auto-seed-on-capture" hook.
-    // Surface it as an extraCmd so FilesTxControls renders a row for it.
+    // Surface it as an extraCmd so the command deck renders a row for it.
     captureCmd: null,
     extraCmds: ['mag_capture', 'mag_kill', 'mag_tlm'],
     hasDestinationArg: false,

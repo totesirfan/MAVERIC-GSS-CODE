@@ -3,9 +3,10 @@
  *
  * - Subscribes once to /ws/rx via useRxStatus().subscribeCustom (no
  *   parallel WebSocket — would break the shutdown bookkeeping).
- * - Holds image-page selection state inside the provider so the legacy
- *   auto-select-on-incoming-chunk UX is preserved.
- * - Holds aii/mag flat lists; FilesPage owns its own selection.
+ * - Holds image-pair selection state inside the provider so the
+ *   auto-select-on-incoming-chunk UX is preserved across remounts.
+ * - Holds aii/mag flat lists; consumers (DownlinkPreview) own their
+ *   own per-kind focus state.
  * - Debounces per-kind status refetches to 200ms trailing-edge so
  *   high-cadence chunk arrivals don't spam the status endpoint.
  */

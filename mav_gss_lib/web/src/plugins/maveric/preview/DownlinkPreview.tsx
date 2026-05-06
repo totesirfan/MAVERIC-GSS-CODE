@@ -51,7 +51,6 @@ import { useImageFiles, useFlatFiles, useFileChunks } from '../files/FileChunkCo
 import { JsonPreview } from '../files/JsonPreview';
 import { MagPreview } from '../files/MagPreview';
 import { filesEndpoint } from '../files/helpers';
-import { imagingFileEndpoint } from '../imaging/helpers';
 import { fileCaps } from '../shared/fileKinds';
 import { withExtension } from '../shared/extensions';
 import { FilenameInput } from '../shared/FilenameInput';
@@ -1708,7 +1707,7 @@ function ProgressivePreview({
   // overlay. Progress lives in the ChunkTimeline below.
   const imgSrc = useMemo(() => {
     if (!leaf) return '';
-    const endpoint = imagingFileEndpoint('preview', leaf);
+    const endpoint = filesEndpoint('preview', 'image', leaf.filename, leaf.source);
     const sep = endpoint.includes('?') ? '&' : '?';
     return `${endpoint}${sep}v=${encodeURIComponent(String(version))}`;
   }, [leaf, version]);
