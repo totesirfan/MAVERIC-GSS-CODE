@@ -5,6 +5,8 @@ import { useSessionContext, useConfig } from '@/state/sessionHooks'
 import { TxProvider } from '@/state/TxProvider'
 import { useTx } from '@/state/txHooks'
 import { RxProvider } from '@/state/RxProvider'
+import { RadioProvider } from '@/state/RadioProvider'
+import { TrackingProvider } from '@/state/TrackingProvider'
 import { ParametersProvider } from '@/state/ParametersProvider'
 import { useRxDisplayToggles } from '@/state/rxHooks'
 import { colors } from '@/lib/colors'
@@ -48,10 +50,14 @@ export default function App() {
       <TxProvider>
         <RxProvider>
           <ParametersProvider>
-            <MissionProviders>
-              <AppShell />
-              <PreflightOverlay />
-            </MissionProviders>
+            <RadioProvider>
+              <TrackingProvider>
+                <MissionProviders>
+                  <AppShell />
+                  <PreflightOverlay />
+                </MissionProviders>
+              </TrackingProvider>
+            </RadioProvider>
           </ParametersProvider>
         </RxProvider>
       </TxProvider>

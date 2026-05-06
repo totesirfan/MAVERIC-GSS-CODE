@@ -7,6 +7,7 @@ import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { TabStrip } from '@/components/layout/TabStrip'
+import { HeaderStatusPills } from '@/components/layout/HeaderStatusPills'
 import { useRxStatus } from '@/state/rxHooks'
 import { colors } from '@/lib/colors'
 import type { NavigationTabDef } from '@/lib/navigation'
@@ -206,10 +207,14 @@ export function GlobalHeader({
         )}
 
 
-        {/* Clock with flip digits — pushed right */}
-        <div className="flex items-center gap-3 ml-auto tabular-nums text-[11px] relative">
-          <span style={{ color: colors.value }}>{localDate} <FlipDigits value={localTime} /> {tz}</span>
-          <span className="font-light" style={{ color: colors.dim }}>{utcDate} <FlipDigits value={utcTime} /> UTC</span>
+        {/* Right cluster: status pills + clock */}
+        <div className="flex items-center gap-3 ml-auto relative">
+          <HeaderStatusPills onNavigateRadio={() => onTabClick('__radio__')} />
+          <span style={{ color: colors.borderStrong, fontSize: '11px', userSelect: 'none' }}>|</span>
+          <div className="flex items-center gap-3 tabular-nums text-[11px]">
+            <span style={{ color: colors.value }}>{localDate} <FlipDigits value={localTime} /> {tz}</span>
+            <span className="font-light" style={{ color: colors.dim }}>{utcDate} <FlipDigits value={utcTime} /> UTC</span>
+          </div>
         </div>
       </div>
 

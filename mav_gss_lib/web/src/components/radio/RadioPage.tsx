@@ -15,8 +15,9 @@ import { useConfig } from '@/state/sessionHooks'
 import { colors } from '@/lib/colors'
 import { cn } from '@/lib/utils'
 import { lineColor } from './lineColor'
-import { useRadioSocket, type RadioStatus } from './useRadioSocket'
-import { useTrackingSocket } from './useTrackingSocket'
+import { type RadioStatus } from './useRadioSocket'
+import { useRadio } from '@/state/radioHooks'
+import { useTracking } from '@/state/trackingHooks'
 import { DopplerSection } from './DopplerSection'
 
 function fmtUptime(startedAtMs: number | null, fallbackSeconds: number): string {
@@ -97,11 +98,10 @@ function DataCell({
 
 export function RadioPage() {
   const { config } = useConfig()
-  const { status, logs, connected, lastUpdateMs, busy, actionError, runAction, dismissError } = useRadioSocket()
-  const tracking = useTrackingSocket()
+  const { status, logs, connected, lastUpdateMs, busy, actionError, runAction, dismissError } = useRadio()
+  const tracking = useTracking()
   const [apiStatus, setApiStatus] = useState<{ zmq_rx?: string; zmq_tx?: string }>({})
   const [, setNowTick] = useState(0)
-  const [connectingWindow, setConnectingWindow] = useState(true)
   const logRef = useRef<HTMLDivElement>(null)
   const stickyRef = useRef(true)
 
@@ -126,22 +126,8 @@ export function RadioPage() {
     return () => window.clearInterval(id)
   }, [])
 
-  useEffect(() => {
-    const id = window.setTimeout(() => setConnectingWindow(false), 1500)
-    return () => window.clearTimeout(id)
-  }, [])
-
-  const connState: 'connecting' | 'connected' | 'disconnected' =
-    !connected && connectingWindow ? 'connecting' : (connected ? 'connected' : 'disconnected')
-
-  const connTone =
-    connState === 'connected' ? colors.success
-    : connState === 'connecting' ? colors.warning
-    : colors.danger
-  const connLabel =
-    connState === 'connected' ? 'CONNECTED'
-    : connState === 'connecting' ? 'CONNECTING'
-    : 'DISCONNECTED'
+  const connTone = connected ? colors.success : colors.danger
+  const connLabel = connected ? 'CONNECTED' : 'DISCONNECTED'
 
   const rxStatus = status.state === 'stopped' ? 'WAITING' : (apiStatus.zmq_rx || 'DOWN')
 
