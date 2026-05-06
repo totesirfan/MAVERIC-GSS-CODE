@@ -209,7 +209,7 @@ export function GlobalHeader({
 
         {/* Right cluster: status pills + clock */}
         <div className="flex items-center gap-3 ml-auto relative">
-          <HeaderStatusPills onNavigateRadio={() => onTabClick('__radio__')} />
+          <HeaderStatusPills onPillClick={() => onTabClick('__radio__')} />
           <span style={{ color: colors.borderStrong, fontSize: '11px', userSelect: 'none' }}>|</span>
           <div className="flex items-center gap-3 tabular-nums text-[11px]">
             <span style={{ color: colors.value }}>{localDate} <FlipDigits value={localTime} /> {tz}</span>

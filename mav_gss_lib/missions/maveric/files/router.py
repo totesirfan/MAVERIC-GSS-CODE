@@ -25,7 +25,12 @@ from mav_gss_lib.missions.maveric.files.store import ChunkFileStore, FileRef
 # files-store root (i.e. <log_dir>/files/.ui_state.json). Holds the
 # operator's per-page UI selections that should survive reloads —
 # previously stored in browser localStorage, now persisted server-side
-# so the state is shared across browsers and survives clear-cache.
+# so the state survives clear-cache and is the same blob seen by every
+# browser tab. The PUT endpoint is last-write-wins (whole-document
+# replace, no field-level merge); two tabs editing different keys
+# concurrently will lose one tab's edit. Acceptable for operator-scale
+# concurrency and the kind of state stored here (sort/filter/focus
+# selections).
 UI_STATE_FILENAME = ".ui_state.json"
 
 

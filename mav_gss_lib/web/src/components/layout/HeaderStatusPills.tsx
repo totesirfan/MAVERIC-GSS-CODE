@@ -5,7 +5,10 @@ import type { RadioStatus } from '@/components/radio/useRadioSocket'
 import type { DopplerMode } from '@/lib/types'
 
 interface HeaderStatusPillsProps {
-  onNavigateRadio: () => void
+  // Both pills currently route to the Radio tab — Tracking lives there
+  // via DopplerSection. If a dedicated Tracking tab is added later,
+  // split this into per-pill callbacks.
+  onPillClick: () => void
 }
 
 interface PillTone {
@@ -107,13 +110,13 @@ function Pill({
   )
 }
 
-export function HeaderStatusPills({ onNavigateRadio }: HeaderStatusPillsProps) {
+export function HeaderStatusPills({ onPillClick }: HeaderStatusPillsProps) {
   const radio = useRadioStatus()
   const tracking = useTrackingStatus()
   return (
     <div className="flex items-center gap-0.5">
-      <Pill tone={radioTone(radio.status)} label="RADIO" onClick={onNavigateRadio} />
-      <Pill tone={dopplerTone(tracking.mode, tracking.error)} label="DOPPLER" onClick={onNavigateRadio} />
+      <Pill tone={radioTone(radio.status)} label="RADIO" onClick={onPillClick} />
+      <Pill tone={dopplerTone(tracking.mode, tracking.error)} label="DOPPLER" onClick={onPillClick} />
     </div>
   )
 }

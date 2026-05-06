@@ -68,6 +68,11 @@ export function useRadioSocket(): UseRadioSocket {
     logLimitRef.current = status.log_lines || DEFAULT_STATUS.log_lines
   }, [status.log_lines])
 
+  // Seed status once on mount, then rely on /ws/radio for live updates.
+  // Re-poll every 5s only while the websocket is disconnected — the WS
+  // pushes status messages on every state change, so polling while
+  // connected is redundant and (now that the hook is mounted at app
+  // level via RadioProvider) would run for the lifetime of the tab.
   useEffect(() => {
     let cancelled = false
     const tick = async () => {
@@ -81,9 +86,10 @@ export function useRadioSocket(): UseRadioSocket {
       } catch { /* ignore */ }
     }
     tick()
+    if (connected) return () => { cancelled = true }
     const id = window.setInterval(tick, 5000)
     return () => { cancelled = true; window.clearInterval(id) }
-  }, [])
+  }, [connected])
 
   useEffect(() => {
     const sock = createSocket('/ws/radio', (data) => {
