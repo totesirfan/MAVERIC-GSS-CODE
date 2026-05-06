@@ -2,7 +2,7 @@ import { useMemo, useRef, useEffect, useCallback } from 'react'
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
 import { PacketRow } from './PacketRow'
 import { colors } from '@/lib/colors'
-import { composeRxColumns } from '@/lib/columns'
+import { composeRxColumns, columnWidthClass, columnAlignClass } from '@/lib/columns'
 import type { ColumnDef, ParamUpdate, RxPacket } from '@/lib/types'
 
 const FALLBACK_COLUMNS = composeRxColumns([])
@@ -122,15 +122,22 @@ export function PacketList({
       )}
 
       {filtered.length > 0 && (
-        <div className="flex items-center text-[11px] font-light px-2 py-0.5 shrink-0" style={{ color: colors.sep }}>
+        // Mirror the row wrapper geometry: 2px transparent left border
+        // matches `.pkt-row-wrap`'s active/inactive border so header
+        // labels start at the same x as their row cells. No right
+        // padding so align=right header labels finish flush with the
+        // align=right row cells.
+        <div className="flex items-center text-[11px] font-light py-0.5 shrink-0 border-l-2 border-transparent" style={{ color: colors.sep }}>
           {!compact && <span className="w-5 px-1" />}
           {effectiveColumns.map(c => {
             if (c.toggle === 'showFrame' && !showFrame) return null
             if (c.toggle === 'showEcho' && !showEcho) return null
+            // Same column geometry helpers CellValue uses on the data
+            // rows — keeps header labels lined up over their cells.
             return (
               <span
                 key={c.id}
-                className={`px-2 shrink-0 ${c.flex ? 'flex-1' : ''} ${c.align === 'right' ? 'text-right' : ''} ${c.width ?? ''}`}
+                className={`py-1 px-1 ${columnWidthClass(c)} ${columnAlignClass(c)} whitespace-nowrap`}
               >
                 {c.label}
               </span>
