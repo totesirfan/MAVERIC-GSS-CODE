@@ -16,6 +16,11 @@ export function JsonPreview({ file }: Props) {
 
   useEffect(() => {
     if (!file) return;
+    // Reset stale render state synchronously when the file changes —
+    // otherwise an "(invalid JSON)" banner from the previous file
+    // persists if the new fetch errors out before its parse step.
+    setValid(null);
+    setText('');
     let cancelled = false;
     void (async () => {
       try {
@@ -36,7 +41,12 @@ export function JsonPreview({ file }: Props) {
       }
     })();
     return () => { cancelled = true; };
-  }, [file]);
+    // Dep on stable identity, not the `file` object reference — the
+    // parent rebuilds the FileLeaf on every progress tick, so depending
+    // on `file` triggers a re-fetch on every chunk arrival even though
+    // the file is unchanged. The endpoint is keyed by (kind, source,
+    // filename); those are the right deps.
+  }, [file?.kind, file?.source, file?.filename]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!file) {
     return (
@@ -45,27 +55,20 @@ export function JsonPreview({ file }: Props) {
       </div>
     );
   }
+  // Filename, source, and chunk count all already render in the
+  // surrounding FocusHeader. Only show a header here when there's
+  // unique info worth surfacing — currently the JSON-validity flag
+  // when parsing failed.
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center text-[10px] px-2 py-1 border-b" style={{ color: colors.textMuted, borderColor: colors.borderSubtle }}>
-        <span className="flex-1 truncate">
-          {file.filename} · {file.complete ? 'complete' : `${file.received}/${file.total ?? '—'}`}
-          {valid === false && (<span className="ml-2" style={{ color: colors.danger }}>(invalid JSON)</span>)}
-        </span>
-        <a
-          href={filesEndpoint('preview', file.kind, file.filename, file.source)}
-          download={file.filename}
-          className="ml-2 text-[10px] hover:underline"
-          style={{
-            color: file.complete ? colors.active : colors.textMuted,
-            pointerEvents: file.complete ? 'auto' : 'none',
-            opacity: file.complete ? 1 : 0.5,
-          }}
-          title={file.complete ? 'Download JSON' : 'Download enabled when complete'}
+      {valid === false && (
+        <div
+          className="text-[11px] px-2 py-1 border-b"
+          style={{ color: colors.danger, borderColor: colors.borderSubtle }}
         >
-          DOWNLOAD
-        </a>
-      </div>
+          invalid JSON
+        </div>
+      )}
       <pre
         className="flex-1 overflow-auto text-[11px] font-mono p-2"
         style={{ background: colors.bgApp, color: colors.textPrimary }}
