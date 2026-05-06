@@ -54,6 +54,7 @@ export interface ColumnDef {
   path?: string
   kind?: 'value' | 'verifiers'
   badge?: boolean
+  truncate?: boolean
   value_icons?: Record<string, string>
   default_icon?: string
   hide_if_all?: unknown[]

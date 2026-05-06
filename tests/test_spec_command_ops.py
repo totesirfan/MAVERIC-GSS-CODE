@@ -105,6 +105,7 @@ class TestCommandOps(unittest.TestCase):
         self.assertEqual([p.name for p in encoded.parameters], ["payload"])
         self.assertEqual(encoded.parameters[0].value, "hello")
         self.assertNotIn("args", encoded.mission_facts["protocol"])
+        self.assertEqual(encoded.mission_facts["header"]["args"], "payload=hello")
 
     def test_unknown_arg_key_is_rejected(self):
         m = parse_yaml(ECHO_FIXTURE, plugins={})

@@ -32,6 +32,7 @@ from .errors import (
     HeaderValueNotAllowed,
     NonJsonSafeArg,
 )
+from .format import format_args_summary
 from .mission import Mission
 from .packet_codec import CommandHeader, PacketCodec
 from .runtime import DeclarativeWalker
@@ -315,7 +316,11 @@ class DeclarativeCommandOpsAdapter:
         }
         # Surface header (cmd_id + routing) for declarative TX columns.
         mission_facts = {
-            "header": {"cmd_id": cmd_id, **completed_fields},
+            "header": {
+                "cmd_id": cmd_id,
+                **completed_fields,
+                "args": format_args_summary(normalized_args.items()),
+            },
             "protocol": {
                 "args_hex": args_bytes.hex(),
                 "args_len": len(args_bytes),

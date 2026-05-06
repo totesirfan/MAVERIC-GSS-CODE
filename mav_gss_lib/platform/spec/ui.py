@@ -57,6 +57,7 @@ class UiColumn:
     flex: bool = False
     toggle: str | None = None
     badge: bool = False
+    truncate: bool = False
     value_icons: tuple[tuple[str, str], ...] = ()
     default_icon: str | None = None
     hide_if_all: tuple[Any, ...] = ()
@@ -77,6 +78,8 @@ class UiColumn:
             out["toggle"] = self.toggle
         if self.badge:
             out["badge"] = True
+        if self.truncate:
+            out["truncate"] = True
         if self.value_icons:
             out["value_icons"] = dict(self.value_icons)
         if self.default_icon is not None:
@@ -174,6 +177,7 @@ def _parse_column(entry: Any, seen_ids: set[str], path_label: str) -> UiColumn:
         flex=bool(entry.get("flex", False)),
         toggle=toggle,
         badge=bool(entry.get("badge", False)),
+        truncate=bool(entry.get("truncate", False)),
         value_icons=value_icons,
         default_icon=default_icon,
         hide_if_all=tuple(hide_if_all),

@@ -1,6 +1,7 @@
 import { Badge } from '@/components/ui/badge'
 import { colors } from '@/lib/colors'
 import { ValueBadge } from '@/components/shared/atoms/ValueBadge'
+import { columnWidthClass, columnAlignClass } from '@/lib/columns'
 import type { ColumnDef, RenderCell, RenderingFlag } from '@/lib/types'
 
 function iconTokenForValue(
@@ -28,13 +29,13 @@ export function CellValue({ col: c, row, showFrame, showEcho }: {
 
   const cell = row[c.id]
   const val = cell?.value
-  const width = c.flex ? 'flex-1 min-w-0 truncate' : `${c.width ?? ''} shrink-0`
-  const align = c.align === 'right' ? 'text-right' : ''
+  const width = columnWidthClass(c)
+  const align = columnAlignClass(c)
 
   if (Array.isArray(val)) {
     const flags = val as RenderingFlag[]
     return (
-      <span className={`py-1.5 px-2 ${width} ${align}`}>
+      <span className={`py-1 px-1 ${width} ${align}`}>
         <span className="flex items-center gap-1 justify-end whitespace-nowrap">
           {flags.map((f, i) => (
             <Badge key={i} variant={f.tone === 'danger' ? 'destructive' : 'secondary'} className="text-[11px] px-1 py-0 h-5"
@@ -49,7 +50,7 @@ export function CellValue({ col: c, row, showFrame, showEcho }: {
 
   if (cell?.badge) {
     return (
-      <span className={`py-1.5 px-1 ${width}`}>
+      <span className={`py-1 px-1 ${width}`}>
         <ValueBadge
           value={val as string | number}
           tone={cell.tone}
@@ -60,11 +61,12 @@ export function CellValue({ col: c, row, showFrame, showEcho }: {
   }
 
   const text = `${val ?? ''}${cell?.suffix ?? ''}`
+  const autoTitle = c.truncate && !cell?.tooltip ? text : undefined
   return (
     <span
-      className={`py-1.5 px-2 ${width} ${align} whitespace-nowrap ${cell?.monospace ? 'font-mono' : ''} ${cell?.tabular ? 'tabular-nums' : ''}`}
+      className={`py-1 px-1 ${width} ${align} whitespace-nowrap ${cell?.monospace ? 'font-mono' : ''} ${cell?.tabular ? 'tabular-nums' : ''}`}
       style={{ color: cell?.tone ?? colors.dim }}
-      title={cell?.tooltip ?? undefined}
+      title={cell?.tooltip ?? autoTitle}
     >
       {text}
     </span>

@@ -143,6 +143,29 @@ class UiSpecParserTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_ui_section({"rx_columns": "not a list"})
 
+    def test_parses_truncate_flag(self):
+        spec = parse_ui_section({
+            "rx_columns": [
+                {"id": "args", "label": "args", "path": "header.args",
+                 "width": "w-[200px]", "truncate": True},
+            ],
+        })
+        self.assertTrue(spec.rx_columns[0].truncate)
+        self.assertEqual(
+            spec.rx_columns[0].to_json(),
+            {"id": "args", "label": "args", "path": "header.args",
+             "width": "w-[200px]", "truncate": True},
+        )
+
+    def test_truncate_defaults_false(self):
+        spec = parse_ui_section({
+            "rx_columns": [
+                {"id": "src", "label": "src", "path": "header.src"},
+            ],
+        })
+        self.assertFalse(spec.rx_columns[0].truncate)
+        self.assertNotIn("truncate", spec.rx_columns[0].to_json())
+
 
 class MissionDocumentUiTests(unittest.TestCase):
     def test_mission_yaml_round_trip(self):

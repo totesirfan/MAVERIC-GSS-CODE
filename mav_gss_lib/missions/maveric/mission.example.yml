@@ -108,8 +108,12 @@ ui:
       default_icon: unknown
     - id: cmd
       label: cmd
-      flex: true
       path: header.cmd_id
+    - id: args
+      label: args
+      width: w-[280px]
+      truncate: true
+      path: header.args
     - id: verify
       label: verify
       width: w-[78px]

@@ -8,7 +8,7 @@ import { packetFlags, rxTime } from '@/lib/rxPacket'
 // — never from this list.
 export const col = {
   chevron: 'w-5',       // expand indicator
-  num:     'w-9',       // queue position number
+  num:     'w-6',       // queue position number (right-aligned tabular-nums; fits up to 3 digits)
   grip:    'w-[22px]',  // drag handle
   actions: 'w-[60px]',  // queue row buttons
 } as const
@@ -44,6 +44,20 @@ export function composeRxColumns(missionColumns: ColumnDef[]): ColumnDef[] {
     ...missionColumns,
     ...PLATFORM_RX_SHELL_POST.map(([c]) => c),
   ]
+}
+
+// Single source of truth for how a column maps to width / align Tailwind
+// classes. Used by CellValue, QueueItem (verifier branch) and TxQueue
+// (header row) so header labels and cell content always share the same
+// box geometry.
+export function columnWidthClass(c: ColumnDef): string {
+  if (c.flex) return 'flex-1 shrink-0'
+  if (c.truncate && c.width) return `max-${c.width} min-w-0 truncate`
+  return `${c.width ?? ''} shrink-0`
+}
+
+export function columnAlignClass(c: ColumnDef): string {
+  return c.align === 'right' ? 'ml-auto text-right' : ''
 }
 
 // TX columns are fully mission-declared (no platform shell). The verifiers
